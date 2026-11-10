@@ -274,6 +274,7 @@ export async function importSheet(file) {
 }
 export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
+  if (j.project && Array.isArray(j.plans) && j.plans.length && j.plans[0].img) return importProjectPack(j);
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);
   const fmN = ['assets', 'tasks', 'systems'].reduce((a, k) => a + ((j[k] || []).length), 0);
   if (!list.length && !fmN && !j.zones) return toast('Nothing to import in that file');
@@ -334,4 +335,37 @@ export function aiSettings(msg) {
   $('aiX').onclick = closeModal;
   $('aiOk').onclick = async () => { try { await grab(); closeModal(); toast('Saved'); } catch (e) { toast(e.message); } };
   $('aiT').onclick = async () => { try { await grab(); toast('Testing…'); const t = await aiCall('Reply with JSON {"ok":true}'); toast(/ok/.test(t) ? 'Gemini is working' : 'Unexpected reply: ' + String(t).slice(0, 80), 4000); } catch (e) { toast(e.message === 'nokey' ? 'Add a helper or a personal key first' : e.message, 5000); } };
+}
+
+/* ================================================================ one-drop project pack */
+// A project pack holds everything: settings and logo, plans with images and room boundaries, defects with photos, FM data.
+export async function importProjectPack(j) {
+  if (!S.sup && !S.project) return toast('Only a system administrator can create a project from a pack');
+  const pr = j.project, existing = S.project && S.project.name === pr.name ? S.project : null;
+  modal(`<h2>Set up ${esc(pr.name)}</h2><p>This pack contains: project settings${pr.clientLogo ? ' and client logo' : ''}, ${j.plans.length} plans with ${j.plans.reduce((a, p) => a + (p.zones || []).length, 0)} room boundaries, ${(j.defects || []).length} defects${(j.defects || []).some(d => (d.photos || []).length) ? ' with photos' : ''}, ${(j.assets || []).length} assets, ${(j.tasks || []).length} maintenance tasks and ${(j.systems || []).length} specified systems.</p>
+  <p class="note">${existing ? 'The open project has the same name, so the pack will be loaded into it (plans and items already there with the same IDs are replaced).' : 'A new project will be created and you will be its admin.'} Allow a few minutes: the plans and photos are uploaded to storage.</p>
+  <p class="note" id="ppSt"></p><div class="act"><button id="ppX">Cancel</button><button class="go" id="ppGo">Set up project</button></div>`);
+  $('ppX').onclick = closeModal;
+  $('ppGo').onclick = async () => {
+    $('ppGo').disabled = true; const st = t => $('ppSt').textContent = t;
+    try {
+      let pid;
+      if (existing) { pid = existing.id; const { contacts, ...rest } = pr; await S.store.updateProject(pid, rest); }
+      else { st('Creating the project…'); pid = await S.store.createProject(pr); }
+      const planMap = {};
+      for (const [i, p] of j.plans.entries()) {
+        st(`Uploading plan ${i + 1} of ${j.plans.length}: ${p.name}…`);
+        const id = uid(), path = `projects/${pid}/plans/${id}.jpg`; const img = await S.store.putFile(path, dataUrlToBlob(p.img));
+        await S.store.savePlan(pid, { id, name: p.name, code: p.code || '', block: p.block || '', level: p.level || '', w: p.w, h: p.h, img, path, order: i, zones: (p.zones || []).map(z => ({ ...z, id: uid() })) });
+        planMap[p.key || p.code || p.name] = id;
+      }
+      for (const k of ['assets', 'tasks', 'systems']) if ((j[k] || []).length) { st(`Saving ${k}…`); await S.store.bulkSave(pid, k, j[k]); }
+      const defs = (j.defects || []).map(d0 => { const d = { ...d0 }; delete d.mm; delete d.transcript; if (d0.mm) { d.extRef = 'MM ' + d0.mm.ref; d.ext = { 'Report': d0.mm.report, 'Category': d0.mm.category, 'Location as recorded': d0.mm.space, 'Consultant status': d0.mm.mmStatus, 'Contractor response': d0.mm.contractor, 'Consultant comment': d0.mm.mmComment, 'QA': d0.mm.qa }; } d.plan = d0.plan ? (planMap[d0.plan] || '') : ''; if (!d.plan) { d.x = null; d.y = null; } return d; });
+      let n = 0;
+      for (const d of defs) { if ((d.photos || []).some(p => p.data)) { st(`Uploading photos for ${d.id} (${++n} of ${defs.length})…`); const ph = []; for (const p of d.photos) { if (!p.data) { ph.push(p); continue; } const id = p.id || uid(), path = `projects/${pid}/photos/${d.id}/${id}.jpg`; ph.push({ id, path, url: await S.store.putFile(path, dataUrlToBlob(p.data)), t: p.t || new Date().toISOString(), by: p.src || 'Import' }); } d.photos = ph; } }
+      if (defs.length) { st('Saving defects…'); await S.store.bulkCreate(pid, defs, k => st(`Saving defects ${k} of ${defs.length}…`)); }
+      st('Done'); closeModal(); toast(`${pr.name} is set up`, 5000);
+      await X.openProject(pid);
+    } catch (e) { console.error(e); st(''); toast('Set-up stopped: ' + e.message + '. Drop the file again to continue; items already saved are replaced, not duplicated.', 9000); $('ppGo').disabled = false; }
+  };
 }

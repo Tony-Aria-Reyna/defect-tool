@@ -8,15 +8,15 @@ export function initDrop(ctx) {
   const ov = document.createElement('div'); ov.id = 'dropov'; ov.innerHTML = '<div><b>Drop to upload</b><span></span></div>'; document.body.appendChild(ov);
   let depth = 0;
   const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
-  addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; if (S.project || $('scrProjects').classList.contains('on')) { ov.querySelector('span').textContent = hint(); ov.classList.add('show'); } });
+  addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; if (S.project || $('scrProjects').classList.contains('on')) { ov.querySelector('span').textContent = S.project ? hint() : 'Drop a project pack (.json) to set up a whole project'; ov.classList.add('show'); } });
   addEventListener('dragover', e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
   addEventListener('dragleave', e => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) ov.classList.remove('show'); });
   addEventListener('drop', async e => {
     if (!hasFiles(e)) return; e.preventDefault(); depth = 0; ov.classList.remove('show');
-    if (!S.project) { toast('Open a project first, then drop the files'); return; }
-    if (!can.write()) { toast('Your role on this project cannot upload files'); return; }
     const files = await collect(e.dataTransfer);
     if (!files.length) return;
+    if (!S.project) { if (files.length === 1 && ext(files[0]) === 'json' && S.sup) return X.Admin.importJson(files[0]).catch(err => toast(err.message, 6000)); toast(S.sup ? 'Drop a project pack (.json) here, or open a project first' : 'Open a project first, then drop the files'); return; }
+    if (!can.write()) { toast('Your role on this project cannot upload files'); return; }
     route(files).catch(err => { console.error(err); toast('Could not process the dropped files: ' + err.message, 6000); });
   });
 }

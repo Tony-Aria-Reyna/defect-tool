@@ -53,9 +53,10 @@ export async function showProjects() {
   try { list = await S.store.listProjects(); } catch (e) { $('plist').innerHTML = `<div class="empty">Could not load projects: ${esc(friendly(e))}</div>`; return; }
   list.sort((a, b) => natural(a.name, b.name));
   const cards = await Promise.all(list.map(async p => `<div class="pcard" data-id="${esc(p.id)}"><div class="cl">${p.clientLogo ? `<img src="${esc(await imgUrl(p.clientLogo))}" alt="">` : ''}<span>${esc(p.client || '')}</span></div><h3>${esc(p.name)}</h3><div class="muted small">${esc(p.address || '')}</div><div><span class="role">${esc(ROLES[(p.members || {})[S.user.uid]] || (S.sup ? 'System admin' : ''))}</span>${p.archived ? ' <span class="tag">Archived</span>' : ''}</div></div>`));
-  $('plist').innerHTML = cards.join('') + (S.sup ? '<div class="pcard new" id="pNew">+ New project</div>' : '') + (!list.length && !S.sup ? `<div class="empty">You have not been added to any projects yet.<br>Ask the project administrator to invite <b>${esc(S.user.email)}</b>.<br><br><span class="small">Your user ID: <span class="codebox">${esc(S.user.uid)}</span></span></div>` : '');
+  $('plist').innerHTML = cards.join('') + (S.sup ? '<div class="pcard new" id="pNew">+ New project</div><div class="pcard new" id="pPack" style="border-color:var(--teal)">⬇ Set up from a project pack<small style="font-weight:400;color:var(--muted)">or drag the .json file onto this page</small></div><input type="file" id="fPack" accept=".json" hidden>' : '') + (!list.length && !S.sup ? `<div class="empty">You have not been added to any projects yet.<br>Ask the project administrator to invite <b>${esc(S.user.email)}</b>.<br><br><span class="small">Your user ID: <span class="codebox">${esc(S.user.uid)}</span></span></div>` : '');
   $('plist').querySelectorAll('.pcard[data-id]').forEach(c => c.onclick = () => openProject(c.dataset.id));
   if ($('pNew')) $('pNew').onclick = () => Admin.projectSettings(null);
+  if ($('pPack')) { $('pPack').onclick = () => $('fPack').click(); $('fPack').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) Admin.importJson(f); }; }
 }
 
 function cleanupProject() { FM.stop(); if (S.unsub) { S.unsub(); S.unsub = null; } S.project = null; S.defects = []; S.plans = []; S.sel = null; }
