@@ -93,8 +93,9 @@ async function firebaseStore() {
       }
       return n;
     },
-    async listPlans(pid) { const s = await F.getDocs(C('projects', pid, 'plans')); return s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order || 0) - (b.order || 0)); },
-    async savePlan(pid, plan) { const { id, ...rest } = plan; await F.setDoc(D('projects', pid, 'plans', id), rest); },
+    // Firestore does not allow arrays inside arrays, so boundary polygons are stored flat [x0,y0,x1,y1,...]
+    async listPlans(pid) { const s = await F.getDocs(C('projects', pid, 'plans')); return s.docs.map(d => { const p = { id: d.id, ...d.data() }; p.zones = (p.zones || []).map(z => ({ ...z, poly: Array.isArray(z.poly) && z.poly.length && !Array.isArray(z.poly[0]) ? z.poly.reduce((a, v, i) => (i % 2 ? a[a.length - 1].push(v) : a.push([v]), a), []) : (z.poly || []) })); return p; }).sort((a, b) => (a.order || 0) - (b.order || 0)); },
+    async savePlan(pid, plan) { const { id, ...rest } = plan; rest.zones = (rest.zones || []).map(z => ({ ...z, poly: (z.poly || []).flatMap(q => Array.isArray(q) ? [+q[0], +q[1]] : [q]) })); await F.setDoc(D('projects', pid, 'plans', id), JSON.parse(JSON.stringify(rest))); },
     async deletePlan(pid, id) { await F.deleteDoc(D('projects', pid, 'plans', id)); },
     async putFile(path, blob) { const r = S.ref(st, path); await S.uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' }); return await S.getDownloadURL(r); },
     async deleteFile(path) { try { await S.deleteObject(S.ref(st, path)); } catch (e) {} },
@@ -102,7 +103,7 @@ async function firebaseStore() {
     watchDefects(pid, cb, onErr) {
       return F.onSnapshot(C('projects', pid, 'defects'), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id })), s.metadata), e => onErr && onErr(e));
     },
-    async createDefect(pid, d) { const { id, ...rest } = d; await F.setDoc(D('projects', pid, 'defects', id), rest); },
+    async createDefect(pid, d) { const { id, ...rest } = d; await F.setDoc(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest))); },
     // Only the changed fields are written, and history entries are appended, so two people editing
     // the same item do not overwrite each other's comments.
     async updateDefect(pid, id, patch, newHistory) {
@@ -121,14 +122,14 @@ async function firebaseStore() {
     async setPrivate(pid, data) { await F.setDoc(D('projects', pid, 'private', 'ai'), data, { merge: true }); },
     // generic project collections used by the FM modules (assets, docs, tasks, systems)
     watchColl(pid, coll, cb, onErr) { return F.onSnapshot(C('projects', pid, coll), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => onErr && onErr(e)); },
-    async saveItem(pid, coll, o) { const { id, ...rest } = o; await F.setDoc(D('projects', pid, coll, id), rest); },
+    async saveItem(pid, coll, o) { const { id, ...rest } = o; await F.setDoc(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest))); },
     async patchItem(pid, coll, id, patch, newHistory) { const p = { ...patch }; delete p.id; if (newHistory && newHistory.length) p.history = F.arrayUnion(...newHistory); await F.updateDoc(D('projects', pid, coll, id), p); },
     async deleteItem(pid, coll, id) { await F.deleteDoc(D('projects', pid, coll, id)); },
-    async bulkSave(pid, coll, list, onProgress) { for (let i = 0; i < list.length; i += 400) { const b = F.writeBatch(db); list.slice(i, i + 400).forEach(o => { const { id, ...rest } = o; b.set(D('projects', pid, coll, id), rest); }); await b.commit(); onProgress && onProgress(Math.min(i + 400, list.length)); } },
+    async bulkSave(pid, coll, list, onProgress) { for (let i = 0; i < list.length; i += 400) { const b = F.writeBatch(db); list.slice(i, i + 400).forEach(o => { const { id, ...rest } = o; b.set(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest))); }); await b.commit(); onProgress && onProgress(Math.min(i + 400, list.length)); } },
     async bulkCreate(pid, list, onProgress) {
       for (let i = 0; i < list.length; i += 400) {
         const b = F.writeBatch(db);
-        list.slice(i, i + 400).forEach(d => { const { id, ...rest } = d; b.set(D('projects', pid, 'defects', id), rest); });
+        list.slice(i, i + 400).forEach(d => { const { id, ...rest } = d; b.set(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest))); });
         await b.commit(); onProgress && onProgress(Math.min(i + 400, list.length));
       }
     },

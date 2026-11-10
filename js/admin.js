@@ -341,9 +341,10 @@ export function aiSettings(msg) {
 // A project pack holds everything: settings and logo, plans with images and room boundaries, defects with photos, FM data.
 export async function importProjectPack(j) {
   if (!S.sup && !S.project) return toast('Only a system administrator can create a project from a pack');
-  const pr = j.project, existing = S.project && S.project.name === pr.name ? S.project : null;
+  const pr = j.project; let existing = S.project && S.project.name === pr.name ? S.project : null;
+  if (!existing) { try { existing = (await S.store.listProjects()).find(p => p.name === pr.name) || null; } catch (e) {} }
   modal(`<h2>Set up ${esc(pr.name)}</h2><p>This pack contains: project settings${pr.clientLogo ? ' and client logo' : ''}, ${j.plans.length} plans with ${j.plans.reduce((a, p) => a + (p.zones || []).length, 0)} room boundaries, ${(j.defects || []).length} defects${(j.defects || []).some(d => (d.photos || []).length) ? ' with photos' : ''}, ${(j.assets || []).length} assets, ${(j.tasks || []).length} maintenance tasks and ${(j.systems || []).length} specified systems.</p>
-  <p class="note">${existing ? 'The open project has the same name, so the pack will be loaded into it (plans and items already there with the same IDs are replaced).' : 'A new project will be created and you will be its admin.'} Allow a few minutes: the plans and photos are uploaded to storage.</p>
+  <p class="note">${existing ? 'A project with this name already exists, so the pack will be loaded into it (plans and items already there with the same IDs are replaced).' : 'A new project will be created and you will be its admin.'} Allow a few minutes: the plans and photos are uploaded to storage.</p>
   <p class="note" id="ppSt"></p><div class="act"><button id="ppX">Cancel</button><button class="go" id="ppGo">Set up project</button></div>`);
   $('ppX').onclick = closeModal;
   $('ppGo').onclick = async () => {
