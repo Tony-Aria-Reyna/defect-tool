@@ -1,6 +1,8 @@
 // Facility management modules: dashboard, assets and warranties, maintenance, compliance (BWoF), documents.
 import { S, can } from './state.js';
 import { STATUS_COLOURS as SCOL } from './config.js';
+import * as Pack from './pack.js';
+import { aiCall } from './ai.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
@@ -11,7 +13,7 @@ const UNITS = { weeks: 'week', months: 'month', years: 'year' };
 
 let X = {}, unsubs = [], cur = 'defects';
 const F = { q: '', sys: '', st: '', type: '', cat: '', win: '90', resp: '' };
-export function init(ctx) { X = ctx; document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads(); }
+export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads(); }
 const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [] });
 export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [] };
@@ -70,7 +72,7 @@ function dash() {
   const bw = p.bwofDue ? days(p.bwofDue) : null, yr = bwofYear(), cert = SY.filter(s => (s.cert12A || {})[yr]);
   const dnpEnd = p.pcDate ? addFreq(p.pcDate, +(p.dnpMonths || 12), 'months') : '';
   const k = (c, n, l, m) => `<div class="kpi" style="--c:${c}" data-go="${m}"><b>${n}</b><span>${l}</span></div>`;
-  $('fmView').innerHTML = `<div class="fbar"><h2>${esc(p.name)}: facility dashboard</h2><span class="sp"></span>${can.admin() ? '<button class="btn2" id="dSet">Key dates</button>' : ''}<button class="btn2" id="dIcs">📅 Calendar (.ics)</button><button class="btn2 go" id="dPack">⬇ FM register (Excel)</button></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>${esc(p.name)}: facility dashboard</h2><span class="sp"></span>${can.admin() ? '<button class="btn2" id="dSet">Key dates</button><button class="btn2" id="dCon">Contacts</button>' : ''}<button class="btn2" id="dIcs">📅 Calendar (.ics)</button><button class="btn2" id="dPack">⬇ FM register (Excel)</button><button class="btn2 go" id="dHand">📦 Handover pack</button></div>
   <div class="kpis">
     ${k('#d64545', open.length, `Open defects${maj.length ? ` (${maj.length} major)` : ''}`, 'defects')}
     ${k(overdue.length ? '#d64545' : '#2e9b5f', overdue.length, 'Maintenance tasks overdue', 'maint')}
@@ -92,7 +94,7 @@ function dash() {
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => setModule(b.dataset.go));
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeTask(T.find(t => t.id === b.dataset.done)));
   document.querySelectorAll('[data-asset]').forEach(b => b.onclick = () => editAsset(A.find(a => a.id === b.dataset.asset)));
-  if ($('dSet')) $('dSet').onclick = keyDates;
+  if ($('dSet')) $('dSet').onclick = keyDates; if ($('dCon')) $('dCon').onclick = contactsDialog; $('dHand').onclick = Pack.packDialog;
   $('dIcs').onclick = exportIcs; $('dPack').onclick = exportFmRegister;
 }
 function keyDates() {
@@ -108,6 +110,18 @@ function keyDates() {
   <div class="act"><button id="kX">Cancel</button><button class="go" id="kOk">Save</button></div>`);
   $('kX').onclick = closeModal;
   $('kOk').onclick = async () => { const patch = { pcDate: $('kPc').value, dnpMonths: +$('kDnp').value || 12, cccDate: $('kCcc').value, bwofDue: $('kBw').value, csNumber: $('kCs').value.trim(), iqp: $('kIqp').value.trim() }; await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch); closeModal(); render(); toast('Saved'); };
+}
+
+function contactsDialog() {
+  const p = S.project, C = (p.contacts || []).slice(); if (!C.length) C.push({ role: 'Property manager', name: p.client || '', phone: '', email: '', audience: 'Both' }, { role: 'After-hours maintenance', name: '', phone: '', email: '', audience: 'Both' }, { role: 'Main contractor (defects period)', name: p.contractor || '', phone: '', email: '', audience: 'FM' }, { role: 'IQP (compliance schedule)', name: p.iqp || '', phone: '', email: '', audience: 'FM' });
+  const row = (c, i) => `<tr data-c="${i}"><td><input data-k="role" value="${esc(c.role || '')}"></td><td><input data-k="name" value="${esc(c.name || '')}"></td><td><input data-k="phone" value="${esc(c.phone || '')}"></td><td><input data-k="email" value="${esc(c.email || '')}"></td><td><select data-k="audience">${['Both', 'FM', 'Resident'].map(a => `<option ${a === (c.audience || 'Both') ? 'selected' : ''}>${a}</option>`).join('')}</select></td><td><button class="btn2 sm" data-cx="${i}">✕</button></td></tr>`;
+  const draw = () => { $('cT').innerHTML = '<tr><th>Role</th><th>Company / name</th><th>Phone</th><th>Email</th><th>Shown to</th><th></th></tr>' + C.map(row).join(''); document.querySelectorAll('[data-cx]').forEach(b => b.onclick = () => { grab(); C.splice(+b.dataset.cx, 1); draw(); }); };
+  const grab = () => document.querySelectorAll('#cT tr[data-c]').forEach(r => { const c = C[+r.dataset.c]; r.querySelectorAll('[data-k]').forEach(i => c[i.dataset.k] = i.value.trim()); });
+  modal(`<h2>Contacts for the handover pack</h2><p class="note">"FM" contacts appear in the Facility Management Manual, "Resident" ones in the Home User Guide, "Both" in each.</p><table class="t" id="cT"></table><p><button class="btn" id="cAdd">+ Add contact</button></p>
+  <label class="f">Welcome note for residents (optional, appears at the start of the Home User Guide)<textarea id="cHi">${esc(p.homeIntro || '')}</textarea></label>
+  <div class="act"><button id="cX">Cancel</button><button class="go" id="cOk">Save</button></div>`, true);
+  draw(); $('cAdd').onclick = () => { grab(); C.push({ audience: 'Both' }); draw(); }; $('cX').onclick = closeModal;
+  $('cOk').onclick = async () => { grab(); const patch = { contacts: C.filter(c => c.role || c.name), homeIntro: $('cHi').value.trim() }; await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch); closeModal(); toast('Contacts saved'); };
 }
 
 /* ================================================================ ASSETS AND WARRANTIES */
@@ -139,6 +153,7 @@ function editAsset(a) {
     ${sel('Document status', 'aSt2', opts(ASSET_STATUS, a.status))}${sel('Audience', 'aAu', opts(['FM', 'Home user', 'Both'], a.audience))}
     <div class="opt"><input type="checkbox" id="aOm" ${a.om ? 'checked' : ''}><label for="aOm">O&amp;M manual required</label></div>
     <div class="opt"><input type="checkbox" id="aMt" ${a.maint ? 'checked' : ''}><label for="aMt">Warranty depends on maintenance</label></div>
+    <div class="full" id="aCareW" style="${a.audience === 'FM' ? 'display:none' : ''}"><label class="f">Care note for residents (Home User Guide, plain English)<textarea id="aCare">${esc(a.careNote || '')}</textarea></label>${ro ? '' : '<button class="mini" id="aCareAi" style="margin-top:4px">✨ Draft with Gemini</button>'}</div>
     ${area('Received / variance / action', 'aN', a.notes)}${field('Source (spec / consent reference)', 'aSrc', a.source, '', true)}
   </div>
   <h3 class="sec">Warranties <span class="sp"></span>${ro ? '' : '<button class="mini" id="aWadd">+ Add</button>'}</h3><div id="aW">${(a.warranties || []).map(wr).join('') || '<p class="muted small">No warranty periods recorded.</p>'}</div>
@@ -147,12 +162,16 @@ function editAsset(a) {
   <h3 class="sec">Maintenance <span class="sp"></span>${can.edit() && !isNew ? '<button class="mini" id="aTadd">+ Task</button>' : ''}</h3>
   ${tasksL.map(t => `<div class="prow"><div class="g">${esc(t.title)}<small>${esc(freqText(t))}</small></div>${dueBadge(t.nextDue)}</div>`).join('') || '<p class="muted small">No maintenance tasks for this asset.</p>'}`,
   { ro, onSave: async () => {
-      collectW(); const o = { ...a, system: val('aS'), element: val('aE'), product: val('aP'), installer: val('aI'), location: val('aL'), installDate: val('aD'), instWarranty: val('aRi'), mfrWarranty: val('aRm'), status: val('aSt2'), audience: val('aAu'), om: $('aOm').checked, maint: $('aMt').checked, notes: val('aN'), source: val('aSrc'), updated: nowISO(), updatedBy: S.user.email };
+      collectW(); const o = { ...a, system: val('aS'), element: val('aE'), product: val('aP'), installer: val('aI'), location: val('aL'), installDate: val('aD'), instWarranty: val('aRi'), mfrWarranty: val('aRm'), status: val('aSt2'), audience: val('aAu'), careNote: val('aCare'), om: $('aOm').checked, maint: $('aMt').checked, notes: val('aN'), source: val('aSrc'), updated: nowISO(), updatedBy: S.user.email };
       if (!o.element) { toast('Enter the element'); return false; } await S.store.saveItem(S.project.id, 'assets', o);
     }, onDelete: isNew ? null : () => S.store.deleteItem(S.project.id, 'assets', a.id) });
   function collectW() { a.warranties = [...document.querySelectorAll('#aW .wrow')].map(r => { const w = {}; r.querySelectorAll('[data-k]').forEach(i => w[i.dataset.k] = i.value.trim()); if (w.months) w.months = +w.months; return w; }).filter(w => w.label || w.party || w.months); }
   const redrawW = () => { $('aW').innerHTML = a.warranties.map(wr).join('') || '<p class="muted small">No warranty periods recorded.</p>'; document.querySelectorAll('[data-wx]').forEach(b => b.onclick = () => { collectW(); a.warranties.splice(+b.dataset.wx, 1); redrawW(); }); };
   redrawW();
+  $('aAu').onchange = e => $('aCareW').style.display = e.target.value === 'FM' ? 'none' : '';
+  if ($('aCareAi')) $('aCareAi').onclick = async () => { const btn = $('aCareAi'); btn.disabled = true; btn.textContent = 'Asking Gemini…';
+    try { const t = await aiCall(`Write a short care note (2 to 4 sentences, plain New Zealand English, no em dashes, warm and respectful) for an older resident living in a new social housing unit, about this item in their home: ${val('aE')} (${val('aP')}). Explain simply how to use and look after it, and to report faults to their landlord rather than fixing it themselves. Return JSON {"note":"..."}.`); let n = ''; try { n = JSON.parse(String(t).replace(/^```(?:json)?\s*|\s*```$/g, '')).note; } catch (e) { n = String(t); } $('aCare').value = String(n || '').replace(/\u2014/g, ', '); }
+    catch (e) { toast(e.message === 'nokey' ? 'Set up Gemini first (☰ > Gemini)' : e.message, 5000); } finally { btn.disabled = false; btn.textContent = '✨ Draft with Gemini'; } };
   if ($('aWadd')) $('aWadd').onclick = () => { collectW(); a.warranties.push({ label: '', party: val('aI') || val('aP'), months: '', start: '' }); redrawW(); };
   if ($('aDup')) $('aDup').onclick = () => pickDocs({ assetIds: [a.id], system: val('aS') || a.system });
   if ($('aTadd')) $('aTadd').onclick = () => { closeSheet(); editTask(null, { assetId: a.id, system: a.system, title: 'Maintain ' + a.element }); };
@@ -354,7 +373,11 @@ async function autoLink() {
 /* ================================================================ exports */
 export async function exportFmRegister() {
   const b = busy('Building the FM register…');
-  try {
+  try { const blob = await registerBlob(); b.done(); deliver(blob, `${safeName(S.project.name)} - FM Register - ${stamp()}.xlsx`, 'FM register'); }
+  catch (e) { b.done(); toast(e.message, 6000); }
+}
+async function registerBlob() {
+  {
     if (!window.XLSX) await loadScript('lib/xlsx.bundle.js');
     const p = S.project, A = fm().assets, Dd = fm().docs, T = fm().tasks, SY = fm().systems, yr = bwofYear();
     const hs = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '011C35' } }, alignment: { wrapText: true, vertical: 'center' } };
@@ -367,14 +390,15 @@ export async function exportFmRegister() {
     XLSX.utils.book_append_sheet(wb, sheetOf('Document index', ['Title', 'Type', 'System', 'From', 'Issued', 'Expiry', 'Linked assets', 'File / link'], Dd.slice().sort((a, b) => natural(a.system || 'z', b.system || 'z') || natural(a.title, b.title)).map(d => [d.title, d.type, d.system, d.party, nzDate(d.issued), nzDate(d.expiry), (d.assetIds || []).map(id => (A.find(a => a.id === id) || {}).element).filter(Boolean).join('; '), d.link || d.fileName || '']), [50, 24, 26, 20, 12, 12, 30, 40]), 'Documents');
     const defs = S.defects.filter(d => d.status !== 'Closed');
     XLSX.utils.book_append_sheet(wb, sheetOf('Open defects', ['ID', 'Title', 'Location', 'Status', 'Severity', 'Responsible', 'Target'], defs.map(d => [d.id, d.title, [d.block && 'Block ' + d.block, d.level, d.unit && 'Unit ' + d.unit, d.room].filter(Boolean).join(', '), d.status, d.severity, d.responsible, nzDate(d.targetDate)]), [10, 40, 30, 14, 18, 20, 12]), 'Open defects');
-    b.done(); deliver(new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeName(p.name)} - FM Register - ${stamp()}.xlsx`, 'FM register');
-  } catch (e) { b.done(); toast(e.message, 6000); }
+    return new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
 }
-export function exportIcs() {
+export function exportIcs() { deliver(icsBlob(), `${safeName(S.project.name)} - Maintenance calendar - ${stamp()}.ics`, 'Calendar file'); }
+function icsBlob() {
   const T = fm().tasks.filter(t => t.nextDue), p = S.project, ev = [], end = addFreq(todayISO(), 18, 'months');
   const fmt = iso => iso.replace(/-/g, ''), esc2 = s => String(s || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n');
   T.forEach(t => { let d = t.nextDue, k = 0; while (d && d <= end && k < 60) { ev.push(['BEGIN:VEVENT', `UID:${t.id}-${d}@resero-defects`, `DTSTAMP:${fmt(todayISO())}T000000Z`, `DTSTART;VALUE=DATE:${fmt(d)}`, `SUMMARY:${esc2((t.ss ? t.ss + ' ' : '') + t.title)} (${esc2(p.name)})`, `DESCRIPTION:${esc2([t.category, freqText(t), t.responsible && 'Responsible: ' + t.responsible, t.standard, t.instructions].filter(Boolean).join('\n'))}`, 'END:VEVENT'].join('\r\n')); if (!t.freqN) break; d = addFreq(d, t.freqN, t.freqUnit); k++; } });
   if (p.bwofDue) ev.push(['BEGIN:VEVENT', `UID:bwof-${p.bwofDue}@resero-defects`, `DTSTAMP:${fmt(todayISO())}T000000Z`, `DTSTART;VALUE=DATE:${fmt(p.bwofDue)}`, `SUMMARY:BWoF due (${esc2(p.name)})`, 'BEGIN:VALARM', 'TRIGGER:-P30D', 'ACTION:DISPLAY', 'DESCRIPTION:BWoF due in 30 days', 'END:VALARM', 'END:VEVENT'].join('\r\n'));
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Resero Property//Resero Defects//EN', 'CALSCALE:GREGORIAN', `X-WR-CALNAME:${esc2(p.name)} maintenance`, ...ev, 'END:VCALENDAR'].join('\r\n');
-  deliver(new Blob([ics], { type: 'text/calendar' }), `${safeName(p.name)} - Maintenance calendar - ${stamp()}.ics`, 'Calendar file');
+  return new Blob([ics], { type: 'text/calendar' });
 }

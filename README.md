@@ -8,6 +8,7 @@ dictation with a Gemini helper, photos with markup, and branded exports (PDF sch
 - **Maintenance**: planned and compliance tasks with frequencies, "mark done" with notes and attached reports, next due dates, Outlook calendar (.ics).
 - **Compliance**: specified systems from the compliance schedule, inspection tasks, Form 12A record for each year, BWoF due date.
 - **Documents**: upload files or a whole handover pack folder (filed by building system and type from the folder names), or add SharePoint links.
+- **Handover pack** (Dashboard): a Facility Management Manual and a Home User Guide for residents, both branded for the client and Resero, plus a zip with every document filed by system and linked from the manuals.
 - **FM register (Excel)**: key dates, assets and warranties, maintenance schedule, compliance schedule, document index and open defects in one workbook for the client.
 
 **App:** https://tony-aria-reyna.github.io/defect-tool/

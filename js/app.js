@@ -386,7 +386,7 @@ function openMenu() {
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } } });
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered });
-  FM.init({ render });
+  FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '' }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
