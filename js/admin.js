@@ -113,8 +113,11 @@ async function uploadPlans(files) {
   const pid = S.project.id, b = busy('Reading plans…'); let order = S.plans.length;
   try {
     for (const f of files) {
-      const base = f.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ');
-      const code = (/([A-Z]{1,3}[- ]?\d{3,4}[A-Z]?)/.exec(base) || [])[1] || '';
+      const base0 = f.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ');
+      const code0 = (/([A-Z]{1,3}[- ]?\d{3,4}[A-Z]?)/.exec(base0) || [])[1] || '';
+      const rev = (/rev[\s.-]*([A-Z0-9]+)/i.exec(base0) || [])[1] || '';
+      const code = code0 + (rev ? ' Rev ' + rev : '');
+      const base = base0.replace(code0, '').replace(/[\s.-]*rev[\s.-]*[A-Z0-9]+$/i, '').replace(/-{2,}/g, ' - ').replace(/(\w)-(\w)/g, '$1 $2').replace(/^[\s-]+|[\s-]+$/g, '').replace(/\s+/g, ' ') || base0;
       const guessLevel = /ground/i.test(base) ? 'Ground' : /first/i.test(base) ? 'First' : /second/i.test(base) ? 'Second' : /roof/i.test(base) ? 'Roof' : /basement/i.test(base) ? 'Basement' : '';
       const guessBlock = (/block[\s-]*([A-Z0-9]+)/i.exec(base) || [])[1] || '';
       let pages = [];
@@ -277,10 +280,12 @@ async function importJson(file) {
   modal(`<h2>Import ${list.length} defects</h2>
   ${planIds.length ? `<p class="note">Match the plans in the file to this project's plans so the pins land in the right place:</p><table class="t">${planIds.map(id => `<tr><td>${esc((j.plans || {})[id] || id)}</td><td><select data-pm="${esc(id)}"><option value="">(drop the pin)</option>${S.plans.map(p => `<option value="${esc(p.id)}" ${guess(id) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td></tr>`).join('')}</table>` : ''}
   <div class="opt"><input type="checkbox" id="ijUp" checked><label for="ijUp">Update items that already exist if the file's copy is newer</label></div>
+  ${j.zones && can.admin() ? `<div class="opt"><input type="checkbox" id="ijZ" checked><label for="ijZ">Add the room boundaries in this file (${Object.values(j.zones).reduce((a, z) => a + z.length, 0)} boundaries for ${Object.keys(j.zones).length} plans). Plans that already have boundaries are left alone.</label></div>` : ''}
   <div class="act"><button id="ijX">Cancel</button><button class="go" id="ijGo">Import</button></div>`, true);
   $('ijX').onclick = closeModal;
   $('ijGo').onclick = async () => {
     const pm = {}; document.querySelectorAll('[data-pm]').forEach(s => pm[s.dataset.pm] = s.value); const upd = $('ijUp').checked;
+    if ($('ijZ') && $('ijZ').checked) { let n = 0; for (const [code, zs] of Object.entries(j.zones)) { const p = S.plans.find(p => (p.name + ' ' + (p.code || '')).toLowerCase().includes(code.toLowerCase())); if (p && !(p.zones || []).length) { p.zones = zs.map(z => ({ ...z, id: uid() })); await S.store.savePlan(S.project.id, p); n++; } } if (n) toast(`Room boundaries added to ${n} plan${n > 1 ? 's' : ''}`); }
     const out = [];
     for (const d0 of list) {
       const ex = S.defects.find(x => x.id === d0.id); if (ex && (!upd || (d0.updated || '') <= (ex.updated || ''))) continue;
