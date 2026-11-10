@@ -1,0 +1,7 @@
+[
+  {
+    "origin": ["https://tony-aria-reyna.github.io", "http://localhost:8765"],
+    "method": ["GET"],
+    "maxAgeSeconds": 3600
+  }
+]

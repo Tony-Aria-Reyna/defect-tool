@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#011C35">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Resero Defects</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- Sign in -->
+<section id="scrSign" class="screen">
+  <div class="signbox">
+    <img src="img/resero-navy.png" alt="Resero" class="slogo">
+    <h1>Defects</h1>
+    <p class="muted">Defect registers, plans and handover schedules for Resero projects.</p>
+    <button class="gbtn" id="sGoogle"><svg viewBox="0 0 48 48" width="20" height="20"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Sign in with Google</button>
+    <div class="or"><span>or</span></div>
+    <label class="f">Work email (Outlook or any address)<input type="email" id="sEmail" placeholder="name@company.co.nz" autocomplete="email"></label>
+    <button class="pbtn" id="sLink">Email me a sign-in link</button>
+    <p class="muted small" id="sMsg"></p>
+    <p class="muted small">Access is by invitation from a project administrator.</p>
+  </div>
+</section>
+
+<!-- Projects -->
+<section id="scrProjects" class="screen">
+  <header class="top"><img src="img/resero-white.png" alt="Resero" class="hlogo"><h1>Projects</h1><span class="sp"></span><span id="pUser" class="muted-w"></span><button class="hbtn" id="pOut">Sign out</button></header>
+  <div class="plist" id="plist"></div>
+</section>
+
+<!-- Project workspace -->
+<section id="scrWork" class="screen">
+  <header class="top">
+    <button class="hbtn back" id="wBack" title="All projects">‹</button>
+    <img src="img/resero-white.png" alt="Resero" class="hlogo hide-m">
+    <h1 id="wTitle">Project<small id="wSub"></small></h1>
+    <div class="counts" id="counts"></div>
+    <button class="hbtn hide-m" id="bNew">+ New</button>
+    <button class="hbtn pri" id="bExport">Export</button>
+    <button class="hbtn" id="bMenu" title="Project menu">☰</button>
+  </header>
+  <main id="main" class="tab-list">
+    <section id="listPane">
+      <div class="filters">
+        <input type="search" id="q" placeholder="Search ID, element, unit, words…">
+        <select id="fBlock"></select><select id="fLevel"></select><select id="fUnit"></select>
+        <select id="fSev"></select><select id="fTrade"></select><select id="fResp"></select>
+      </div>
+      <div class="listmeta"><span id="lmeta"></span><span><select id="sort"><option value="id">Sort: ID</option><option value="upd">Sort: last updated</option><option value="loc">Sort: location</option><option value="sev">Sort: severity</option></select> <button id="clr">Clear</button></span></div>
+      <div id="list"></div>
+    </section>
+    <section id="planPane">
+      <div class="plantabs" id="plantabs"></div>
+      <div id="vp"></div>
+      <div id="zonePanel" class="zpanel"></div>
+    </section>
+  </main>
+  <nav id="mtabs"><button data-t="list" class="on">☰ List</button><button data-t="plan">▦ Plans</button></nav>
+  <button id="fab" title="Dictate a new defect"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
+</section>
+
+<div id="sheet"><div id="ed">
+  <div class="edh"><h2 id="edTitle">Defect</h2><button id="edPrev">‹</button><button id="edNext">›</button><button id="edClose">✕</button></div>
+  <div class="edb" id="edBody"></div>
+  <div class="edf"><button class="danger" id="edDel">Delete</button><button id="edCancel">Cancel</button><button class="save" id="edSave">Save</button></div>
+</div></div>
+<div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
+<div id="mk"><div class="bar"><button data-tool="pen" class="on">✎ Pen</button><button data-tool="arrow">➚ Arrow</button><button data-tool="circle">◯ Circle</button><button id="mkUndo">↶ Undo</button><span class="sp"></span><button id="mkCancel">Cancel</button><button id="mkSave" class="go">Save markup</button></div><div class="cv"><canvas id="mkc"></canvas></div></div>
+<div id="busy"><div><div class="spin"></div><span></span></div></div>
+<div id="toast"></div>
+<div id="done"></div>
+<div id="netbar"></div>
+<input type="file" id="fPhoto" accept="image/*" multiple hidden>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

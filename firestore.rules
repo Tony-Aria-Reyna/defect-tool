@@ -1,0 +1,74 @@
+rules_version = '2';
+// Resero Defects - Firestore security rules.
+// Paste into Firebase console > Firestore Database > Rules > Publish (or deploy with the Firebase CLI).
+// System administrators: Firestore document system/admins with field "uids" (array of user IDs).
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signed() { return request.auth != null; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function verified() { return signed() && request.auth.token.email_verified == true; }
+    function isSuper() {
+      return signed() && exists(/databases/$(db)/documents/system/admins)
+        && request.auth.uid in get(/databases/$(db)/documents/system/admins).data.uids;
+    }
+    function proj(pid) { return get(/databases/$(db)/documents/projects/$(pid)).data; }
+    function roleOf(pid) { return proj(pid).get('members', {}).get(request.auth.uid, ''); }
+    function isMember(pid) { return isSuper() || (signed() && roleOf(pid) != ''); }
+    function isAdmin(pid) { return isSuper() || (signed() && roleOf(pid) == 'admin'); }
+    function canEdit(pid) { return isSuper() || (signed() && roleOf(pid) in ['admin', 'editor']); }
+    function isContractor(pid) { return signed() && roleOf(pid) == 'contractor'; }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    match /system/{doc} {
+      allow read: if isSuper();
+      allow write: if false;            // edit in the Firebase console only
+    }
+
+    match /invites/{inviteId} {
+      allow read: if isAdmin(resource.data.pid) || (verified() && resource.data.email == myEmail());
+      allow create, update: if isAdmin(request.resource.data.pid)
+        && inviteId == request.resource.data.pid + '_' + request.resource.data.email
+        && request.resource.data.role in ['admin', 'editor', 'contractor', 'viewer'];
+      allow delete: if isAdmin(resource.data.pid) || (verified() && resource.data.email == myEmail());
+    }
+
+    match /projects/{pid} {
+      allow read: if isSuper() || (signed() && request.auth.uid in resource.data.memberUids);
+      allow create: if isSuper();
+      allow delete: if isSuper();
+      allow update: if isAdmin(pid)
+        // editors take the next defect number
+        || (canEdit(pid) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
+        // a user accepts an invitation sent to their verified email address
+        || (verified()
+            && exists(/databases/$(db)/documents/invites/$(pid + '_' + myEmail()))
+            && changed().hasOnly(['members', 'memberUids', 'memberInfo'])
+            && request.resource.data.members.diff(resource.data.get('members', {})).affectedKeys().hasOnly([request.auth.uid])
+            && request.resource.data.members[request.auth.uid] == get(/databases/$(db)/documents/invites/$(pid + '_' + myEmail())).data.role
+            && request.resource.data.memberUids.toSet() == resource.data.get('memberUids', []).toSet().union([request.auth.uid].toSet())
+            && request.resource.data.memberInfo.diff(resource.data.get('memberInfo', {})).affectedKeys().hasOnly([request.auth.uid]));
+
+      match /plans/{planId} {
+        allow read: if isMember(pid);
+        allow write: if isAdmin(pid);
+      }
+
+      match /defects/{id} {
+        allow read: if isMember(pid);
+        allow create: if canEdit(pid);
+        allow delete: if isAdmin(pid);
+        allow update: if canEdit(pid)
+          || (isContractor(pid)
+              && changed().hasOnly(['status', 'photos', 'history', 'updated', 'updatedBy'])
+              && request.resource.data.status in ['Open', 'In progress', 'Ready for review']
+              && resource.data.status != 'Closed');
+      }
+
+      match /private/{doc} {
+        allow read: if canEdit(pid) || isContractor(pid);
+        allow write: if isAdmin(pid);
+      }
+    }
+  }
+}

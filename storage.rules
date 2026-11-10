@@ -1,0 +1,19 @@
+rules_version = '2';
+// Resero Defects - Firebase Storage security rules.
+// Paste into Firebase console > Storage > Rules > Publish.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /projects/{pid}/{allPaths=**} {
+      function admins() { return firestore.get(/databases/(default)/documents/system/admins).data.uids; }
+      function isSuper() { return firestore.exists(/databases/(default)/documents/system/admins) && request.auth.uid in admins(); }
+      function roleOf() { return firestore.get(/databases/(default)/documents/projects/$(pid)).data.get('members', {}).get(request.auth.uid, ''); }
+
+      allow read: if request.auth != null && (isSuper() || roleOf() != '');
+      allow create, update: if request.auth != null
+        && (isSuper() || roleOf() in ['admin', 'editor', 'contractor'])
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf');
+      allow delete: if request.auth != null && (isSuper() || roleOf() in ['admin', 'editor']);
+    }
+  }
+}
