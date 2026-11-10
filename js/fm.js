@@ -144,6 +144,7 @@ function editAsset(a) {
   const isNew = !a; a = a ? JSON.parse(JSON.stringify(a)) : { id: uid(), ref: nextRef(fm().assets, 'A'), system: F.sys || SYSTEMS[1], status: 'Not received', warranties: [], om: true, maint: false, audience: 'FM' };
   const ro = !can.edit(); const docsL = fm().docs.filter(d => (d.assetIds || []).includes(a.id)); const tasksL = fm().tasks.filter(t => t.assetId === a.id);
   const wr = (w, i) => `<div class="wrow" data-w="${i}"><label class="f">Warranty<input data-k="label" value="${esc(w.label || '')}" placeholder="e.g. Materials"></label><label class="f">Given by<input data-k="party" value="${esc(w.party || '')}"></label><label class="f">Months<input data-k="months" type="number" value="${esc(w.months || '')}"></label><label class="f">Start (blank = PC)<input data-k="start" type="date" value="${esc(w.start || '')}"></label><label class="f">Expires<input disabled value="${esc(nzDate(warrantyExpiry(w)) || '-')}"></label>${ro ? '' : `<button class="btn2 sm" data-wx="${i}">✕</button>`}</div>`;
+  openAssetId = isNew ? null : a.id; openAssetSys = a.system;
   sheet((isNew ? 'New asset ' : '') + (a.ref || ''), `<div class="grid">
     ${sel('Building system', 'aS', sysOpts(a.system), true)}
     ${field('Element', 'aE', a.element, 'placeholder="e.g. Roof cladding"', true)}
@@ -316,7 +317,11 @@ function editDoc(d) {
 }
 
 /* ---- uploads ---- */
-let pickCtx = {};
+let pickCtx = {}, openAssetId = null, openAssetSys = '';
+export const currentModule = () => cur;
+// files dropped onto an open asset sheet are uploaded as documents linked to that asset
+export function assetDropTarget() { return $('sheet2').classList.contains('show') && openAssetId ? { assetIds: [openAssetId], system: openAssetSys } : null; }
+export async function dropDocs(files, ctx) { const b = busy('Uploading…'); try { const ids = await uploadFiles(files, { ...ctx, onProgress: b.set }); b.done(); toast(`${ids.length} document${ids.length === 1 ? '' : 's'} uploaded`); closeSheet(); } catch (e) { b.done(); toast('Upload failed: ' + e.message, 6000); } }
 function pickDocs(ctx) { pickCtx = ctx || {}; $('fDocs').click(); }
 function wireUploads() {
   $('fDocs').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return; const b = busy('Uploading…'); try { const ids = await uploadFiles(fs, { ...pickCtx, onProgress: b.set }); b.done(); toast(`${ids.length} document${ids.length > 1 ? 's' : ''} uploaded`); if (ids.length === 1 && !pickCtx.assetIds) editDoc(fm().docs.find(d => d.id === ids[0]) || null); } catch (x) { b.done(); toast('Upload failed: ' + x.message, 6000); } };
@@ -327,6 +332,7 @@ function classify(path) {
   const parts = path.split('/'); const sys = SYSTEMS.find(s => parts.some(p => p.slice(0, 3) === s.slice(0, 3) && /^\d\d /.test(p))) || '';
   let type = 'Other'; for (const seg of parts.slice(1, -1).reverse()) { const m = TYPE_BY_FOLDER.find(([re]) => re.test(seg)); if (m) { type = m[1]; break; } }
   const name = parts[parts.length - 1].replace(/\.[^.]+$/, ''); const party = name.includes(' - ') ? name.split(' - ')[0].trim() : '';
+  if (type === 'Other') type = guessType(name);
   return { system: sys, type, title: name, party };
 }
 async function uploadFiles(files, ctx) {
@@ -345,9 +351,9 @@ async function uploadFiles(files, ctx) {
   return ids;
 }
 const guessType = n => { const m = TYPE_BY_FOLDER.find(([re]) => re.test(n)); return m ? m[1] : 'Other'; };
-async function uploadFolder(files) {
+export async function uploadFolder(files) {
   const skip = /(^|\/)(_|~\$|\.|desktop\.ini|thumbs\.db)|Defect Manager\//i;
-  const list = files.filter(f => !skip.test(f.webkitRelativePath || f.name)).map(f => ({ f, path: f.webkitRelativePath || f.name }));
+  const list = files.filter(f => !skip.test(f.relPath || f.webkitRelativePath || f.name)).map(f => ({ f, path: f.relPath || f.webkitRelativePath || f.name }));
   const have = new Set(fm().docs.map(d => d.srcPath + '|' + d.size));
   const todo = list.filter(x => !have.has(x.path + '|' + x.f.size));
   const big = todo.filter(x => x.f.size > 150e6), mb = todo.reduce((a, x) => a + x.f.size, 0) / 1e6;

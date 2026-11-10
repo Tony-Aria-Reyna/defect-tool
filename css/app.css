@@ -243,3 +243,7 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
   .zpanel{left:6px;right:6px;width:auto;top:auto;bottom:6px;max-height:45%}
   .planrow{flex-wrap:wrap}.planrow .pi{grid-template-columns:1fr 1fr}
 }
+#dropov{position:fixed;inset:0;background:rgba(1,28,53,.55);z-index:90;display:none;align-items:center;justify-content:center;pointer-events:none}
+#dropov.show{display:flex}
+#dropov>div{background:#fff;border:3px dashed var(--teal);border-radius:16px;padding:28px 36px;text-align:center;max-width:90%}
+#dropov b{display:block;font-size:20px;color:var(--navy);margin-bottom:6px}#dropov span{color:var(--muted)}

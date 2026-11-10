@@ -109,7 +109,7 @@ export async function plansDialog() {
   document.querySelectorAll('[data-up]').forEach(b => b.onclick = async () => { const i = +b.dataset.up; const a = S.plans[i - 1], c = S.plans[i]; const t = a.order || i - 1; a.order = c.order || i; c.order = t; if (a.order === c.order) { a.order = i; c.order = i - 1; } await S.store.savePlan(pid, a); await S.store.savePlan(pid, c); await X.reloadProject(); plansDialog(); });
   $('plSave').onclick = async () => { const b = busy('Saving…'); for (const r of document.querySelectorAll('.planrow')) { const p = S.plans.find(x => x.id === r.dataset.id); r.querySelectorAll('[data-k]').forEach(i => p[i.dataset.k] = i.value.trim()); await S.store.savePlan(pid, p); } b.done(); closeModal(); await X.reloadProject(); toast('Plans saved'); };
 }
-async function uploadPlans(files) {
+export async function uploadPlans(files) {
   const pid = S.project.id, b = busy('Reading plans…'); let order = S.plans.length;
   try {
     for (const f of files) {
@@ -230,7 +230,7 @@ export function importDialog() {
   $('imJ').onclick = () => { $('imF').accept = '.json,application/json'; $('imF').onchange = e => e.target.files[0] && importJson(e.target.files[0]); $('imF').click(); };
 }
 const MAP_FIELDS = [['extRef', 'Reference / number', /^(obs|no|ref|item|#|id)/i], ['title', 'Title / element', /element|title|item desc|subject/i], ['desc', 'Description', /desc|remark|observ|comment|issue|defect/i], ['action', 'Action required', /action|resolution|required/i], ['status', 'Status', /status/i], ['severity', 'Severity / category', /categ|sever|priority|class/i], ['location', 'Location (free text)', /space|location|area|room|level|unit/i], ['unit', 'Unit', /^unit$/i], ['room', 'Room', /^room$/i], ['elevation', 'Elevation', /elev/i], ['trade', 'Trade', /trade/i], ['responsible', 'Responsible', /respons|assign|contractor$/i], ['dateRaised', 'Date raised', /date/i], ['contractor', 'Contractor response', /miles|contractor resp|response/i], ['notes', 'Other notes', /consultant|maynard|note|qa/i]];
-async function importSheet(file) {
+export async function importSheet(file) {
   const b = busy('Reading the file…');
   try {
     if (!window.XLSX) await loadScript('lib/xlsx.bundle.js');
@@ -272,7 +272,7 @@ async function importSheet(file) {
     ui();
   } catch (e) { b.done(); toast('Could not read that file: ' + e.message, 6000); }
 }
-async function importJson(file) {
+export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);
   const fmN = ['assets', 'tasks', 'systems'].reduce((a, k) => a + ((j[k] || []).length), 0);

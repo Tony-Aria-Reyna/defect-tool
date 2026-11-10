@@ -9,6 +9,7 @@ import { newPhoto, uploadPhotos, flushOutbox, pendingUrl, markup, initMarkup, ou
 import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel } from './exports.js';
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
+import { initDrop } from './dnd.js';
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -397,8 +398,12 @@ function wire() {
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
-  $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {} for (const f of fs) { try { ED.d.photos.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } renderPhotos(); };
+  $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
   document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) closeModal(); else if ($('sheet').classList.contains('show')) closeEditor(); else if (placing) stopPlacing(); });
+  initDrop({ Admin, FM, addPhotos, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
 }
+async function addPhotos(fs) {
+  if (!ED) return;
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {} for (const f of fs) { try { ED.d.photos.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } renderPhotos(); }
 window.addEventListener('rd-defects-changed', () => { filtersDirty = true; render(); });
 boot();
