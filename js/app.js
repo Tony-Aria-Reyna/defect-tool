@@ -10,6 +10,7 @@ import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel } from './ex
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
+import { helpDialog, siteCheck } from './help.js';
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -375,12 +376,14 @@ function openMenu() {
     ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
     ${can.edit() ? '<button id="mImp">⬆ Import register<small>Excel, CSV or a v1 backup file</small></button>' : ''}
     ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
+    <button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>
+    <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
     <button id="mProj">🗂 All projects<small>Switch project</small></button>
     <button id="mOut">⎋ Sign out<small>${esc(S.user.email)}</small></button>
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
   on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
-  on('mImp', Admin.importDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
+  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
 
 /* ================================================================ wiring */
@@ -393,7 +396,7 @@ function wire() {
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = async () => { openEditor(await newDefect(), true, true); if ($('mic')) $('mic').click(); };
-  $('bExport').onclick = openExport; $('bMenu').onclick = openMenu;
+  $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
   $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1);
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
