@@ -43,6 +43,8 @@
     <button class="hbtn pri" id="bExport">Export</button>
     <button class="hbtn" id="bMenu" title="Project menu">☰</button>
   </header>
+  <nav id="modbar"><button data-m="dash">◫ Dashboard</button><button data-m="defects" class="on">⚑ Defects</button><button data-m="assets">▤ Assets &amp; warranties</button><button data-m="maint">⟳ Maintenance</button><button data-m="comp">✓ Compliance</button><button data-m="docs">🗀 Documents</button></nav>
+  <section id="fmView"></section>
   <main id="main" class="tab-list">
     <section id="listPane">
       <div class="filters">
@@ -68,6 +70,12 @@
   <div class="edb" id="edBody"></div>
   <div class="edf"><button class="danger" id="edDel">Delete</button><button id="edCancel">Cancel</button><button class="save" id="edSave">Save</button></div>
 </div></div>
+<div id="sheet2"><div id="ed2">
+  <div class="edh"><h2 id="s2Title"></h2><button id="s2Close">✕</button></div>
+  <div class="edb" id="s2Body"></div>
+  <div class="edf"><button class="danger" id="s2Del">Delete</button><button id="s2Cancel">Cancel</button><button class="save" id="s2Save">Save</button></div>
+</div></div>
+<input type="file" id="fDocs" multiple hidden><input type="file" id="fFolder" webkitdirectory multiple hidden>
 <div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
 <div id="mk"><div class="bar"><button data-tool="pen" class="on">✎ Pen</button><button data-tool="arrow">➚ Arrow</button><button data-tool="circle">◯ Circle</button><button id="mkUndo">↶ Undo</button><span class="sp"></span><button id="mkCancel">Cancel</button><button id="mkSave" class="go">Save markup</button></div><div class="cv"><canvas id="mkc"></canvas></div></div>
 <div id="busy"><div><div class="spin"></div><span></span></div></div>

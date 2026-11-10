@@ -11,8 +11,12 @@ service firebase.storage {
       allow read: if request.auth != null && (isSuper() || roleOf() != '');
       allow create, update: if request.auth != null
         && (isSuper() || roleOf() in ['admin', 'editor', 'contractor'])
-        && request.resource.size < 20 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*|application/pdf');
+        && (
+          // handover and FM documents: any file type, up to 150 MB
+          (allPaths.matches('docs/.*') && request.resource.size < 150 * 1024 * 1024)
+          // plans and photos: images and PDFs, up to 20 MB
+          || (request.resource.size < 20 * 1024 * 1024 && request.resource.contentType.matches('image/.*|application/pdf'))
+        );
       allow delete: if request.auth != null && (isSuper() || roleOf() in ['admin', 'editor']);
     }
   }

@@ -8,6 +8,7 @@ import { dictate, stopDictation, aiCall, aiPrompt } from './ai.js';
 import { newPhoto, uploadPhotos, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
 import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel } from './exports.js';
 import * as Admin from './admin.js';
+import * as FM from './fm.js';
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -55,7 +56,7 @@ export async function showProjects() {
   if ($('pNew')) $('pNew').onclick = () => Admin.projectSettings(null);
 }
 
-function cleanupProject() { if (S.unsub) { S.unsub(); S.unsub = null; } S.project = null; S.defects = []; S.plans = []; S.sel = null; }
+function cleanupProject() { FM.stop(); if (S.unsub) { S.unsub(); S.unsub = null; } S.project = null; S.defects = []; S.plans = []; S.sel = null; }
 export async function openProject(pid, quiet) {
   const b = quiet ? null : busy('Opening project…');
   try {
@@ -71,7 +72,7 @@ export async function openProject(pid, quiet) {
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
     S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar); }, e => toast('Sync problem: ' + friendly(e), 5000));
-    setTab('list'); b && b.done(); return true;
+    FM.start(pid); setTab('list'); b && b.done(); return true;
   } catch (e) { b && b.done(); console.error(e); if (!quiet) toast('Could not open the project: ' + friendly(e), 5000); return false; }
 }
 export async function reloadProject() { const p = await S.store.getProject(S.project.id); S.project = withDefaults(p); S.plans = await S.store.listPlans(p.id); if (!S.plans.find(x => x.id === S.curPlan)) S.curPlan = S.plans[0] ? S.plans[0].id : null; applyProjectChrome(); initFilters(); renderPlanTabs(); await showPlan(S.curPlan); render(); }
@@ -385,6 +386,7 @@ function openMenu() {
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } } });
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered });
+  FM.init({ render });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '' }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();

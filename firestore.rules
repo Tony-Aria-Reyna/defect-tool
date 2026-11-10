@@ -65,6 +65,28 @@ service cloud.firestore {
               && resource.data.status != 'Closed');
       }
 
+      // Facility management: assets and warranties, documents, maintenance tasks, specified systems
+      match /assets/{id} {
+        allow read: if isMember(pid);
+        allow write: if canEdit(pid);
+      }
+      match /systems/{id} {
+        allow read: if isMember(pid);
+        allow write: if canEdit(pid);
+      }
+      match /docs/{id} {
+        allow read: if isMember(pid);
+        allow create: if canEdit(pid) || isContractor(pid);      // contractors can upload warranties, O&Ms, PS3s
+        allow update: if canEdit(pid);
+        allow delete: if canEdit(pid);
+      }
+      match /tasks/{id} {
+        allow read: if isMember(pid);
+        allow create, delete: if canEdit(pid);
+        allow update: if canEdit(pid)
+          || (isContractor(pid) && changed().hasOnly(['lastDone', 'nextDue', 'history', 'updated', 'updatedBy']));
+      }
+
       match /private/{doc} {
         allow read: if canEdit(pid) || isContractor(pid);
         allow write: if isAdmin(pid);

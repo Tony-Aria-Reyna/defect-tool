@@ -274,10 +274,13 @@ async function importSheet(file) {
 }
 async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
-  const list = (j.defects || j).filter(d => d && d.id); if (!list.length) return toast('No defects found in that file');
+  const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);
+  const fmN = ['assets', 'tasks', 'systems'].reduce((a, k) => a + ((j[k] || []).length), 0);
+  if (!list.length && !fmN && !j.zones) return toast('Nothing to import in that file');
   const planIds = [...new Set(list.map(d => d.plan).filter(Boolean))];
   const guess = id => { const code = (j.plans || {})[id] || id; const p = S.plans.find(p => (p.name + ' ' + (p.code || '')).toLowerCase().includes(String(code).toLowerCase().replace(/ rev.*$/, ''))); return p ? p.id : ''; };
-  modal(`<h2>Import ${list.length} defects</h2>
+  modal(`<h2>Import${list.length ? ' ' + list.length + ' defects' : ''}${fmN ? ' and facility data' : ''}</h2>
+  ${fmN && can.edit() ? `<div class="opt"><input type="checkbox" id="ijF" checked><label for="ijF">Facility data: ${(j.assets || []).length} assets and warranties, ${(j.tasks || []).length} maintenance tasks, ${(j.systems || []).length} specified systems (items already in the project with the same ID are replaced)</label></div>` : ''}
   ${planIds.length ? `<p class="note">Match the plans in the file to this project's plans so the pins land in the right place:</p><table class="t">${planIds.map(id => `<tr><td>${esc((j.plans || {})[id] || id)}</td><td><select data-pm="${esc(id)}"><option value="">(drop the pin)</option>${S.plans.map(p => `<option value="${esc(p.id)}" ${guess(id) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></td></tr>`).join('')}</table>` : ''}
   <div class="opt"><input type="checkbox" id="ijUp" checked><label for="ijUp">Update items that already exist if the file's copy is newer</label></div>
   ${j.zones && can.admin() ? `<div class="opt"><input type="checkbox" id="ijZ" checked><label for="ijZ">Add the room boundaries in this file (${Object.values(j.zones).reduce((a, z) => a + z.length, 0)} boundaries for ${Object.keys(j.zones).length} plans). Plans that already have boundaries are left alone.</label></div>` : ''}
@@ -285,6 +288,7 @@ async function importJson(file) {
   $('ijX').onclick = closeModal;
   $('ijGo').onclick = async () => {
     const pm = {}; document.querySelectorAll('[data-pm]').forEach(s => pm[s.dataset.pm] = s.value); const upd = $('ijUp').checked;
+    if ($('ijF') && $('ijF').checked) { const bb = busy('Importing facility data…'); try { for (const k of ['assets', 'tasks', 'systems']) if ((j[k] || []).length) await S.store.bulkSave(S.project.id, k, j[k]); if (j.project && can.admin()) { const keep = {}; ['pcDate', 'dnpMonths', 'cccDate', 'bwofDue', 'csNumber', 'iqp'].forEach(k => { if (j.project[k] && !S.project[k]) keep[k] = j.project[k]; }); if (Object.keys(keep).length) { await S.store.updateProject(S.project.id, keep); Object.assign(S.project, keep); } } bb.done(); toast('Facility data imported'); } catch (e) { bb.done(); toast('Facility import failed: ' + e.message, 6000); } }
     if ($('ijZ') && $('ijZ').checked) { let n = 0; for (const [code, zs] of Object.entries(j.zones)) { const p = S.plans.find(p => (p.name + ' ' + (p.code || '')).toLowerCase().includes(code.toLowerCase())); if (p && !(p.zones || []).length) { p.zones = zs.map(z => ({ ...z, id: uid() })); await S.store.savePlan(S.project.id, p); n++; } } if (n) toast(`Room boundaries added to ${n} plan${n > 1 ? 's' : ''}`); }
     const out = [];
     for (const d0 of list) {
@@ -299,7 +303,7 @@ async function importJson(file) {
   };
 }
 async function saveImported(out) {
-  if (!out.length) { closeModal(); return toast('Nothing new to import'); }
+  if (!out.length) { closeModal(); return; }
   closeModal(); const b = busy(`Importing ${out.length} items…`); const pid = S.project.id;
   try {
     let n = 0;

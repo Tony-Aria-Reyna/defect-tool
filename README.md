@@ -1,7 +1,14 @@
 # Resero Defects
 
-Defect registers for Resero projects: floor plans with pins, room boundaries that recognise the room you tap,
+Defect registers and facility management for Resero projects. Each project has:
+- **Dashboard**: open defects, maintenance due, warranties expiring, BWoF countdown, Form 12A status, documents outstanding, key dates.
+- **Defects**: floor plans with pins, room boundaries that recognise the room you tap,
 dictation with a Gemini helper, photos with markup, and branded exports (PDF schedule, Excel, Procore CSV, zip).
+- **Assets & warranties**: element-by-element register with warranty periods (expiry calculated from practical completion), document status and linked documents.
+- **Maintenance**: planned and compliance tasks with frequencies, "mark done" with notes and attached reports, next due dates, Outlook calendar (.ics).
+- **Compliance**: specified systems from the compliance schedule, inspection tasks, Form 12A record for each year, BWoF due date.
+- **Documents**: upload files or a whole handover pack folder (filed by building system and type from the folder names), or add SharePoint links.
+- **FM register (Excel)**: key dates, assets and warranties, maintenance schedule, compliance schedule, document index and open defects in one workbook for the client.
 
 **App:** https://tony-aria-reyna.github.io/defect-tool/
 **Try it without signing in:** https://tony-aria-reyna.github.io/defect-tool/?demo (data stays in that browser only)
