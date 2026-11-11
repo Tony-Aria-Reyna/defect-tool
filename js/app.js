@@ -1,5 +1,5 @@
 // Resero Defects - main app: sign in, projects, workspace, defect editor.
-import { createStore, isDemo } from './store.js';
+import { createStore, createSandbox, isDemo } from './store.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate } from './util.js';
@@ -96,7 +96,23 @@ async function bulkAction(kind) {
     } catch (e) { $('bkSt').textContent = ''; toast('Stopped: ' + e.message, 6000); $('bkGo').disabled = false; }
   };
 }
-function viewAsBar() { let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } if (S.viewAs) { b.innerHTML = `👁 Viewing as <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · <a href="#" id="vaStop">stop</a>`; b.classList.add('show'); $('vaStop').onclick = e => { e.preventDefault(); S.viewAs = null; viewAsBar(); filtersDirty = true; $('bNew').style.display = can.edit() ? '' : 'none'; $('fab').style.display = can.edit() ? '' : 'none'; render(); if (ED) closeEditor(); }; } else b.classList.remove('show'); }
+/* ---- test mode: sandbox copy of the project in a local store, viewed as a chosen role ---- */
+async function enterTestMode(role) {
+  const pid = S.project.id, bz = busy('Making a test copy of the project…');
+  try {
+    if (!S.testMode) S.realStore = S.store;
+    const sb = await createSandbox(S.realStore, pid, role, st => bz.set('Copying ' + st + '…'));
+    cleanupProject(); S.store = sb; S.testMode = true; S.viewAs = role; S.sup = false;
+    const realUser = S.user; S.realUser = S.realUser || realUser; S.user = sb.user;
+    await openProject(pid, true); viewAsBar(); bz.done(); toast('Test mode: viewing as ' + (ROLES[role] || role) + '. Nothing here is saved.', 5000);
+  } catch (e) { bz.done(); console.error(e); toast('Could not start test mode: ' + e.message, 6000); }
+}
+async function leaveTestMode() {
+  if (!S.testMode) return; const pid = S.project.id, bz = busy('Leaving test mode…');
+  try { const sb = S.store; cleanupProject(); S.store = S.realStore; S.user = S.realUser; S.testMode = false; S.viewAs = null; S.sup = await S.store.isSuper(); try { await sb.wipe(); } catch (e) {} await openProject(pid, true); viewAsBar(); bz.done(); toast('Back to the live project. The test copy has been discarded.'); }
+  catch (e) { bz.done(); toast('Could not leave test mode cleanly: ' + e.message + '. Reload the app.', 8000); }
+}
+function viewAsBar() { let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } document.body.classList.toggle('testmode', !!S.testMode); if (S.testMode) { b.innerHTML = `🧪 <b>TEST MODE</b> · viewing as <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · nothing you do here is saved · <a href="#" id="vaStop">Leave test mode</a>`; b.classList.add('show'); $('vaStop').onclick = e => { e.preventDefault(); leaveTestMode(); }; } else b.classList.remove('show'); }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; if (/wrong-password|invalid-credential|invalid-login/.test(c)) return 'Wrong email or password. If you have not set a password yet, tap "Create a password".'; if (/user-not-found/.test(c)) return 'No password set for this email yet. Tap "Create a password".'; if (/weak-password/.test(c)) return 'Choose a stronger password (at least 8 characters).'; if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes or use "Forgot password".'; if (/network-request-failed/.test(c)) return 'No connection. Sign-in needs data the first time; once signed in the app works offline.'; return (e && e.message) || String(e); }
 async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
 
@@ -192,7 +208,8 @@ let placing = null;
 function renderPlanTabs() {
   const pt = $('plantabs');
   pt.innerHTML = S.plans.map(p => `<button data-p="${esc(p.id)}" class="${p.id === S.curPlan ? 'on' : ''}">${esc(p.name)}</button>`).join('') +
-    (S.plans.length ? '<span class="sp"></span>' + (can.edit() ? '<button class="act" id="bPin">📍 Add pin</button>' : '') : (can.admin() ? '<span class="muted small">No plans yet.</span><button class="act" id="bUpPlan">Upload plans</button>' : '<span class="muted small">No plans uploaded for this project yet.</span>'));
+    (S.plans.length ? '' : (can.admin() ? '<span class="muted small">No plans yet.</span><button class="act" id="bUpPlan">Upload plans</button>' : '<span class="muted small">No plans uploaded for this project yet.</span>'));
+  let pinBtn = $('bPin'); if (!pinBtn) { pinBtn = document.createElement('button'); pinBtn.id = 'bPin'; pinBtn.className = 'pinfab'; $('planPane').appendChild(pinBtn); } pinBtn.textContent = '📍 Add pin'; pinBtn.classList.remove('on'); pinBtn.style.display = S.plans.length && can.edit() ? '' : 'none';
   pt.querySelectorAll('[data-p]').forEach(b => b.onclick = () => showPlan(b.dataset.p));
   if ($('bPin')) $('bPin').onclick = () => placing ? stopPlacing() : startPlacing({ mode: 'new' });
   if ($('bUpPlan')) $('bUpPlan').onclick = () => Admin.plansDialog();
@@ -253,7 +270,7 @@ async function newDefect() {
 export function openEditor(d, isNew, isDraft) {
   const w = isDraft ? d : JSON.parse(JSON.stringify(d)); const p = S.project;
   ED = { d: w, isNew: !!isNew, orig: isNew ? null : S.defects.find(x => x.id === d.id), removed: ED && ED.d === d ? ED.removed : [] };
-  const ro = !can.edit(), con = can.contractor();
+  const ro = !can.write(), con = can.contractor();
   const dis = ro || con ? 'disabled' : '';
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
@@ -523,7 +540,7 @@ function openMenu() {
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
   on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
   on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp);
-  on('mViewAs', () => { modal(`<h2>View as</h2><p>See the app the way another role sees it. Saving still uses your real permissions.</p><div class="btnlist">${['', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${(S.viewAs || '') === r ? 'go' : ''}">${r ? esc(ROLES[r] || r) : 'Myself (' + esc(ROLES[S.role] || (S.sup ? 'System admin' : S.role)) + ')'}</button>`).join('')}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { S.viewAs = b.dataset.va || null; closeModal(); viewAsBar(); filtersDirty = true; $('bNew').style.display = can.edit() ? '' : 'none'; $('fab').style.display = can.edit() ? '' : 'none'; render(); if (ED) closeEditor(); toast(S.viewAs ? 'Viewing as ' + (ROLES[S.viewAs] || S.viewAs) : 'Back to your own role'); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
+  on('mViewAs', () => { modal(`<h2>Test mode</h2><p>Try the app as another role on a <b>throwaway copy</b> of this project. Press every button you like: nothing is saved to the cloud, and leaving test mode throws the copy away.</p><div class="btnlist">${['admin', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${S.viewAs === r ? 'go' : ''}">${esc(ROLES[r] || r)}</button>`).join('')}${S.testMode ? '<button data-va="">Leave test mode</button>' : ''}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { closeModal(); b.dataset.va ? enterTestMode(b.dataset.va) : leaveTestMode(); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
 
 /* ================================================================ wiring */

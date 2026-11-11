@@ -23,7 +23,7 @@ export async function uploadPhotos(pid, defectId, photos) {
     const path = `projects/${pid}/photos/${defectId}/${p.id}.jpg`;
     const rec = { id: p.id, path, t: p.t, by: p.by };
     try { rec.url = await S.store.putFile(path, dataUrlToBlob(p.data)); }
-    catch (e) { rec.pending = true; localUrls[p.id] = p.data; await obPut(p.id, { pid, defectId, photoId: p.id, path, dataUrl: p.data }); }
+    catch (e) { if (S.testMode) { rec.url = p.data; out.push(rec); continue; } rec.pending = true; localUrls[p.id] = p.data; await obPut(p.id, { pid, defectId, photoId: p.id, path, dataUrl: p.data }); }
     if (p.replaces) rec.replaces = p.replaces;
     out.push(rec);
   }
@@ -40,13 +40,13 @@ export async function uploadFiles(pid, defectId, files) {
     const ext = (f.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, ''), path = `projects/${pid}/photos/${defectId}/${f.id}.${ext}`;
     const rec = { id: f.id, name: f.name, mime: f.mime, path, t: f.t, by: f.by };
     try { rec.url = await S.store.putFile(path, dataUrlToBlob(f.data)); }
-    catch (e) { rec.pending = true; await obPut(f.id, { kind: 'file', pid, defectId, photoId: f.id, path, dataUrl: f.data }); }
+    catch (e) { if (S.testMode) { rec.url = f.data; out.push(rec); continue; } rec.pending = true; await obPut(f.id, { kind: 'file', pid, defectId, photoId: f.id, path, dataUrl: f.data }); }
     out.push(rec);
   }
   return out;
 }
 export async function flushOutbox() {
-  if (flushing || !navigator.onLine) return; flushing = true;
+  if (flushing || !navigator.onLine || S.testMode) return; flushing = true;
   try {
     for (const it of await obAll()) {
       try {
@@ -68,7 +68,7 @@ export async function markup(src, onSave) {
   let im; try { im = await loadImage(src); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
   const c = $('mkc'); c.width = im.width; c.height = im.height;
   try { c.getContext('2d').drawImage(im, 0, 0); c.toDataURL(); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
-  MK = { im, strokes: [], tool: 'pen', cur: null, sel: null, onSave }; document.querySelectorAll('#mk [data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === 'pen')); $('mkDel').style.display = 'none'; draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
+  MK = { im, strokes: [], tool: 'pen', cur: null, sel: null, onSave }; document.querySelectorAll('#mk [data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === 'pen')); $('mkDel').style.display = 'none'; $('mkc').style.transform = ''; draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
 }
 function draw() {
   const c = $('mkc'), x = c.getContext('2d'); x.drawImage(MK.im, 0, 0); const lw = Math.max(4, c.width / 180), fs = Math.max(18, c.width / 32);
@@ -106,21 +106,35 @@ function hit(pt) {
 function askText(title, cur) { return new Promise(res => { const d = document.createElement('div'); d.className = 'mkask'; d.innerHTML = `<div><b>${title}</b><input id="mkTxt" value="${(cur || '').replace(/"/g, '&quot;')}" placeholder="e.g. 850 mm, or Gap here"><div class="act"><button id="mkTxtX">Cancel</button><button class="go" id="mkTxtOk">OK</button></div></div>`; $('mk').appendChild(d); const i = d.querySelector('#mkTxt'); setTimeout(() => i.focus(), 30); const done = v => { d.remove(); res(v); }; d.querySelector('#mkTxtOk').onclick = () => done(i.value.trim()); d.querySelector('#mkTxtX').onclick = () => done(null); i.onkeydown = e => { if (e.key === 'Enter') done(i.value.trim()); if (e.key === 'Escape') done(null); }; }); }
 export function initMarkup() {
   const c = $('mkc'), pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
-  let dragFrom = null, moved = false;
+  let dragFrom = null, moved = false, dragOrig = null;
+  // Pan and zoom of the photo while marking up: Ctrl+drag, middle button or Space on a computer; two fingers on a phone; wheel to zoom.
+  const V = { x: 0, y: 0, s: 1 }, cv = c.parentElement, pts = new Map(); let pan = null, pinch = null, space = false;
+  const applyV = () => { c.style.transform = `translate(${V.x}px,${V.y}px) scale(${V.s})`; };
+  const resetV = () => { V.x = 0; V.y = 0; V.s = 1; applyV(); };
+  c.style.transformOrigin = '0 0'; cv.style.overflow = 'hidden';
+  addEventListener('keydown', e => { if (!MK) return; if (e.key === ' ' && e.target === document.body) { space = true; e.preventDefault(); } if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; draw(); } else if (dragFrom && MK.sel && dragOrig) { MK.sel.p = dragOrig; dragFrom = null; dragOrig = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
+  addEventListener('keyup', e => { if (e.key === ' ') space = false; });
+  cv.addEventListener('wheel', e => { if (!MK) return; e.preventDefault(); const r = cv.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top, ns = Math.max(1, Math.min(8, V.s * Math.exp(-e.deltaY * 0.0015))); V.x = cx - (cx - V.x) * ns / V.s; V.y = cy - (cy - V.y) * ns / V.s; V.s = ns; if (V.s === 1) { V.x = 0; V.y = 0; } applyV(); }, { passive: false });
+  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur) { MK.cur = null; draw(); } } });
+  cv.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], r = cv.getBoundingClientRect(), ns = Math.max(1, Math.min(8, pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, cx = pinch.cx - r.left, cy = pinch.cy - r.top; V.x = cx - (cx - pinch.x) * ns / pinch.s + (mx - pinch.cx); V.y = cy - (cy - pinch.y) * ns / pinch.s + (my - pinch.cy); V.s = ns; applyV(); } });
+  const upV = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (V.s <= 1.001) resetV(); };
+  cv.addEventListener('pointerup', upV); cv.addEventListener('pointercancel', upV);
   c.addEventListener('pointerdown', async e => {
-    if (!MK) return; c.setPointerCapture(e.pointerId); const p = pt(e); moved = false;
-    if (MK.tool === 'select') { const s = hit(p); MK.sel = s; dragFrom = s ? p : null; draw(); return; }
+    if (!MK) return; if (pts.size >= 2) return;
+    if (e.ctrlKey || e.button === 1 || space) { pan = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y }; c.setPointerCapture(e.pointerId); c.style.cursor = 'grabbing'; return; }
+    c.setPointerCapture(e.pointerId); const p = pt(e); moved = false;
+    if (MK.tool === 'select') { const s = hit(p); MK.sel = s; dragFrom = s ? p : null; dragOrig = s ? s.p.map(q => q.slice()) : null; draw(); return; }
     if (MK.tool === 'text') { const t = await askText('Text', ''); if (t) { MK.strokes.push({ tool: 'text', p: [p], text: t }); MK.sel = null; draw(); } return; }
     MK.cur = { tool: MK.tool, p: [p] }; draw();
   });
   c.addEventListener('pointermove', e => {
-    if (!MK) return; const p = pt(e);
+    if (!MK) return; if (pan) { V.x = pan.vx + (e.clientX - pan.x); V.y = pan.vy + (e.clientY - pan.y); applyV(); return; } if (pts.size >= 2) return; const p = pt(e);
     if (MK.tool === 'select') { if (MK.sel && dragFrom) { const dx = p[0] - dragFrom[0], dy = p[1] - dragFrom[1]; MK.sel.p = MK.sel.p.map(q => [q[0] + dx, q[1] + dy]); dragFrom = p; moved = true; draw(); } return; }
     if (!MK.cur) return; if (MK.cur.tool === 'pen') MK.cur.p.push(p); else MK.cur.p = [MK.cur.p[0], p]; draw();
   });
   c.addEventListener('pointerup', async () => {
-    if (!MK) return;
-    if (MK.tool === 'select') { if (MK.sel && !moved && (MK.sel.tool === 'text' || MK.sel.tool === 'dim')) { const t = await askText(MK.sel.tool === 'dim' ? 'Dimension' : 'Text', MK.sel.text); if (t !== null) { MK.sel.text = t; draw(); } } dragFrom = null; return; }
+    if (!MK) return; if (pan) { pan = null; c.style.cursor = ''; return; }
+    if (MK.tool === 'select') { dragOrig = null; if (MK.sel && !moved && (MK.sel.tool === 'text' || MK.sel.tool === 'dim')) { const t = await askText(MK.sel.tool === 'dim' ? 'Dimension' : 'Text', MK.sel.text); if (t !== null) { MK.sel.text = t; draw(); } } dragFrom = null; return; }
     if (MK.cur) { const s = MK.cur; MK.cur = null; if (s.p.length > 1 && (s.tool === 'pen' || Math.hypot(s.p[1][0] - s.p[0][0], s.p[1][1] - s.p[0][1]) > 6)) { if (s.tool === 'dim') { const t = await askText('Dimension (what you measured)', ''); if (t === null) { draw(); return; } s.text = t; } MK.strokes.push(s); } draw(); }
   });
   document.querySelectorAll('#mk [data-tool]').forEach(b => b.onclick = () => { MK.tool = b.dataset.tool; if (MK.tool !== 'select') MK.sel = null; document.querySelectorAll('#mk [data-tool]').forEach(x => x.classList.toggle('on', x === b)); $('mkDel').style.display = MK.tool === 'select' ? '' : 'none'; draw(); });

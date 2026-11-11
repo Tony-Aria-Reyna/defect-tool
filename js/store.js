@@ -156,27 +156,29 @@ async function firebaseStore() {
 }
 
 /* ------------------------------------------------------------------ Local (demo) */
-async function localStore() {
-  const db = await new Promise((res, rej) => { const r = indexedDB.open('resero-defects-demo', 1); r.onupgradeneeded = () => { r.result.createObjectStore('docs'); r.result.createObjectStore('files'); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+async function localStore(dbName, asUser) {
+  const db = await new Promise((res, rej) => { const r = indexedDB.open(dbName || 'resero-defects-demo', 1); r.onupgradeneeded = () => { r.result.createObjectStore('docs'); r.result.createObjectStore('files'); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   const rq = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   const os = (s, m) => db.transaction(s, m || 'readonly').objectStore(s);
   const get = k => rq(os('docs').get(k)), put = (k, v) => rq(os('docs', 'readwrite').put(JSON.parse(JSON.stringify(v)), k)), del = k => rq(os('docs', 'readwrite').delete(k));
   async function list(prefix) { const keys = await rq(os('docs').getAllKeys()); const out = []; for (const k of keys) if (k.startsWith(prefix) && !k.slice(prefix.length).includes('/')) out.push({ id: k.slice(prefix.length), ...(await get(k)) }); return out; }
-  const user = { uid: 'local-user', email: 'demo@example.com', name: 'Demo user' };
+  const user = asUser || { uid: 'local-user', email: 'demo@example.com', name: 'Demo user' };
   let authCb = null; const watchers = {}; const urlCache = {};
   const signed = () => localStorage.getItem('rd-demo-signed') === '1';
   const emitC = async (pid, coll) => { const l = await list(`projects/${pid}/${coll}/`); (watchers[pid + '/' + coll] || []).forEach(cb => cb(l)); };
   const emit = async pid => { const l = await list(`projects/${pid}/defects/`); (watchers[pid] || []).forEach(cb => cb(l, {})); };
   const api = {
-    mode: 'demo',
-    get user() { return signed() ? user : null; },
+    mode: asUser ? 'test' : 'demo',
+    get user() { return asUser ? user : (signed() ? user : null); },
+    async wipe() { db.close(); await new Promise(res => { const r = indexedDB.deleteDatabase(dbName || 'resero-defects-demo'); r.onsuccess = r.onerror = r.onblocked = () => res(); }); },
+    async seed(k, v) { await put(k, v); },
     onAuth(cb) { authCb = cb; setTimeout(() => cb(signed() ? user : null), 0); return () => {}; },
     async signInGoogle() { localStorage.setItem('rd-demo-signed', '1'); authCb && authCb(user); },
     async getLibrary(name) { return (await get('library/' + name)) || []; }, async addToLibrary(name, item) { const L = (await get('library/' + name)) || []; L.push(item); await put('library/' + name, L); },
     async sendLink() { await api.signInGoogle(); }, async signInPassword() { await api.signInGoogle(); }, async createPassword() { await api.signInGoogle(); }, async resetPassword() {},
     async completeLink() { return false; },
     async signOut() { localStorage.removeItem('rd-demo-signed'); authCb && authCb(null); },
-    async isSuper() { return true; },
+    async isSuper() { return !asUser; },
     async listProjects() { return list('projects/'); },
     async getProject(pid) { const p = await get('projects/' + pid); return p ? { id: pid, ...p } : null; },
     async createProject(data) { const id = 'p' + Date.now().toString(36); await put('projects/' + id, { ...data, seq: 0, members: { [user.uid]: 'admin' }, memberUids: [user.uid], memberInfo: { [user.uid]: { name: user.name, email: user.email } }, created: new Date().toISOString() }); return id; },
@@ -214,3 +216,19 @@ async function localStore() {
 }
 
 export async function createStore() { return isDemo() ? localStore() : firebaseStore(); }
+// Test mode: a throwaway copy of one project in a local sandbox store. Nothing written here reaches the cloud.
+export async function createSandbox(real, pid, role, onProgress) {
+  const user = { ...real.user, uid: 'test-' + real.user.uid };
+  const sb = await localStore('resero-defects-test', user); await sb.wipe();
+  const sb2 = await localStore('resero-defects-test', user);
+  const p = await real.getProject(pid); onProgress && onProgress('project');
+  await sb2.seed('projects/' + pid, { ...p, members: { ...(p.members || {}), [user.uid]: role }, memberUids: [...(p.memberUids || []), user.uid], memberInfo: { ...(p.memberInfo || {}), [user.uid]: { name: user.name + ' (test)', email: user.email } } });
+  for (const pl of await real.listPlans(pid)) { const { id, ...rest } = pl; await sb2.seed(`projects/${pid}/plans/${id}`, rest); } onProgress && onProgress('plans');
+  const defs = await new Promise(res => { let off = null; off = real.watchDefects(pid, L => { off && off(); res(L); }, () => res([])); });
+  for (const d of defs) { const { id, ...rest } = d; await sb2.seed(`projects/${pid}/defects/${id}`, rest); } onProgress && onProgress('defects');
+  for (const coll of ['assets', 'systems', 'docs', 'tasks', 'contacts']) { const L = await new Promise(res => { let off = null; off = real.watchColl(pid, coll, x => { off && off(); res(x); }, () => res([])); }); for (const d of L) { const { id, ...rest } = d; await sb2.seed(`projects/${pid}/${coll}/${id}`, rest); } }
+  try { await sb2.seed(`projects/${pid}/private/ai`, await real.getPrivate(pid)); } catch (e) {}
+  onProgress && onProgress('done');
+  sb2.resolveUrl = async u => (u && u.startsWith('local:')) ? '' : u;   // photos and plans are read from the cloud as usual
+  return sb2;
+}

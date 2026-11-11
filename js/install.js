@@ -25,7 +25,6 @@ export function installDialog(auto) {
 export function maybeNag() {
   if (standalone()) return; const n = S.local.installNag; if (n === 'done') return;
   if (typeof n === 'number' && Date.now() - n < 3 * 864e5) return;
-  const mobile = /Android|iPhone|iPad|iPod/.test(navigator.userAgent); if (!mobile) return;
   setTimeout(() => installDialog(true), 1200);
 }
 export const canInstall = () => !standalone();

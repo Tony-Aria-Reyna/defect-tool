@@ -55,6 +55,7 @@ main{flex:1;display:flex;min-height:0}
 .pill{color:#fff;border-radius:10px;padding:1px 8px;font-weight:600;white-space:nowrap}
 .sev-maj{background:#fde5e5;color:#a32222}.sev-tri{background:#fff4d9;color:#8a5e00}
 .plantabs{display:flex;gap:4px;padding:6px 8px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto;align-items:center;min-height:42px}
+@media(min-width:900px){.plantabs{flex-wrap:wrap;overflow:visible}}
 .plantabs button{border:1px solid var(--line);background:#fff;border-radius:16px;padding:5px 11px;white-space:nowrap;font-size:12px}
 .plantabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 .plantabs .act{background:var(--teal);color:var(--navy);border-color:var(--teal);font-weight:700}
@@ -271,7 +272,7 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .wf{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}.wf button{flex:1;min-width:140px;padding:12px;font-weight:600;border-radius:8px}.wf .go{background:#1c7c54;color:#fff;border:0}.wf .warn{background:#fff3c4;border:1px solid #e3b31b}
 .files .file{padding:6px 0;border-bottom:1px solid var(--line)}.files .file a{font-weight:600}.files button.small{padding:2px 8px}
 
-#viewAsBar{display:none;position:fixed;top:0;left:0;right:0;z-index:60;background:#6b4f00;color:#fff;text-align:center;padding:4px;font-size:13px}#viewAsBar.show{display:block}#viewAsBar a{color:#fff}
+#viewAsBar{display:none;position:fixed;top:0;left:0;right:0;z-index:60;background:#c0392b;color:#fff;text-align:center;padding:8px;font-size:15px;letter-spacing:.3px}body.testmode{outline:6px solid #c0392b;outline-offset:-6px}body.testmode header,body.testmode .top{padding-top:34px}#viewAsBar.show{display:block}#viewAsBar a{color:#fff}
 .locwin .lochead{display:flex;align-items:center;gap:10px}.locwin .lochead .x{margin-left:auto;font-size:20px;background:none;border:0;cursor:pointer}.locwin .locbody{background:#eee;border-radius:8px;overflow:hidden}.locwin canvas{display:block;width:100%}
 .tag.loc{cursor:pointer}
 
@@ -279,3 +280,5 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 
 #bulkbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:45;background:var(--navy);color:#fff;padding:10px;gap:8px;align-items:center;flex-wrap:wrap;padding-bottom:max(10px,env(safe-area-inset-bottom))}#bulkbar.show{display:flex}#bulkbar button{padding:8px 12px;border-radius:8px;border:0;background:#fff;color:var(--navy);font-weight:600}#bulkbar button:disabled{opacity:.5}#bulkbar #bulkX{background:transparent;color:#fff;border:1px solid #fff;margin-left:auto}
 .card .pick{display:flex;align-items:center;padding:0 6px 0 2px}.card .pick input{width:22px;height:22px}.card.picked{outline:2px solid var(--teal)}#bSel.on{background:var(--teal);color:var(--navy)}
+
+#planPane{position:relative}.pinfab{position:absolute;right:16px;bottom:96px;z-index:7;background:var(--teal);color:var(--navy);border:0;border-radius:24px;padding:12px 18px;font-weight:700;font-size:15px;box-shadow:0 3px 10px rgba(0,0,0,.25)}.pinfab.on{background:#d64545;color:#fff}@media(max-width:899px){.pinfab{bottom:150px;right:14px}}
