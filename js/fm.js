@@ -2,6 +2,7 @@
 import { S, can } from './state.js';
 import { STATUS_COLOURS as SCOL } from './config.js';
 import * as Pack from './pack.js';
+import * as Nav from './nav.js';
 import { aiCall } from './ai.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
@@ -22,6 +23,7 @@ export function start(pid) {
 }
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
 export function setModule(m) {
+  if (m !== 'defects' && !Nav.isOpen('module')) Nav.open('module', () => setModule('defects')); if (m === 'defects') Nav.closed('module');
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();
 }
@@ -47,9 +49,10 @@ let SH = null;
 function sheet(title, html, { onSave, onDelete, ro } = {}) {
   SH = { onSave, onDelete }; $('s2Title').textContent = title; $('s2Body').innerHTML = html;
   $('s2Save').style.display = onSave && !ro ? '' : 'none'; $('s2Del').style.display = onDelete && !ro ? '' : 'none'; $('s2Cancel').textContent = onSave && !ro ? 'Cancel' : 'Close';
+  if (!$('sheet2').classList.contains('show')) Nav.open('sheet2', () => closeSheet());
   $('sheet2').classList.add('show');
 }
-function closeSheet() { $('sheet2').classList.remove('show'); SH = null; }
+function closeSheet() { $('sheet2').classList.remove('show'); SH = null; Nav.closed('sheet2'); }
 function wireSheet() {
   $('s2Close').onclick = $('s2Cancel').onclick = closeSheet;
   $('sheet2').addEventListener('click', e => { if (e.target.id === 'sheet2') closeSheet(); });

@@ -12,8 +12,9 @@ export const safeName = s => String(s || '').replace(/[\\/:*?"<>|]/g, '').replac
 
 let toastT;
 export function toast(m, ms) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', ms || 2800); }
-export function modal(html, wide) { const b = $('mbox'); b.innerHTML = html; b.classList.toggle('wide', !!wide); $('modal').classList.add('show'); return b; }
-export function closeModal() { $('modal').classList.remove('show'); }
+import * as Nav from './nav.js';
+export function modal(html, wide) { const b = $('mbox'); b.innerHTML = html; b.classList.toggle('wide', !!wide); if (!$('modal').classList.contains('show')) Nav.open('modal', () => $('modal').classList.remove('show')); $('modal').classList.add('show'); return b; }
+export function closeModal() { $('modal').classList.remove('show'); Nav.closed('modal'); }
 export function busy(msg) { const b = $('busy'); b.querySelector('span').textContent = msg; b.classList.add('show'); return { set: m => b.querySelector('span').textContent = m, done: () => b.classList.remove('show') }; }
 export function confirmBox(msg, okLabel) {
   return new Promise(res => {

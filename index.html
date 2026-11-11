@@ -13,7 +13,8 @@
 <body>
 <!-- Sign in -->
 <section id="scrSign" class="screen">
-  <div class="signbox">
+  <div class="signbox" id="signChecking"><img src="img/resero-navy.png" alt="Resero" class="slogo"><p class="muted" style="margin-top:14px"><span class="spin" style="display:inline-block;vertical-align:middle;margin-right:8px"></span>Checking your sign-in…</p></div>
+  <div class="signbox" id="signForm" style="display:none">
     <img src="img/resero-navy.png" alt="Resero" class="slogo">
     <h1>Defects</h1>
     <p class="muted">Defect registers, plans and handover schedules for Resero projects.</p>
@@ -56,6 +57,7 @@
       <div class="listmeta"><span id="lmeta"></span><span><select id="sort"><option value="id">Sort: ID</option><option value="upd">Sort: last updated</option><option value="loc">Sort: location</option><option value="sev">Sort: severity</option></select> <button id="clr">Clear</button></span></div>
       <div id="list"></div>
     </section>
+    <button id="listToggle" title="Hide the defects list">‹</button>
     <section id="planPane">
       <div class="plantabs" id="plantabs"></div>
       <div id="vp"></div>

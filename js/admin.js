@@ -3,6 +3,7 @@ import { S, can, saveLocal, withDefaults, unitList } from './state.js';
 import { DEFAULTS, ROLES, ROLE_HELP, APP } from './config.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, compressImage, dataUrlToBlob, natural, todayISO, loadScript, centroid, pointInPoly, polyArea } from './util.js';
 import { aiCall } from './ai.js';
+import * as Nav from './nav.js';
 
 let X = {};   // callbacks from app.js
 export function init(ctx) { X = ctx; }
@@ -145,11 +146,20 @@ function parsePages(s, max) { const o = []; s.split(/[,\s]+/).forEach(t => { con
 
 /* ================================================================ room boundaries */
 let ZE = null;
+export const zoneActive = () => !!ZE;
+// The plan is changing under the editor: offer to save, then re-open the editor on the new plan. Returns false to cancel the change.
+export async function zoneSwitch(newPlanId) {
+  if (!ZE) return true;
+  if (ZE.dirty) { const r = await confirmBox('Save the boundaries on ' + ZE.plan.name + ' before switching plans?', 'Save'); if (r) await save(); }
+  ZE.pendingPlan = newPlanId; return true;
+}
 export async function zoneEditor(PV) {
   if (!S.plans.length) { toast('Upload a plan first'); return plansDialog(); }
   X.setTab('plan');
   const plan = S.plans.find(p => p.id === S.curPlan) || S.plans[0]; if (plan.id !== S.curPlan) await X.showPlan(plan.id);
-  ZE = { PV, plan, zones: JSON.parse(JSON.stringify(plan.zones || [])), dirty: false, members: null };
+  if (!ZE) Nav.open('zones', () => { if (ZE) close(true); });
+  ZE = { PV, plan, zones: JSON.parse(JSON.stringify(plan.zones || [])), dirty: false, members: null, collapsed: ZE ? ZE.collapsed : false };
+  PV.selectZone(null);
   PV.setZones(ZE.zones); PV.setMode('zones');
   Object.assign(PV.o, {
     onDrawn: poly => { PV.setMode('zones'); zoneDetails({ id: uid(), kind: ZE.drawKind, poly, block: plan.block || '', level: plan.level || '' }, true); },
@@ -163,20 +173,24 @@ function membersOf(unitZone) { return ZE.zones.filter(z => z !== unitZone && z.k
 function panel() {
   const el = $('zonePanel'), PV = ZE.PV, z = PV.selZone, drawing = PV.mode === 'draw';
   const kindName = { unit: 'Unit outline', room: 'Room', area: 'Common area' };
-  el.innerHTML = `<h3>Room boundaries</h3>
+  if (ZE.pendingPlan && ZE.pendingPlan !== ZE.plan.id) { ZE.pendingPlan = null; return zoneEditor(PV); }
+  el.classList.toggle('collapsed', !!ZE.collapsed);
+  el.innerHTML = `<div class="zhead"><h3>Room boundaries: ${esc(ZE.plan.name)}</h3><button id="zMin" title="${ZE.collapsed ? 'Expand' : 'Minimise'}">${ZE.collapsed ? '▴' : '▾'}</button><button id="zDone" class="go">Done</button></div><div class="zbody">
   <label class="f">Plan<select id="zPlan">${S.plans.map(p => `<option value="${esc(p.id)}" ${p.id === ZE.plan.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
   ${drawing ? `<div class="zsel"><b>Drawing a ${kindName[ZE.drawKind].toLowerCase()}</b><p class="hint">Tap each corner in turn. Tap the first point (white) or press Finish to close it. Zoom in for accuracy.</p>
      <div class="zb"><button id="zUndo">↶ Undo last point</button><button class="go" id="zFin" ${(PV.draft || []).length < 3 ? 'disabled' : ''}>Finish</button><button id="zCan">Cancel</button></div></div>` : `
   <p class="hint">Draw each unit outline first, then the rooms inside it. Then use "Duplicate unit" to copy a finished unit, with all its rooms, to the next one and drag it into place.</p>
   <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button></div>
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
-     <p class="hint">Drag the red dots to adjust corners.</p>
+     <p class="hint">Drag a red dot to move that corner. Corners shared with neighbouring rooms move together.</p>
      <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
      ${z.kind === 'unit' ? '<button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
   <p class="muted small">${ZE.zones.filter(q => q.kind === 'unit').length} units, ${ZE.zones.filter(q => q.kind === 'room').length} rooms, ${ZE.zones.filter(q => q.kind === 'area').length} common areas on this plan${ZE.dirty ? ' · <b>unsaved changes</b>' : ''}</p>
-  <div class="zb"><button class="go" id="zSave">Save boundaries</button><button id="zClose">Close</button></div>`;
+  <div class="zb"><button class="go" id="zSave">Save boundaries</button><button id="zClose">Close without saving</button></div></div>`;
   el.classList.add('show');
   const on = (id, fn) => { if ($(id)) $(id).onclick = fn; };
+  on('zMin', () => { ZE.collapsed = !ZE.collapsed; panel(); });
+  on('zDone', async () => { if (ZE.dirty) await save(); close(); });
   on('zU', () => draw('unit')); on('zR', () => draw('room')); on('zA', () => draw('area'));
   on('zUndo', () => { PV.undoPoint(); panel(); }); on('zFin', () => PV.finishDraw()); on('zCan', () => { PV.setMode('zones'); panel(); });
   on('zEd', () => zoneDetails(z, false)); on('zMv', () => { PV.moveZone = !PV.moveZone; panel(); });
@@ -184,8 +198,8 @@ function panel() {
   on('zDup', () => { const c = copyZone(z, 0.02, 0.02, null); ZE.zones.push(c); after(c); });
   on('zDupU', () => { const nu = nextUnit(z.unit); const dx = Math.min(0.05, (Math.max(...z.poly.map(p => p[0])) - Math.min(...z.poly.map(p => p[0]))) * 1.05); const mem = membersOf(z); const cu = copyZone(z, dx, 0, nu); ZE.zones.push(cu); mem.forEach(m => ZE.zones.push(copyZone(m, dx, 0, m.unit ? nu : null))); after(cu, true); toast(`Copied as Unit ${nu}. Drag it into place (Move is on).`, 4000); });
   on('zSave', save); on('zClose', close);
-  $('zPlan').onchange = async e => { if (ZE.dirty && (await confirmBox('Save the boundaries on this plan first?', 'Save'))) await save(); else if (ZE.dirty) ZE.dirty = false; await X.showPlan(e.target.value); zoneEditor(ZE.PV); };
-  function after(c, move) { PV.setZones(ZE.zones); PV.selectZone(c); PV.moveZone = !!move || true; ZE.dirty = true; panel(); }
+  $('zPlan').onchange = async e => { await X.showPlan(e.target.value); };
+  function after(c, move) { PV.setZones(ZE.zones); PV.selectZone(c); PV.moveZone = !!move; ZE.dirty = true; panel(); }
 }
 function draw(kind) { ZE.drawKind = kind; ZE.PV.selectZone(null); ZE.PV.startDraw(); panel(); }
 function copyZone(z, dx, dy, unit) { const c = JSON.parse(JSON.stringify(z)); c.id = uid(); c.poly = c.poly.map(p => [p[0] + dx, p[1] + dy]); if (unit != null && (z.kind === 'unit' || z.unit)) c.unit = unit; return c; }
@@ -214,10 +228,12 @@ async function save() {
   const p = ZE.plan; p.zones = ZE.zones.map(z => ({ id: z.id, kind: z.kind, name: z.name || '', unit: z.unit || '', block: z.block || '', level: z.level || '', poly: z.poly.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)]) }));
   try { await S.store.savePlan(S.project.id, p); ZE.dirty = false; toast('Boundaries saved'); panel(); } catch (e) { toast('Could not save: ' + e.message, 5000); }
 }
-async function close() {
-  if (ZE.dirty && !(await confirmBox('Close without saving your boundary changes?', 'Close without saving'))) return;
+async function close(fromBack) {
+  if (!ZE) return;
+  if (ZE.dirty && !fromBack && !(await confirmBox('Close without saving your boundary changes?', 'Close without saving'))) return;
+  if (ZE.dirty && fromBack) { await save(); }
   const PV = ZE.PV; ['onDrawn', 'onZoneSelect', 'onDraftChange', 'onZoneDragStart', 'onZoneEdit'].forEach(k => delete PV.o[k]);
-  PV.selectZone(null); PV.setMode('view'); $('zonePanel').classList.remove('show'); ZE = null; await X.reloadProject();
+  PV.selectZone(null); PV.setMode('view'); $('zonePanel').classList.remove('show'); ZE = null; if (!fromBack) Nav.closed('zones'); await X.reloadProject();
 }
 
 /* ================================================================ import */

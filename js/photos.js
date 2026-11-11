@@ -1,6 +1,7 @@
 // Photos: upload with an offline outbox, and markup (pen / arrow / circle).
 import { S } from './state.js';
 import { $, uid, compressImage, dataUrlToBlob, loadImage, toast } from './util.js';
+import * as Nav from './nav.js';
 
 /* ---- outbox: photos taken with no signal are kept on the device and uploaded later ---- */
 let obdb;
@@ -53,7 +54,7 @@ export async function markup(src, onSave) {
   let im; try { im = await loadImage(src); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
   const c = $('mkc'); c.width = im.width; c.height = im.height;
   try { c.getContext('2d').drawImage(im, 0, 0); c.toDataURL(); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
-  MK = { im, strokes: [], tool: 'pen', cur: null, onSave }; draw(); $('mk').classList.add('show');
+  MK = { im, strokes: [], tool: 'pen', cur: null, onSave }; draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
 }
 function draw() {
   const c = $('mkc'), x = c.getContext('2d'); x.drawImage(MK.im, 0, 0); const lw = Math.max(4, c.width / 180);
@@ -74,6 +75,6 @@ export function initMarkup() {
   c.addEventListener('pointerup', () => { if (MK && MK.cur) { if (MK.cur.p.length > 1) MK.strokes.push(MK.cur); MK.cur = null; draw(); } });
   document.querySelectorAll('#mk [data-tool]').forEach(b => b.onclick = () => { MK.tool = b.dataset.tool; document.querySelectorAll('#mk [data-tool]').forEach(x => x.classList.toggle('on', x === b)); });
   $('mkUndo').onclick = () => { MK.strokes.pop(); draw(); };
-  $('mkCancel').onclick = () => { $('mk').classList.remove('show'); MK = null; };
-  $('mkSave').onclick = () => { const m = MK; $('mk').classList.remove('show'); MK = null; if (m.strokes.length) m.onSave(c.toDataURL('image/jpeg', 0.82)); };
+  $('mkCancel').onclick = () => { $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); };
+  $('mkSave').onclick = () => { const m = MK; $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); if (m.strokes.length) m.onSave(c.toDataURL('image/jpeg', 0.82)); };
 }

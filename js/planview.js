@@ -10,7 +10,7 @@ export class PlanView {
     this.mode = 'view'; this.draft = null; this.selZone = null; this.moveZone = false;
     vp.classList.add('planvp');
     vp.innerHTML = `<div class="inner"><img alt=""><svg class="zsvg" xmlns="${NS}"></svg><div class="pins"></div></div>
-      <div class="banner"></div><div class="zoombar"><button data-z="in">+</button><button data-z="out">−</button><button data-z="fit" title="Fit">⤢</button></div>
+      <div class="banner"></div><div class="zoombar"><button id="zfull" title="Full screen">⛶</button><button data-z="in">+</button><button data-z="out">−</button><button data-z="fit" title="Fit">⤢</button></div>
       <div class="pvempty">No plan uploaded yet</div>`;
     this.inner = vp.querySelector('.inner'); this.img = vp.querySelector('img'); this.svg = vp.querySelector('svg'); this.pinsEl = vp.querySelector('.pins'); this.bannerEl = vp.querySelector('.banner');
     vp.querySelectorAll('[data-z]').forEach(b => b.onclick = e => { e.stopPropagation(); const r = vp.getBoundingClientRect(); if (b.dataset.z === 'fit') this.fit(); else this.zoomAt(r.width / 2, r.height / 2, b.dataset.z === 'in' ? 1.4 : 1 / 1.4); });
@@ -25,7 +25,7 @@ export class PlanView {
       if (pts.size === 1) {
         st = { x: e.clientX, y: e.clientY, px: this.pv.x, py: this.pv.y, t: Date.now(), target: e.target }; moved = 0; drag = null;
         const v = e.target.closest && e.target.closest('[data-v]');
-        if (this.mode === 'zones' && v && this.selZone) drag = { kind: 'v', i: +v.dataset.v };
+        if (this.mode === 'zones' && v && this.selZone) { const i = +v.dataset.v, p0 = this.selZone.poly[i], tol = 7 / this.pv.s; const shared = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === this.selZone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) shared.push([z, j]); }); }); drag = { kind: 'v', i, shared }; }
         else if (this.mode === 'zones' && this.moveZone && this.selZone && this._zoneAt(e)?.id === this.selZone.id) { drag = { kind: 'z', start: this._norm(e), orig: this.selZone.poly.map(p => p.slice()) }; this.o.onZoneDragStart && this.o.onZoneDragStart(this.selZone); }
       } else if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: this.pv.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, px: this.pv.x, py: this.pv.y }; moved = 99; drag = null; }
     });
@@ -35,7 +35,7 @@ export class PlanView {
       if (pts.size !== 1 || !st) return;
       const dx = e.clientX - st.x, dy = e.clientY - st.y; moved = Math.max(moved, Math.hypot(dx, dy));
       if (moved <= 4) return;
-      if (drag && drag.kind === 'v') { const n = this._norm(e); this.selZone.poly[drag.i] = [n.x, n.y]; this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); }
+      if (drag && drag.kind === 'v') { const n = this._norm(e); this.selZone.poly[drag.i] = [n.x, n.y]; drag.shared.forEach(([z, j]) => { z.poly[j] = [n.x, n.y]; }); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); }
       else if (drag && drag.kind === 'z') { const n = this._norm(e), ddx = n.x - drag.start.x, ddy = n.y - drag.start.y; this.selZone.poly = drag.orig.map(p => [p[0] + ddx, p[1] + ddy]); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'z', ddx, ddy); this._drawZones(); }
       else { this.pv.x = st.px + dx; this.pv.y = st.py + dy; this.pv.user = 1; this._apply(); }
     });
@@ -85,7 +85,7 @@ export class PlanView {
       h += `<polygon class="${cls}${sel ? ' zsel' : ''}" data-zid="${esc(z.id)}" points="${pts}" style="stroke-width:${2 * inv}px"/>`;
       const c = centroidOf(z.poly), lab = z.kind === 'unit' ? 'Unit ' + (z.unit || '') : (z.name || '');
       if (lab && (this.mode !== 'view' || this.pv.s > this._minS() * 1.6)) h += `<text x="${c[0] * W}" y="${c[1] * H}" class="zl ${cls}t" style="font-size:${(z.kind === 'unit' ? 15 : 12) * inv}px">${esc(lab)}</text>`;
-      if (sel && this.mode === 'zones') z.poly.forEach((p, i) => { h += `<circle data-v="${i}" class="zv" cx="${p[0] * W}" cy="${p[1] * H}" r="${8 * inv}" style="stroke-width:${2 * inv}px"/>`; });
+      if (sel && this.mode === 'zones') z.poly.forEach((p, i) => { h += `<circle data-v="${i}" class="zvh" cx="${p[0] * W}" cy="${p[1] * H}" r="${22 * inv}"/><circle data-v="${i}" class="zv" cx="${p[0] * W}" cy="${p[1] * H}" r="${8 * inv}" style="stroke-width:${2 * inv}px"/>`; });
     });
     if (this.mode === 'draw' && this.draft && this.draft.length) {
       h += `<polyline class="zdraft" points="${this.draft.map(p => `${p[0] * W},${p[1] * H}`).join(' ')}" style="stroke-width:${2.5 * inv}px"/>`;

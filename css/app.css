@@ -67,7 +67,8 @@ main{flex:1;display:flex;min-height:0}
 .planvp .inner{position:absolute;left:0;top:0;transform-origin:0 0}
 .planvp img{display:block;user-select:none;-webkit-user-drag:none;pointer-events:none;background:#fff}
 .planvp .zsvg{position:absolute;left:0;top:0;overflow:visible}
-.planvp .pins{position:absolute;left:0;top:0;width:100%;height:100%}
+.planvp .pins{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.planvp .pins .pin{pointer-events:auto}
 .planvp .pvempty{display:none;position:absolute;inset:0;align-items:center;justify-content:center;color:var(--muted)}
 .planvp.noplan .pvempty{display:flex}.planvp.noplan .zoombar{display:none}
 .pin{position:absolute;transform:translate(-50%,-100%) scale(var(--inv,1));transform-origin:50% 100%;width:28px;height:36px;cursor:pointer}
@@ -80,7 +81,8 @@ main{flex:1;display:flex;min-height:0}
 .zsvg polygon.zsel{fill:rgba(255,235,59,.30);stroke:#d64545}
 .zsvg text.zl{text-anchor:middle;dominant-baseline:middle;font-weight:700;fill:#1e6f7a;paint-order:stroke;stroke:#fff;stroke-width:3px;pointer-events:none;font-family:Arial,sans-serif}
 .zsvg text.zut{fill:#011C35}.zsvg text.zat{fill:#8a5e00}
-.zsvg circle.zv{fill:#fff;stroke:#d64545;cursor:move}
+.zsvg circle.zv{fill:#fff;stroke:#d64545;cursor:move;pointer-events:none}
+.zsvg circle.zvh{fill:transparent;cursor:move}
 .zsvg polyline.zdraft{fill:none;stroke:#d64545}
 .zsvg circle.zdv{fill:#d64545;stroke:#fff}.zsvg circle.zdv.first{fill:#fff;stroke:#d64545}
 .zoombar{position:absolute;right:10px;bottom:14px;display:flex;flex-direction:column;gap:4px;z-index:5}
@@ -89,7 +91,17 @@ main{flex:1;display:flex;min-height:0}
 .banner.show{display:block}
 .banner button{margin-left:8px;background:#fff;color:var(--navy);border:0;border-radius:10px;padding:2px 9px;font-weight:600}
 /* zone panel */
-.zpanel{display:none;position:absolute;left:10px;top:52px;width:270px;max-height:calc(100% - 66px);overflow:auto;background:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:12px;z-index:7;font-size:13px}
+.zpanel{display:none;position:absolute;left:10px;top:52px;width:290px;max-height:calc(100% - 66px);overflow:auto;background:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:0 12px 12px;z-index:7;font-size:13px}
+.zpanel .zhead{display:flex;align-items:center;gap:6px;position:sticky;top:0;background:#fff;padding:10px 0 8px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.zpanel .zhead h3{flex:1;margin:0;font-size:13px}
+.zpanel .zhead button{padding:4px 9px;font-size:12px;text-align:center;flex:none}
+.zpanel.collapsed{max-height:none;width:auto;padding-bottom:0}.zpanel.collapsed .zbody{display:none}.zpanel.collapsed .zhead{border:0;margin:0}
+#listToggle{position:absolute;left:440px;top:50%;z-index:6;width:18px;height:48px;border:1px solid var(--line);border-left:0;background:#fff;border-radius:0 8px 8px 0;font-size:16px;color:var(--navy2);padding:0;transform:translateY(-50%)}
+main{position:relative}
+main.nolist #listPane{display:none}main.nolist #listToggle{left:0;border-left:0}main.nolist #listToggle:before{content:'›'}main.nolist #listToggle{font-size:0}main.nolist #listToggle:before{font-size:16px}
+#planPane.full{position:fixed;inset:0;z-index:28;background:#fff}
+#planPane.full .plantabs{padding-top:max(6px,env(safe-area-inset-top))}
+textarea{overflow:hidden}
 .zpanel.show{display:block}
 .zpanel h3{margin:0 0 8px;font-size:14px;color:var(--navy)}
 .zpanel .zb{display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:8px}
@@ -240,7 +252,8 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
   #toast{bottom:calc(140px + env(safe-area-inset-bottom))}
   .grid{grid-template-columns:1fr}
   .zoombar{bottom:90px}
-  .zpanel{left:6px;right:6px;width:auto;top:auto;bottom:6px;max-height:45%}
+  .zpanel{left:6px;right:6px;width:auto;top:auto;bottom:6px;max-height:55%}
+  #listToggle{display:none}
   .planrow{flex-wrap:wrap}.planrow .pi{grid-template-columns:1fr 1fr}
 }
 #dropov{position:fixed;inset:0;background:rgba(1,28,53,.55);z-index:90;display:none;align-items:center;justify-content:center;pointer-events:none}

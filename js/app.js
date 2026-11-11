@@ -11,6 +11,7 @@ import * as Admin from './admin.js';
 import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
 import { helpDialog, siteCheck } from './help.js';
+import * as Nav from './nav.js';
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -27,10 +28,11 @@ async function boot() {
   if (isDemo()) document.title = 'Resero Defects (demo)';
   $('sGoogle').onclick = async () => { try { await S.store.signInGoogle(); } catch (e) { $('sMsg').textContent = friendly(e); } };
   $('sLink').onclick = async () => { const e = $('sEmail').value.trim(); if (!/^\S+@\S+\.\S+$/.test(e)) { $('sMsg').textContent = 'Enter your email address first.'; return; } try { await S.store.sendLink(e); $('sMsg').innerHTML = 'Check your inbox for an email from Firebase / ' + esc(APP.name) + ', and open the link <b>on this device</b>.'; } catch (x) { $('sMsg').textContent = friendly(x); } };
+  show('scrSign');
   try { await S.store.completeLink(); } catch (e) { $('sMsg').textContent = friendly(e); }
   S.store.onAuth(async u => {
     S.user = u;
-    if (!u) { cleanupProject(); show('scrSign'); return; }
+    if (!u) { cleanupProject(); show('scrSign'); $('signChecking').style.display = 'none'; $('signForm').style.display = ''; return; }
     S.sup = await S.store.isSuper();
     try { const n = await S.store.claimInvites(); if (n) toast('You have been added to ' + n + ' project' + (n > 1 ? 's' : '')); } catch (e) { console.warn(e); }
     const last = S.local.lastProject;
@@ -140,9 +142,11 @@ function renderPlanTabs() {
   if ($('showZ')) { $('showZ').checked = !!S.local.showZones; $('showZ').onchange = e => { S.local.showZones = e.target.checked; saveLocal(); PV.setZonesVisible(e.target.checked); }; }
 }
 export async function showPlan(id, focus) {
+  if (Admin.zoneActive() && id !== S.curPlan) { if (!(await Admin.zoneSwitch(id))) return; }
   S.curPlan = id; const p = S.plans.find(x => x.id === id) || null;
   $('plantabs').querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === id));
   await PV.setPlan(p, p ? await imgUrl(p.img) : ''); PV.setZonesVisible(!!S.local.showZones);
+  if (Admin.zoneActive()) { await Admin.zoneEditor(PV); }
   renderPins(); if (isMobile() && focus) setTab('plan');
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));
 }
@@ -163,7 +167,7 @@ async function onPlace(x, y) {
   if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); }
   else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
 }
-export function setTab(t) { $('main').className = 'tab-' + t; document.querySelectorAll('#mtabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); if (t === 'plan') requestAnimationFrame(() => { if (!PV.pv.user) PV.fit(); }); }
+export function setTab(t) { if (t === 'plan' && isMobile() && !Nav.isOpen('plantab')) Nav.open('plantab', () => setTab('list')); if (t === 'list') Nav.closed('plantab'); $('main').className = 'tab-' + t; document.querySelectorAll('#mtabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); if (t === 'plan') requestAnimationFrame(() => { if (!PV.pv.user) PV.fit(); }); }
 // find a room boundary from a unit + room name (used after dictation, so the pin can be dropped automatically)
 function findZone(unit, room) {
   const r = String(room || '').toLowerCase().replace(/\s+\d+$/, '');
@@ -243,6 +247,7 @@ export function openEditor(d, isNew, isDraft) {
   drawLoc(); renderPhotos();
   $('edDel').style.display = isNew || !can.admin() ? 'none' : ''; $('edSave').style.display = ro ? 'none' : '';
   $('edCancel').textContent = ro ? 'Close' : 'Cancel';
+  if (!$('sheet').classList.contains('show')) Nav.open('editor', () => closeEditor());
   $('sheet').classList.add('show');
 }
 function aiStatus(m, err) { const s = $('aiSt'); if (s) { s.textContent = m || ''; s.style.color = err ? '#b00000' : ''; } if (err && m) toast(m, 5000); }
@@ -261,7 +266,7 @@ async function renderPhotos() {
   if ($('addph')) $('addph').onclick = () => $('fPhoto').click();
 }
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
-function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; }
+function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }
 async function saveEditor() {
   const d = collect(); const who = S.user.name, t = new Date().toISOString(), pid = S.project.id, newH = [];
   if (!d.title && !d.desc) { toast('Add a title or description first'); return; }
@@ -398,6 +403,10 @@ function wire() {
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = async () => { openEditor(await newDefect(), true, true); if ($('mic')) $('mic').click(); };
   $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
+  $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); S.local.noList = h; saveLocal(); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
+  if (S.local.noList) $('main').classList.add('nolist');
+  $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); requestAnimationFrame(() => PV.fit()); };
+  Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
   $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1);
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
