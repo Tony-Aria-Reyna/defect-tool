@@ -262,7 +262,11 @@ export function elevToFloor(ep, ex, ey) {
   const t = (ex - L.ea) / ((L.eb - L.ea) || 1), x = L.a[0] + t * (L.b[0] - L.a[0]), y = L.a[1] + t * (L.b[1] - L.a[1]);
   // nudge slightly inside the building so the point lands in the unit behind the face
   const dx = L.b[0] - L.a[0], dy = L.b[1] - L.a[1], len = Math.hypot(dx * fp.w, dy * fp.h) || 1; let nx = -dy * fp.h / len * 10 / fp.w, ny = dx * fp.w / len * 10 / fp.h;
-  const side = sgn => locate(fp.zones, x + sgn * nx * 3, y + sgn * ny * 3); if (!side(1) && side(-1)) { nx = -nx; ny = -ny; }
+  // pick the side of the face that is inside the building: a unit boundary there, else towards the centre of the units
+  const hitUnit = sgn => { const h = locate(fp.zones, x + sgn * nx * 3, y + sgn * ny * 3); return h && (h.unit || h.zone.kind === 'unit' || h.zone.kind === 'room'); };
+  const units = (fp.zones || []).filter(z => z.kind === 'unit' && z.poly && z.poly.length > 2), ctr = units.length ? units.flatMap(z => z.poly).reduce((a, p) => [a[0] + p[0] / (units.length * 4), a[1] + p[1] / (units.length * 4)], [0, 0]) : [0.5, 0.5];
+  const towards = ((ctr[0] - x) * nx + (ctr[1] - y) * ny) >= 0 ? 1 : -1;
+  const sgn = hitUnit(1) && !hitUnit(-1) ? 1 : hitUnit(-1) && !hitUnit(1) ? -1 : towards; nx *= sgn; ny *= sgn;
   return { planId: fp.id, x: Math.max(0, Math.min(1, x + nx * 3)), y: Math.max(0, Math.min(1, y + ny * 3)), face: [x, y] };
 }
 function applyZone(d, x, y, planId) {
