@@ -13,7 +13,7 @@ import { initDrop } from './dnd.js';
 import { helpDialog, siteCheck } from './help.js';
 import * as Nav from './nav.js';
 import { installDialog, maybeNag, canInstall } from './install.js';
-import { typicalList } from './typicals.js';
+import { typicalList, templateFrom } from './typicals.js';
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -43,7 +43,7 @@ async function boot() {
   S.store.onAuth(async u => {
     S.user = u;
     if (!u) { cleanupProject(); show('scrSign'); $('signChecking').style.display = 'none'; $('signForm').style.display = ''; return; }
-    S.sup = await S.store.isSuper();
+    S.sup = await S.store.isSuper(); S.store.getLibrary('typicals').then(L => { S.lib = L; });
     try { const n = await S.store.claimInvites(); if (n) toast('You have been added to ' + n + ' project' + (n > 1 ? 's' : '')); } catch (e) { console.warn(e); }
     const last = S.local.lastProject;
     if (last && (await openProject(last, true))) return;
@@ -492,11 +492,13 @@ function wire() {
 function typicalPicker() {
   const list = typicalList(S.project); const cur = collect(); const room = (cur.room || '').toLowerCase();
   const draw = q => { q = (q || '').toLowerCase(); const L = list.filter(x => !q || (x.t + ' ' + x.d + ' ' + x.tr + ' ' + (x.el || '')).toLowerCase().includes(q)); const rank = x => (room && x.r && room.includes(x.r.toLowerCase())) ? 0 : 1; L.sort((a, b) => rank(a) - rank(b) || a.tr.localeCompare(b.tr));
-    $('tpList').innerHTML = L.length ? L.map((x, i) => `<button class="tp" data-i="${list.indexOf(x)}"><b>${esc(x.t)}</b><small>${esc(x.tr)} · ${esc(x.s)}</small></button>`).join('') : '<p class="muted">Nothing matches. Type it in the title instead.</p>';
+    const tag = x => x.used ? `used ${x.used}× on this project` : x.src === 'library' ? 'Resero library' : x.src === 'project' ? 'this project' : '';
+    $('tpList').innerHTML = L.length ? L.map((x, i) => `<button class="tp" data-i="${list.indexOf(x)}"><b>${esc(x.t)}</b><small>${esc(x.tr)} · ${esc(x.s)}${tag(x) ? ' · ' + esc(tag(x)) : ''}</small></button>`).join('') : '<p class="muted">Nothing matches. Type it in the title instead.</p>';
     $('tpList').querySelectorAll('.tp').forEach(b => b.onclick = () => { const x = list[+b.dataset.i]; const body = $('edBody'), set = (n, v) => { const el = body.querySelector(`[name=${n}]`); if (!el || v == null) return; if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === v)) { const o = document.createElement('option'); o.textContent = v; el.appendChild(o); } el.value = v; el.classList.add('aifill'); };
       set('title', x.t); set('desc', x.d); set('action', x.a); set('trade', x.tr); set('type', x.ty); set('severity', x.s); set('element', x.el); if (x.r && !cur.room) set('room', x.r); collect(); Nav.refit(body); closeModal(); toast('Filled from typical defect; adjust as needed'); }); };
-  modal(`<h2>Typical defects</h2><input id="tpQ" placeholder="Search, e.g. paint, door, sealant" style="width:100%;margin-bottom:8px"><div class="btnlist" id="tpList" style="max-height:60vh;overflow:auto"></div><div class="act"><button id="tpX">Close</button></div>`);
-  $('tpX').onclick = closeModal; $('tpQ').oninput = e => draw(e.target.value); draw(''); setTimeout(() => $('tpQ').focus(), 50);
+  modal(`<h2>Typical defects</h2><input id="tpQ" placeholder="Search, e.g. paint, door, sealant" style="width:100%;margin-bottom:8px"><div class="btnlist" id="tpList" style="max-height:55vh;overflow:auto"></div><p class="note">Titles used two or more times on this project appear here automatically. ${cur.title ? '<a href="#" id="tpAdd">Save the current defect as a typical for all Resero projects</a>' : ''}</p><div class="act"><button id="tpX">Close</button></div>`);
+  $('tpX').onclick = closeModal;
+  if ($('tpAdd')) $('tpAdd').onclick = async ev => { ev.preventDefault(); const t = templateFrom(cur); try { await S.store.addToLibrary('typicals', t); (S.lib = S.lib || []).push(t); toast('Added "' + t.t + '" to the Resero typical defects library'); draw($('tpQ').value); } catch (e) { toast('Could not save to the library: ' + e.message, 5000); } }; $('tpQ').oninput = e => draw(e.target.value); draw(''); setTimeout(() => $('tpQ').focus(), 50);
 }
 function newDefectChooser() {
   modal(`<h2>New defect</h2><div class="btnlist">

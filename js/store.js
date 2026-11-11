@@ -59,6 +59,8 @@ async function firebaseStore() {
     async signInPassword(email, pw) { await U.signInWithEmailAndPassword(auth, email, pw); },
     async createPassword(email, pw) { try { await U.createUserWithEmailAndPassword(auth, email, pw); } catch (e) { if ((e.code || '') === 'auth/email-already-in-use') { await U.signInWithEmailAndPassword(auth, email, pw); } else throw e; } },
     async resetPassword(email) { await U.sendPasswordResetEmail(auth, email, { url: location.origin + location.pathname }); },
+    async getLibrary(name) { try { const s = await readDoc(D('library', name)); return s.exists() ? (s.data().items || []) : []; } catch (e) { return []; } },
+    async addToLibrary(name, item) { await localWrite(F.setDoc(D('library', name), { items: F.arrayUnion(JSON.parse(JSON.stringify(item))), updated: new Date().toISOString() }, { merge: true })); },
     async signOut() { await U.signOut(auth); },
     async isSuper() {
       if (superCache !== null) return superCache;
@@ -170,6 +172,7 @@ async function localStore() {
     get user() { return signed() ? user : null; },
     onAuth(cb) { authCb = cb; setTimeout(() => cb(signed() ? user : null), 0); return () => {}; },
     async signInGoogle() { localStorage.setItem('rd-demo-signed', '1'); authCb && authCb(user); },
+    async getLibrary(name) { return (await get('library/' + name)) || []; }, async addToLibrary(name, item) { const L = (await get('library/' + name)) || []; L.push(item); await put('library/' + name, L); },
     async sendLink() { await api.signInGoogle(); }, async signInPassword() { await api.signInGoogle(); }, async createPassword() { await api.signInGoogle(); }, async resetPassword() {},
     async completeLink() { return false; },
     async signOut() { localStorage.removeItem('rd-demo-signed'); authCb && authCb(null); },

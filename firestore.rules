@@ -25,6 +25,12 @@ service cloud.firestore {
       allow write: if false;            // edit in the Firebase console only
     }
 
+    // Shared library across all Resero projects (typical defects). Any signed-in user can read; editors add to it.
+    match /library/{doc} {
+      allow read: if signed();
+      allow write: if signed();
+    }
+
     match /invites/{inviteId} {
       allow read: if isAdmin(resource.data.pid) || (verified() && resource.data.email == myEmail());
       allow create, update: if isAdmin(request.resource.data.pid)

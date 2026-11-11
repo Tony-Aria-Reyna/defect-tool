@@ -62,4 +62,22 @@ export const TYPICALS = [
   { t: 'Shower screen / door leaking', d: 'Water escaping past the shower screen or door.', a: 'Adjust and reseal.', tr: 'Plumbing & drainage', ty: 'Workmanship / rework', s: 'Minor defect', el: 'Shower screen', r: 'Bathroom' },
   { t: 'Wardrobe shelf / rail loose', d: 'Wardrobe shelf or hanging rail not secure.', a: 'Refix.', tr: 'Joinery & kitchens', ty: 'Workmanship / rework', s: 'Minor defect', el: 'Wardrobe', r: 'Wardrobe' },
 ];
-export const typicalList = p => (p && Array.isArray(p.typicals) && p.typicals.length) ? p.typicals : TYPICALS;
+import { S } from './state.js';
+const norm = t => String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+// Typical defects = built-in list + the shared Resero library (grows as people save templates) + this project's own list
+// + titles that have already been used two or more times on this project (learned automatically).
+export function typicalList(p) {
+  const out = [], seen = new Set();
+  const add = (x, src) => { const k = norm(x.t); if (!k || seen.has(k)) return; seen.add(k); out.push({ ...x, src }); };
+  (S.lib || []).forEach(x => add(x, 'library'));
+  ((p && p.typicals) || []).forEach(x => add(x, 'project'));
+  TYPICALS.forEach(x => add(x, 'builtin'));
+  const groups = {};
+  (S.defects || []).forEach(d => { const k = norm(d.title); if (!k || k.startsWith('site note')) return; (groups[k] = groups[k] || []).push(d); });
+  Object.values(groups).filter(g => g.length >= 2).sort((a, b) => b.length - a.length).forEach(g => { const d = g[g.length - 1]; const mode = f => { const c = {}; g.forEach(x => { if (x[f]) c[x[f]] = (c[x[f]] || 0) + 1; }); return Object.entries(c).sort((a, b) => b[1] - a[1]).map(e => e[0])[0] || ''; };
+    const k = norm(d.title); if (seen.has(k)) { const e = out.find(x => norm(x.t) === k); if (e) e.used = g.length; return; }
+    add({ t: d.title, d: mode('desc'), a: mode('action'), tr: mode('trade'), ty: mode('type'), s: mode('severity'), el: mode('element'), r: mode('room'), used: g.length }, 'learned'); });
+  return out;
+}
+export const typicalTitles = p => typicalList(p).map(x => x.t);
+export function templateFrom(d) { return { t: d.title, d: d.desc || '', a: d.action || '', tr: d.trade || '', ty: d.type || '', s: d.severity || '', el: d.element || '', r: d.room || '' }; }
