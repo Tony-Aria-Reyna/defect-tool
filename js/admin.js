@@ -132,22 +132,22 @@ export async function renderPlanFile(f, pagesWanted) {
 export async function linkElevation(ep) {
   const floors = S.plans.filter(q => q.id !== ep.id && q.kind !== 'elevation'); if (!floors.length) return toast('Upload the floor plan first');
   const existing = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []);
-  modal(`<h2>Link elevation: ${esc(ep.name)}</h2><p>Pins dropped on this elevation will also appear on the floor plan, and the report will show both. A sheet can carry several elevations (east above west, say): link each one in turn. You will tap the top-left and bottom-right of the elevation on the sheet, then the two ends of its building face on the floor plan, then the same two ends on the elevation.</p>${existing.length ? '<p class="note">Linked so far: ' + existing.map(l => esc(l.face || 'face')).join(', ') + '. Adding another keeps those.</p>' : ''}
+  modal(`<h2>Link elevation: ${esc(ep.name)}</h2><p>Pins dropped on this elevation will also appear on the floor plan, and the report will show both. Link one <b>face and storey</b> at a time: for a two-storey building, link the ground floor band of the east elevation to the ground floor plan, then the first floor band to the first floor plan, and so on for each face. You will tap the top-left and bottom-right of that storey's band on the elevation, then the two ends of the face on the floor plan, then the same two ends on the elevation.</p>${existing.length ? '<p class="note">Linked so far: ' + existing.map(l => esc(l.face || 'face') + ' → ' + esc((S.plans.find(q => q.id === l.planId) || {}).name || '?')).join('; ') + '. Adding another keeps those.</p>' : ''}
     <label class="f">Floor plan this elevation belongs to<select id="leF">${floors.map(f => `<option value="${esc(f.id)}" ${ep.link && ep.link.planId === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
-    <label class="f">Which face (for the record)<input id="leN" value="${esc(ep.face || '')}" placeholder="e.g. West elevation"></label>
+    <label class="f">Face and storey<input id="leN" value="" placeholder="e.g. East, ground floor"></label>
     <div class="act"><button id="leX">Cancel</button><button class="go" id="leGo">Start tapping</button></div>`);
   $('leX').onclick = closeModal;
   $('leGo').onclick = async () => {
     const fid = $('leF').value, face = $('leN').value.trim(); closeModal(); if (ZE) await close(true);
-    const t1 = await X.pickPoint(ep.id, 'On this sheet: tap the TOP-LEFT corner of the ' + (face || 'elevation') + ' drawing'); if (!t1) return;
-    const t2 = await X.pickPoint(ep.id, 'Now tap the BOTTOM-RIGHT corner of the same drawing'); if (!t2) return;
+    const t1 = await X.pickPoint(ep.id, 'Elevation: tap the TOP-LEFT of the ' + (face || 'storey') + ' band (top of that storey, left end of the face)'); if (!t1) return;
+    const t2 = await X.pickPoint(ep.id, 'Elevation: now tap the BOTTOM-RIGHT of the same band (floor level of that storey, right end of the face)'); if (!t2) return;
     const a = await X.pickPoint(fid, 'Floor plan: tap the LEFT end of the ' + (face || 'elevation') + ' face (as seen on the elevation)'); if (!a) return;
     const b = await X.pickPoint(fid, 'Floor plan: now tap the RIGHT end of the same face'); if (!b) return;
     const ea = await X.pickPoint(ep.id, 'Elevation: tap the LEFT end of the building face'); if (!ea) return;
     const eb = await X.pickPoint(ep.id, 'Elevation: tap the RIGHT end of the building face'); if (!eb) return;
     if (Math.abs(eb.x - ea.x) < 0.02) return toast('The two elevation points are too close together; try again');
     const link = { planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], a: [a.x, a.y], b: [b.x, b.y], ea: ea.x, eb: eb.x };
-    const { link: _old, ...rest } = ep; const links = existing.filter(l => l.face !== face || !face); links.push(link);
+    const { link: _old, ...rest } = ep; const links = existing.filter(l => !(l.face === face && l.planId === fid) && !(l.planId === fid && Math.abs((l.band ? (l.band[0] + l.band[1]) / 2 : -1) - (link.band[0] + link.band[1]) / 2) < 0.02)); links.push(link);
     await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
     toast('Linked. Pins on this elevation now land on ' + (floors.find(f => f.id === fid) || {}).name + ' as well.', 6000);
   };
