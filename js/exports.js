@@ -91,19 +91,20 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
       ty -= 4; wrap(d.desc || '', f, 8.5, colW).slice(0, 9).forEach(l => { txt(dpg, l, M + 8, ty, 8.5); ty -= 10.5; });
       if (d.action) { ty -= 3; wrap('Action: ' + d.action, fb, 8.5, colW).slice(0, 4).forEach(l => { txt(dpg, l, M + 8, ty, 8.5, fb); ty -= 10.5; }); }
       const ph = (d.photos || []).filter(p => p.url).slice(0, 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
+      const snips = []; { const p1 = d.plan && ctx.plans.find(p => p.id === d.plan); if (p1 && d.x != null) snips.push({ p: p1, x: d.x, y: d.y }); const p2 = d.plan2 && ctx.plans.find(p => p.id === d.plan2); if (p2 && d.x2 != null) snips.push({ p: p2, x: d.x2, y: d.y2 }); }
+      const snip = async (sp, sx, sw, sh) => { try { const im = await getPlanImg(sp.p); const zoomDiv = sp.p.kind === 'elevation' ? 4 : 3; const sc = Math.min(sw / (im.width / zoomDiv), sh / (im.height / zoomDiv)), cw = sw / sc, ch = sh / sc;
+          let cx = sp.x * im.width - cw / 2, cy = sp.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
+          const ox = sx - cx * sc, oy = by + sh - (im.height - cy) * sc + (im.height - cy) * sc - (ch) * sc; const oy2 = by - (im.height - cy - ch) * sc;
+          dpg.pushOperators(P.pushGraphicsState(), P.rectangle(sx, by, sw, sh), P.clip(), P.endPath()); dpg.drawImage(im, { x: ox, y: oy2, width: im.width * sc, height: im.height * sc }); dpg.pushOperators(P.popGraphicsState());
+          const px = sx + (sp.x * im.width - cx) * sc, py = by + sh - (sp.y * im.height - cy) * sc;
+          dpg.drawCircle({ x: px, y: py, size: 7, color: hex(SCOL[d.status] || '#666'), borderColor: P.rgb(1, 1, 1), borderWidth: 1.2 }); dpg.drawRectangle({ x: sx, y: by, width: sw, height: sh, borderColor: LINE, borderWidth: 0.5 }); txt(dpg, (sp.p.kind === 'elevation' ? 'On ' : 'Location on ') + (sp.p.code || sp.p.name), sx, by - 10, 7.5, f, GREY); } catch (e) { txt(dpg, 'Plan could not be loaded', sx, by + sh / 2, 8, f, GREY); } };
+      const photoW = ph.length ? (snips.length ? aw * 0.58 : aw) : 0, snipW = aw - photoW - (ph.length && snips.length ? 8 : 0);
       if (ph.length) {
-        const gw = (aw - (ph.length - 1) * 6) / ph.length;
+        const gw = (photoW - (ph.length - 1) * 6) / ph.length;
         for (let i = 0; i < ph.length; i++) { try { const im = await embedAny(doc, await ctx.getBytes(ph[i].url)); const s = Math.min(gw / im.width, ah / im.height); dpg.drawImage(im, { x: ax + i * (gw + 6) + (gw - im.width * s) / 2, y: by + (ah - im.height * s) / 2, width: im.width * s, height: im.height * s }); } catch (e) { txt(dpg, 'Photo could not be loaded', ax + i * (gw + 6), by + ah / 2, 8, f, GREY); } }
-        const p = d.plan && ctx.plans.find(p => p.id === d.plan); if (p) txt(dpg, 'Pinned on ' + (p.code || p.name), M + 8, top - half + 16, 7.5, f, GREY);
-      } else {
-        const p = ctx.plans.find(p => p.id === d.plan);
-        if (p) { const im = await getPlanImg(p); const s = Math.min(aw / (im.width / 3), ah / (im.height / 3)), cw = aw / s, ch = ah / s;
-          let cx = d.x * im.width - cw / 2, cy = d.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
-          const ox = ax - cx * s, oy = top - 24 - (im.height - cy) * s;
-          dpg.pushOperators(P.pushGraphicsState(), P.rectangle(ax, by, aw, ah), P.clip(), P.endPath()); dpg.drawImage(im, { x: ox, y: oy, width: im.width * s, height: im.height * s }); dpg.pushOperators(P.popGraphicsState());
-          const px = ax + (d.x * im.width - cx) * s, py = top - 24 - (d.y * im.height - cy) * s;
-          dpg.drawCircle({ x: px, y: py, size: 7, color: hex(SCOL[d.status] || '#666'), borderColor: P.rgb(1, 1, 1), borderWidth: 1.2 }); dpg.drawRectangle({ x: ax, y: by, width: aw, height: ah, borderColor: LINE, borderWidth: 0.5 }); txt(dpg, 'Location on ' + (p.code || p.name), ax, by - 10, 7.5, f, GREY); }
+        const p = d.plan && ctx.plans.find(p => p.id === d.plan); if (p && !snips.length) txt(dpg, 'Pinned on ' + (p.code || p.name), M + 8, top - half + 16, 7.5, f, GREY);
       }
+      if (snips.length) { const sx0 = ax + photoW + (ph.length ? 8 : 0), each = (snipW - (snips.length - 1) * 6) / snips.length; for (let i = 0; i < snips.length; i++) await snip(snips[i], sx0 + i * (each + 6), each, ah); }
       slot++;
     }
   }

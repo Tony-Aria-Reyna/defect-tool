@@ -201,7 +201,7 @@ export async function render() {
 }
 function renderPins() {
   if (!PV || !S.project) return; const ids = new Set(filtered().map(d => d.id));
-  PV.setPins(S.defects.filter(d => d.plan === S.curPlan && d.x != null && ids.has(d.id)).map(d => ({ id: d.id, x: d.x, y: d.y, colour: SCOL[d.status] || '#999', label: pinLabel(d), sel: S.sel === d.id, title: d.id + ' ' + (d.title || '') })));
+  PV.setPins(S.defects.filter(d => ((d.plan === S.curPlan && d.x != null) || (d.plan2 === S.curPlan && d.x2 != null)) && ids.has(d.id)).map(d => ({ id: d.id, x: d.plan === S.curPlan ? d.x : d.x2, y: d.plan === S.curPlan ? d.y : d.y2, colour: SCOL[d.status] || '#999', label: pinLabel(d), sel: S.sel === d.id, title: d.id + ' ' + (d.title || '') })));
 }
 
 /* ================================================================ plans */
@@ -231,8 +231,8 @@ export async function showPlan(id, focus) {
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));
 }
 function startPlacing(pl) {
-  placing = pl; PV.setMode('place', (pl.mode === 'new' ? 'Tap the plan where the defect is' : 'Tap the plan to set the location of ' + esc(pl.draft.id)) + '<button id="bnC">Cancel</button>');
-  $('bnC').onclick = () => { const p = placing; stopPlacing(); if (p && p.draft) openEditor(p.draft, p.isNew, true); };
+  placing = pl; PV.setMode('place', (pl.mode === 'pick' ? esc(pl.banner || 'Tap the point') : pl.mode === 'new' ? 'Tap the plan where the defect is' : 'Tap the plan to set the location of ' + esc(pl.draft.id)) + '<button id="bnC">Cancel</button>');
+  $('bnC').onclick = () => { const p = placing; stopPlacing(); if (p && p.mode === 'pick') p.resolve(null); else if (p && p.draft) openEditor(p.draft, p.isNew, true); };
   if ($('bPin')) { $('bPin').classList.add('on'); $('bPin').textContent = '✕ Cancel pin'; }
 }
 function stopPlacing() { placing = null; PV.setMode('view'); if ($('bPin')) { $('bPin').classList.remove('on'); $('bPin').textContent = '📍 Add pin'; } }
@@ -245,8 +245,26 @@ export function planViews(p) {
   return v;
 }
 export const VIEW_TYPES = [['ceiling', 'Ceiling plan (RCP)', 'Ceiling'], ['walls', 'Wall plan / internal elevations', 'Wall'], ['cladding', 'Cladding / external elevations', 'Exterior cladding'], ['roof', 'Roof plan', 'Roof'], ['services', 'Services plan', 'Services'], ['joinery', 'Joinery / fit-out plan', 'Joinery']];
+// Elevation -> floor plan mapping. An elevation plan carries link = { planId, a:[x,y], b:[x,y], ea, eb }: points a and b on the floor
+// plan are the two ends of the building face, ea/eb the same two points as x fractions on the elevation image.
+export function elevToFloor(ep, ex, ey) {
+  const links = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []);
+  const L = links.find(l => l.band ? (ey >= l.band[0] && ey <= l.band[1]) : true) || links[0]; if (!L || !L.planId) return null; const fp = S.plans.find(q => q.id === L.planId); if (!fp) return null;
+  const t = (ex - L.ea) / ((L.eb - L.ea) || 1), x = L.a[0] + t * (L.b[0] - L.a[0]), y = L.a[1] + t * (L.b[1] - L.a[1]);
+  // nudge slightly inside the building so the point lands in the unit behind the face
+  const dx = L.b[0] - L.a[0], dy = L.b[1] - L.a[1], len = Math.hypot(dx * fp.w, dy * fp.h) || 1; let nx = -dy * fp.h / len * 10 / fp.w, ny = dx * fp.w / len * 10 / fp.h;
+  const side = sgn => locate(fp.zones, x + sgn * nx * 3, y + sgn * ny * 3); if (!side(1) && side(-1)) { nx = -nx; ny = -ny; }
+  return { planId: fp.id, x: Math.max(0, Math.min(1, x + nx * 3)), y: Math.max(0, Math.min(1, y + ny * 3)), face: [x, y] };
+}
 function applyZone(d, x, y, planId) {
   const p = S.plans.find(q => q.id === planId); d.plan = planId; d.x = x; d.y = y;
+  if (p.kind === 'elevation') {
+    const m = elevToFloor(p, x, y); d.surface = d.surface && d.surface !== 'Floor' ? d.surface : 'Exterior cladding';
+    if (m) { d.plan2 = m.planId; d.x2 = m.x; d.y2 = m.y; const fp = S.plans.find(q => q.id === m.planId), hit = locate(fp.zones, m.x, m.y); d.block = p.block || fp.block || d.block; d.level = p.level || d.level || fp.level; if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (!d.level && hit.level) d.level = hit.level; } d.zoneHit = [hit && hit.unit && 'Unit ' + hit.unit, hit && hit.room, d.surface, 'also pinned on ' + fp.name].filter(Boolean).join(', '); }
+    else { d.plan2 = null; d.block = p.block || d.block; d.level = p.level || d.level; d.zoneHit = d.surface + ' (elevation not linked to a floor plan yet)'; }
+    return;
+  }
+  d.plan2 = null;
   const hit = locate(p.zones, x, y);
   const cv = planViews(p).find(v => v.key === ((S.view || {})[planId] || 'floor')); if (cv && cv.key !== 'floor') d.surface = cv.surface; else if (!d.surface) d.surface = p.surface || 'Floor';
   if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (hit.item) d.item = hit.item; else if (hit.room) d.item = d.item || ''; d.block = hit.block || p.block || d.block; d.level = hit.level || p.level || d.level; d.zoneHit = [hit.unit && 'Unit ' + hit.unit, hit.room, hit.item, d.surface].filter(Boolean).join(', '); }
@@ -254,9 +272,12 @@ function applyZone(d, x, y, planId) {
 }
 async function onPlace(x, y) {
   const pl = placing; stopPlacing();
+  if (pl.mode === 'pick') { pl.resolve({ x, y }); return; }
   if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); }
   else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
 }
+// Ask the user to tap one point on a plan (used when linking an elevation to a floor plan).
+export function pickPoint(planId, banner) { return new Promise(resolve => { setTab('plan'); showPlan(planId).then(() => startPlacing({ mode: 'pick', resolve, banner })); }); }
 export function setTab(t) { if (t === 'plan' && isMobile() && !Nav.isOpen('plantab')) Nav.open('plantab', () => setTab('list')); if (t === 'list') Nav.closed('plantab'); $('main').className = 'tab-' + t; document.querySelectorAll('#mtabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); if (t === 'plan') requestAnimationFrame(() => { if (!PV.pv.user) PV.fit(); }); }
 // find a room boundary from a unit + room name (used after dictation, so the pin can be dropped automatically)
 function findZone(unit, room) {
@@ -409,7 +430,7 @@ async function saveEditor() {
       await S.store.createDefect(pid, rec);
     } else {
       const o = ED.orig || {}, patch = {}, ch = [];
-      const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'transcript', 'aiPending'];
+      const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending'];
       if (ED.wfLabel) { ch.push(ED.wfLabel.toLowerCase()); }
       if (o.aiReview && !can.contractor()) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
@@ -565,7 +586,7 @@ function openMenu() {
 /* ================================================================ wiring */
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } } });
-  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES });
+  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));

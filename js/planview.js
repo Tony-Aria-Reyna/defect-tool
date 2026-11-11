@@ -139,7 +139,9 @@ export class PlanView {
     this.img.width = plan.w; this.img.height = plan.h; this.inner.style.width = plan.w + 'px'; this.inner.style.height = plan.h + 'px';
     this.svg.setAttribute('viewBox', `0 0 ${plan.w} ${plan.h}`); this.svg.setAttribute('width', plan.w); this.svg.setAttribute('height', plan.h);
     if (this.img.dataset.src !== url) { this.img.dataset.src = url; const im = this.img; if (/^https?:/.test(url) && !url.startsWith(location.origin)) { im.crossOrigin = 'anonymous'; im.onerror = () => { im.onerror = null; im.removeAttribute('crossorigin'); im.src = url; }; } else im.removeAttribute('crossorigin'); im.src = url; }
-    this.zones = plan.zones || []; this.selZone = null; this.pv.user = 0; requestAnimationFrame(() => this.fit()); this._drawPins(); this._drawZones();
+    const keepView = this.pv.user && this.plan && this._lastSize && this._lastSize[0] === plan.w && this._lastSize[1] === plan.h;   // same sheet size: keep the zoom and position
+    this._lastSize = [plan.w, plan.h];
+    this.zones = plan.zones || []; this.selZone = null; if (!keepView) { this.pv.user = 0; requestAnimationFrame(() => this.fit()); } else this._apply(); this._drawPins(); this._drawZones();
   }
   setPins(pins) { this.pins = pins; this._drawPins(); }
   _drawPins() {
