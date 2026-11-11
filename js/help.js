@@ -10,7 +10,7 @@ RESERO DEFECTS: HOW TO USE IT ON SITE
 
 Raising a defect
 - Tap the round + button (bottom right) and choose Dictate, Take a photo, Pin on the plan, or Type it.
-- Dictate: say the defect the way you would to a colleague: where it is, what is wrong, who fixes it, by when. Tap the mic again to stop. Gemini fills in the form; anything it changed flashes yellow. Check it, then Save.
+- Dictate: press and hold the microphone, say the defect the way you would to a colleague (where it is, what is wrong, who fixes it, by when), then let go. Gemini fills in the form and clears the note; anything it changed flashes yellow. Check it, then Save.
 - Or tap + New (desktop) and type.
 - Several defects in one breath is fine: the first fills the form and the others appear under "more defects heard" with a button to add them.
 - If the mic does not work (common on iPhone when the app is opened from the home screen): tap in the text box and use the microphone key on your keyboard, then tap "Interpret with Gemini".

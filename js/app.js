@@ -4,7 +4,7 @@ import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate } from './util.js';
 import { PlanView } from './planview.js';
-import { dictate, stopDictation, aiCall, aiPrompt } from './ai.js';
+import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt } from './ai.js';
 import { newPhoto, uploadPhotos, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
 import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel } from './exports.js';
 import * as Admin from './admin.js';
@@ -199,8 +199,8 @@ export function openEditor(d, isNew, isDraft) {
   const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status) : p.statuses;
   $('edBody').innerHTML = `
   ${!ro && !con ? `<div class="dict">
-    <div class="row1"><button class="mic" id="mic" title="Dictate"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
-    <textarea id="dt" placeholder="Tap the mic and say it how you would on site, e.g. &quot;Unit 7 bathroom, silicone to the shower tray is patchy and there's a gap behind the vanity, contractor to redo before handover&quot;">${esc(w.transcript || '')}</textarea></div>
+    <div class="row1"><button class="mic" id="mic" title="Hold to talk"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
+    <textarea id="dt" placeholder="Hold the mic and say it how you would on site, e.g. &quot;Unit 7 bathroom, silicone to the shower tray is patchy and there's a gap behind the vanity, contractor to redo before handover&quot;">${esc(w.transcript || '')}</textarea></div>
     <div class="row2"><button class="ai" id="aiGo">✨ Interpret with Gemini</button><label><input type="checkbox" id="aiPh" checked> include first photo</label><span id="aiSt" class="muted"></span></div>
     <div class="ainote" id="aiNote"></div></div>` : ''}
   ${con ? '<p class="note muted small">As the contractor you can update the status, add photos and add comments. Other changes are made by the project team.</p>' : ''}
@@ -240,7 +240,7 @@ export function openEditor(d, isNew, isDraft) {
   ${w.ext ? `<details class="ext"><summary>Original record (${esc(w.extRef || w.source)})</summary>${Object.entries(w.ext).filter(e => e[1]).map(([k, v]) => `<p><b>${esc(k)}:</b> ${esc(v)}</p>`).join('')}</details>` : ''}`;
   const body = $('edBody');
   body.querySelector('[name=unit]').onchange = e => { const u = unitInfo(e.target.value); if (u) { if (u.block) body.querySelector('[name=block]').value = u.block; if (u.level) body.querySelector('[name=level]').value = u.level; } };
-  if ($('mic')) { $('mic').onclick = () => dictate($('dt'), $('mic'), aiStatus, () => { if (S.local.autoAI !== false) interpret(); }); $('aiGo').onclick = interpret; }
+  if ($('mic')) { holdToTalk($('mic'), () => dictate($('dt'), $('mic'), aiStatus, () => { if (S.local.autoAI !== false) interpret(); })); $('aiGo').onclick = interpret; }
   if ($('setPin')) $('setPin').onclick = () => { collect(); const pl = { mode: 'edit', draft: ED.d, isNew: ED.isNew }; const tgt = ED.d.plan || (S.plans.find(x => x.block === ED.d.block && x.level === ED.d.level) || {}).id || S.curPlan; closeEditor(true); showPlan(tgt); setTab('plan'); startPlacing(pl); };
   if ($('clrPin')) $('clrPin').onclick = () => { collect(); ED.d.plan = ''; ED.d.x = ED.d.y = null; ED.d.zoneHit = ''; openEditor(ED.d, ED.isNew, true); };
   if ($('goPin')) $('goPin').onclick = () => { const d = ED.d; closeEditor(); showPlan(d.plan, d); setTab('plan'); };
@@ -318,7 +318,7 @@ async function interpret() {
     if (qs.length) h += '<b>Check:</b> ' + qs.map(esc).join(' · ');
     if (extra.length) h += (h ? '<br>' : '') + `<b>${extra.length} more defect${extra.length > 1 ? 's' : ''} heard:</b> ` + extra.map(x => esc(x.title)).join(' · ') + `<br><button id="aiMore">Add ${extra.length > 1 ? 'them' : 'it'} as separate defect${extra.length > 1 ? 's' : ''}</button>`;
     if (h) { $('aiNote').innerHTML = h; $('aiNote').classList.add('show'); if ($('aiMore')) $('aiMore').onclick = () => addExtra(extra); }
-    aiStatus('Filled in. Check and save.');
+    $('dt').value = ''; $('dt').dispatchEvent(new Event('input')); aiStatus('Filled in. Check and save.');
   } catch (e) { if (e.message === 'nokey') { aiStatus(''); Admin.aiSettings('Set up Gemini to use the interpreter.'); } else aiStatus(e.message, true); }
   finally { btn.disabled = false; }
 }

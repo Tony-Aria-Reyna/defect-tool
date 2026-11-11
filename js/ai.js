@@ -2,20 +2,40 @@
 import { S, saveLocal, unitList } from './state.js';
 import { todayISO } from './util.js';
 
-let REC = null;
+let REC = null, HOLD = null;
+// Hold-to-talk dictation. Each recognition session is a single utterance (continuous=false) and is restarted
+// while the button is held: this avoids the Android Chrome bug where continuous mode repeats earlier phrases.
 export function dictate(ta, btn, status, onEnd) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (REC) { REC.stop(); return; }
   if (!SR) { status('Live dictation is not available in this browser. Tap the text box and use the microphone on your keyboard.', true); ta.focus(); return; }
-  const r = new SR(); REC = r; r.lang = 'en-NZ'; r.continuous = true; r.interimResults = true;
-  const base = ta.value ? ta.value.trim() + ' ' : ''; let fin = '';
-  r.onresult = e => { let im = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) fin += t.trim() + ' '; else im += t; } ta.value = base + fin + im; };
-  r.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') status('Microphone: ' + e.error + (e.error === 'not-allowed' ? ' (allow the microphone for this site)' : ''), true); };
-  r.onend = () => { REC = null; btn.classList.remove('rec'); status(''); if (ta.value.trim() && ta.value.trim() !== base.trim()) onEnd && onEnd(); };
-  try { r.start(); btn.classList.add('rec'); status('Listening… tap the mic again to finish'); } catch (e) { REC = null; status('Could not start the microphone', true); }
+  if (REC) { endDictation(); return; }
+  const base = ta.value ? ta.value.trim() + ' ' : '';
+  REC = { ta, btn, status, onEnd, base, done: '', r: null, stopping: false };
+  btn.classList.add('rec'); status('Listening… let go when you have finished');
+  spin();
 }
-export function stopDictation() { if (REC) { REC.onend = null; try { REC.stop(); } catch (e) {} REC = null; } }
-
+function spin() {
+  const R = REC; if (!R || R.stopping) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const r = new SR(); R.r = r; r.lang = 'en-NZ'; r.continuous = false; r.interimResults = true;
+  let cur = '';
+  r.onresult = e => { cur = ''; for (let i = 0; i < e.results.length; i++) cur += e.results[i][0].transcript; R.ta.value = (R.base + R.done + cur).replace(/\s+/g, ' '); R.ta.dispatchEvent(new Event('input')); };
+  r.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') R.status('Microphone: ' + e.error + (e.error === 'not-allowed' ? ' (allow the microphone for this site)' : ''), true); };
+  r.onend = () => { if (cur.trim()) R.done += cur.trim() + ' '; cur = ''; R.ta.value = (R.base + R.done).trim(); if (R.stopping) finish(); else spin(); };
+  try { r.start(); } catch (e) { R.status('Could not start the microphone', true); finish(); }
+}
+function finish() { const R = REC; if (!R) return; REC = null; R.btn.classList.remove('rec'); R.status(''); const v = R.ta.value.trim(); if (v && v !== R.base.trim()) R.onEnd && R.onEnd(); }
+export function endDictation() { if (!REC) return; REC.stopping = true; try { REC.r && REC.r.stop(); } catch (e) { finish(); } }
+export function stopDictation() { if (REC) { const r = REC.r; REC = null; if (r) { r.onend = null; try { r.stop(); } catch (e) {} } } }
+// Wire a button for press-and-hold (a short tap toggles instead, for desktop).
+export function holdToTalk(btn, start) {
+  let t0 = 0, pid = null;
+  btn.onclick = null;
+  btn.onpointerdown = e => { e.preventDefault(); pid = e.pointerId; try { btn.setPointerCapture(pid); } catch (x) {} t0 = Date.now(); if (!REC) start(); else endDictation(); };
+  const up = e => { if (pid === null) return; pid = null; if (Date.now() - t0 > 350 && REC) endDictation(); };
+  btn.onpointerup = up; btn.onpointercancel = up;
+  btn.oncontextmenu = e => e.preventDefault();
+}
 // Gemini call: through the project's Apps Script helper if set, otherwise with a personal key kept on this device.
 export async function aiCall(prompt, imgDataUrl) {
   const data = imgDataUrl ? imgDataUrl.split(',')[1] : null;

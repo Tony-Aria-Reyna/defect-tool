@@ -130,6 +130,7 @@ textarea{overflow:hidden}
 .dict .row1{display:flex;gap:8px;align-items:flex-start}
 .mic{width:52px;height:52px;border-radius:50%;border:0;background:var(--navy);color:#fff;flex:none;display:flex;align-items:center;justify-content:center}
 .mic svg{width:24px;height:24px}
+.mic{touch-action:none;user-select:none;-webkit-user-select:none}
 .mic.rec{background:#d64545;animation:pulse 1.2s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(214,69,69,.6)}70%{box-shadow:0 0 0 12px rgba(214,69,69,0)}100%{box-shadow:0 0 0 0 rgba(214,69,69,0)}}
 .dict textarea{flex:1;min-height:70px;border:1px solid #bfe6eb;border-radius:8px;padding:8px;resize:vertical;background:#fff}
