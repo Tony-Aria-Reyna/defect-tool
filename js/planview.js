@@ -62,7 +62,7 @@ export class PlanView {
     if (!this.plan) return;
     const n = this._norm(e); const inside = n.x >= 0 && n.x <= 1 && n.y >= 0 && n.y <= 1;
     const pin = target && target.closest && target.closest('.pin');
-    if (this.mode === 'draw') { if (!inside) return; const d = this.draft; if (d.length > 2) { const f = d[0], r = this.img.getBoundingClientRect(); if (Math.hypot((f[0] - n.x) * r.width, (f[1] - n.y) * r.height) < 14) return this.finishDraw(); } const sn = this._snap(n); d.push([sn.x, sn.y]); this._drawZones(); this.o.onDraftChange && this.o.onDraftChange(d); return; }
+    if (this.mode === 'draw') { if (!inside) return; const d = this.draft; if (d.length > 2) { const f = d[0], r = this.img.getBoundingClientRect(); if (Math.hypot((f[0] - n.x) * r.width, (f[1] - n.y) * r.height) < 14) return this.finishDraw(); } const sn = this._snap(n); d.push([sn.x, sn.y]); if (this.rect && d.length === 2) { const [a, b] = d; this.draft = [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]]; return this.finishDraw(); } this._drawZones(); this.o.onDraftChange && this.o.onDraftChange(d); return; }
     if (this.mode === 'place') { if (inside) this.o.onPlace && this.o.onPlace(n.x, n.y); return; }
     if (this.mode === 'zones') { const z = this._zoneAt(e); this.selectZone(z); this.o.onZoneSelect && this.o.onZoneSelect(z); return; }
     if (pin) return this.o.onPinTap && this.o.onPinTap(pin.dataset.id);
@@ -109,7 +109,7 @@ export class PlanView {
   setZones(z) { this.zones = z; if (this.selZone && !z.find(x => x.id === this.selZone.id)) this.selZone = null; this._drawZones(); }
   selectZone(z) { this.selZone = z; this._drawZones(); }
   setMode(m, banner) { this.mode = m; this.vp.classList.toggle('placing', m === 'place' || m === 'draw'); if (m !== 'draw') this.draft = null; if (m !== 'zones') this.moveZone = false; this.banner(banner); this._drawZones(); }
-  startDraw(banner) { this.setMode('draw', banner); this.draft = []; }
+  startDraw(banner, rect) { this.setMode('draw', banner); this.draft = []; this.rect = !!rect; }
   undoPoint() { if (this.draft) { this.draft.pop(); this._drawZones(); } }
   finishDraw() { const d = this.draft; if (!d || d.length < 3) return; this.draft = null; this.o.onDrawn && this.o.onDrawn(d); }
   banner(html) { const b = this.bannerEl; if (!html) { b.classList.remove('show'); return; } b.innerHTML = html; b.classList.add('show'); }

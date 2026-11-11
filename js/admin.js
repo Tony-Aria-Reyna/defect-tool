@@ -158,7 +158,7 @@ export async function zoneEditor(PV) {
   X.setTab('plan');
   const plan = S.plans.find(p => p.id === S.curPlan) || S.plans[0]; if (plan.id !== S.curPlan) await X.showPlan(plan.id);
   if (!ZE) Nav.open('zones', () => { if (ZE) close(true); });
-  ZE = { PV, plan, zones: JSON.parse(JSON.stringify(plan.zones || [])), dirty: false, members: null, collapsed: ZE ? ZE.collapsed : false };
+  ZE = { PV, plan, zones: JSON.parse(JSON.stringify(plan.zones || [])), dirty: false, members: null, collapsed: ZE ? ZE.collapsed : false, rect: ZE ? ZE.rect : !!S.local.zoneRect };
   PV.selectZone(null);
   PV.setZones(ZE.zones); PV.setMode('zones');
   Object.assign(PV.o, {
@@ -177,9 +177,10 @@ function panel() {
   el.classList.toggle('collapsed', !!ZE.collapsed);
   el.innerHTML = `<div class="zhead"><h3>Room boundaries: ${esc(ZE.plan.name)}</h3><button id="zMin" title="${ZE.collapsed ? 'Expand' : 'Minimise'}">${ZE.collapsed ? '▴' : '▾'}</button><button id="zDone" class="go">Done</button></div><div class="zbody">
   <label class="f">Plan<select id="zPlan">${S.plans.map(p => `<option value="${esc(p.id)}" ${p.id === ZE.plan.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-  ${drawing ? `<div class="zsel"><b>Drawing a ${kindName[ZE.drawKind].toLowerCase()}</b><p class="hint">Tap each corner in turn. Tapping near an existing corner or line snaps to it and joins the two, so they move together later. Tap the first point (white) or press Finish to close.</p>
-     <div class="zb"><button id="zUndo">↶ Undo last point</button><button class="go" id="zFin" ${(PV.draft || []).length < 3 ? 'disabled' : ''}>Finish</button><button id="zCan">Cancel</button></div></div>` : `
-  <p class="hint">Draw each unit outline first, then the rooms inside it. Then use "Duplicate unit" to copy a finished unit, with all its rooms, to the next one and drag it into place.</p>
+  ${drawing ? `<div class="zsel"><b>Drawing a ${kindName[ZE.drawKind].toLowerCase()}${ZE.rect ? ' (rectangle)' : ''}</b><p class="hint">${ZE.rect ? 'Tap two opposite corners. Tapping near an existing corner or line snaps to it.' : 'Tap each corner in turn. Tapping near an existing corner or line snaps to it and joins the two, so they move together later. Tap the first point (white) or press Finish to close.'}</p>
+     <div class="zb">${ZE.rect ? '' : `<button id="zUndo">↶ Undo last point</button><button class="go" id="zFin" ${(PV.draft || []).length < 3 ? 'disabled' : ''}>Finish</button>`}<button id="zCan">Cancel</button></div></div>` : `
+  <p class="hint">Draw each unit outline first, then the rooms inside it. Each boundary saves as soon as you name it, and drawing continues with the next one. Use "Duplicate unit" to copy a finished unit, with all its rooms, to the next one and drag it into place.</p>
+  <div class="zb"><label class="opt" style="margin-right:8px"><input type="checkbox" id="zRect" ${ZE.rect ? 'checked' : ''}> <span>Rectangles (two taps)</span></label></div>
   <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button></div>
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
      <p class="hint">Drag a red dot to move that corner. Corners shared with neighbouring rooms move together.</p>
@@ -191,6 +192,7 @@ function panel() {
   const on = (id, fn) => { if ($(id)) $(id).onclick = fn; };
   on('zMin', () => { ZE.collapsed = !ZE.collapsed; panel(); });
   on('zDone', async () => { if (ZE.dirty) await save(); close(); });
+  if ($('zRect')) $('zRect').onchange = e => { ZE.rect = e.target.checked; S.local.zoneRect = ZE.rect; saveLocal(); };
   on('zU', () => draw('unit')); on('zR', () => draw('room')); on('zA', () => draw('area'));
   on('zUndo', () => { PV.undoPoint(); panel(); }); on('zFin', () => PV.finishDraw()); on('zCan', () => { PV.setMode('zones'); panel(); });
   on('zEd', () => zoneDetails(z, false)); on('zMv', () => { PV.moveZone = !PV.moveZone; panel(); });
@@ -201,7 +203,7 @@ function panel() {
   $('zPlan').onchange = async e => { await X.showPlan(e.target.value); };
   function after(c, move) { PV.setZones(ZE.zones); PV.selectZone(c); PV.moveZone = !!move; ZE.dirty = true; panel(); }
 }
-function draw(kind) { ZE.drawKind = kind; ZE.PV.selectZone(null); ZE.PV.startDraw(); panel(); }
+function draw(kind) { ZE.drawKind = kind; ZE.PV.selectZone(null); ZE.PV.startDraw('', ZE.rect); panel(); }
 function copyZone(z, dx, dy, unit) { const c = JSON.parse(JSON.stringify(z)); c.id = uid(); c.poly = c.poly.map(p => [p[0] + dx, p[1] + dy]); if (unit != null && (z.kind === 'unit' || z.unit)) c.unit = unit; return c; }
 function nextUnit(u) { const m = /^(.*?)(\d+)$/.exec(String(u || '')); if (!m) return (u || '') + '-copy'; const n = String(+m[2] + 1); return m[1] + (m[2].startsWith('0') ? n.padStart(m[2].length, '0') : n); }
 function zoneDetails(z, isNew) {
@@ -222,7 +224,8 @@ function zoneDetails(z, isNew) {
   $('zdX').onclick = () => { closeModal(); panel(); };
   $('zdOk').onclick = () => { z.kind = $('zdK').value; z.unit = $('zdU').value.trim(); z.name = z.kind === 'unit' ? '' : $('zdN').value.trim(); z.block = $('zdB').value.trim(); z.level = $('zdL').value.trim();
     if (z.kind === 'unit' && !z.unit) return toast('Enter the unit number'); if (z.kind !== 'unit' && !z.name) return toast('Enter the room or area name');
-    if (isNew) ZE.zones.push(z); ZE.dirty = true; closeModal(); ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z); panel(); };
+    if (isNew) ZE.zones.push(z); ZE.dirty = true; closeModal(); ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z);
+    if (isNew) { save().then(() => { const next = { unit: 'unit outline', room: 'room', area: 'common area' }[z.kind]; toast(`Saved. Draw the next ${next}, or tap Cancel to stop.`, 3500); draw(z.kind); }); } else panel(); };
 }
 async function save() {
   const p = ZE.plan; p.zones = ZE.zones.map(z => ({ id: z.id, kind: z.kind, name: z.name || '', unit: z.unit || '', block: z.block || '', level: z.level || '', poly: z.poly.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)]) }));
