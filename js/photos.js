@@ -32,6 +32,19 @@ export async function uploadPhotos(pid, defectId, photos) {
   return out;
 }
 let flushing = false;
+// Attachments (PDFs and other files) use the same outbox.
+export async function uploadFiles(pid, defectId, files) {
+  const out = [];
+  for (const f of files) {
+    if (!f.data) { out.push(f); continue; }
+    const ext = (f.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, ''), path = `projects/${pid}/photos/${defectId}/${f.id}.${ext}`;
+    const rec = { id: f.id, name: f.name, mime: f.mime, path, t: f.t, by: f.by };
+    try { rec.url = await S.store.putFile(path, dataUrlToBlob(f.data)); }
+    catch (e) { rec.pending = true; await obPut(f.id, { kind: 'file', pid, defectId, photoId: f.id, path, dataUrl: f.data }); }
+    out.push(rec);
+  }
+  return out;
+}
 export async function flushOutbox() {
   if (flushing || !navigator.onLine) return; flushing = true;
   try {
@@ -39,7 +52,8 @@ export async function flushOutbox() {
       try {
         const url = await S.store.putFile(it.path, dataUrlToBlob(it.dataUrl), true);
         const d = S.project && S.project.id === it.pid ? S.defects.find(x => x.id === it.defectId) : null;
-        if (d) { const photos = (d.photos || []).map(p => p.id === it.photoId ? { id: p.id, path: p.path, t: p.t, by: p.by, url } : p); await S.store.updateDefect(it.pid, it.defectId, { photos, updated: new Date().toISOString() }); await obDel(it.key); }
+        if (d && it.kind === 'file') { const files = (d.files || []).map(p => p.id === it.photoId ? { ...p, url, pending: false } : p); await S.store.updateDefect(it.pid, it.defectId, { files, updated: new Date().toISOString() }); await obDel(it.key); }
+        else if (d) { const photos = (d.photos || []).map(p => p.id === it.photoId ? { id: p.id, path: p.path, t: p.t, by: p.by, url } : p); await S.store.updateDefect(it.pid, it.defectId, { photos, updated: new Date().toISOString() }); await obDel(it.key); }
         else if (!S.project || S.project.id !== it.pid) { /* keep until that project is open */ }
         else await obDel(it.key);   // defect no longer exists
       } catch (e) { console.warn('outbox', e); }

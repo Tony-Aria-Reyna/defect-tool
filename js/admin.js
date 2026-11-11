@@ -298,6 +298,15 @@ export async function importSheet(file) {
 export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
   if (j.type === 'aicontext' && (j.text || j.typicals)) { if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change the Gemini knowledge'); const patch = {}; if (j.text) patch.aiContext = j.text; if (Array.isArray(j.typicals)) patch.typicals = j.typicals; await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch); toast('Gemini project knowledge updated' + (j.typicals ? ' with ' + j.typicals.length + ' typical defects' : ''), 5000); return; }
+  if (j.type === 'history' && Array.isArray(j.items)) {
+    if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
+    const done = (S.project.historyPacks || []).includes(j.id);
+    const have = j.items.filter(x => S.defects.some(d => d.id === x.id)), lines = have.reduce((a, x) => a + x.history.length, 0);
+    modal(`<h2>${esc(j.title || 'Import history')}</h2>${done ? '<p class="note"><b>Already applied to this project.</b> Applying again adds nothing new (identical lines are not duplicated).</p>' : ''}<p>${have.length} of ${j.items.length} items match defects in this project; ${lines} dated history lines will be added to their comment trails, oldest first. Existing history is kept.</p><p class="note" id="hiSt"></p><div class="act"><button id="hiX">Cancel</button><button class="go" id="hiGo">Add history</button></div>`);
+    $('hiX').onclick = closeModal;
+    $('hiGo').onclick = async () => { $('hiGo').disabled = true; let n = 0; try { for (const x of have) { $('hiSt').textContent = `Updating ${++n} of ${have.length}…`; const d = S.defects.find(q => q.id === x.id); const old = JSON.stringify((d.history || []).map(h => [h.t, h.who, h.txt])); const add = x.history.filter(h => !old.includes(JSON.stringify([h.t, h.who, h.txt]))); if (add.length) await S.store.updateDefect(S.project.id, x.id, { historyImported: j.id }, add); } await S.store.updateProject(S.project.id, { historyPacks: [...(S.project.historyPacks || []), j.id] }); S.project.historyPacks = [...(S.project.historyPacks || []), j.id]; closeModal(); toast('History added to ' + have.length + ' defects', 5000); } catch (e) { $('hiSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('hiGo').disabled = false; } };
+    return;
+  }
   if (j.type === 'renumber' && j.map) return importRenumber(j);
   if (j.project && Array.isArray(j.plans) && j.plans.length && j.plans[0].img) return importProjectPack(j);
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);

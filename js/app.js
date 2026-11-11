@@ -2,10 +2,10 @@
 import { createStore, isDemo } from './store.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal } from './state.js';
-import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt } from './ai.js';
-import { newPhoto, uploadPhotos, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
+import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
 import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel } from './exports.js';
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
@@ -127,7 +127,7 @@ function initFilters() {
 let filtersDirty = true;
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => (F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!q || [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible].join(' ').toLowerCase().includes(q)));
+  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!q || [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible].join(' ').toLowerCase().includes(q)));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -140,9 +140,9 @@ export async function render() {
   if (filtersDirty) { initFilters(); filtersDirty = false; }
   const D = S.defects, c = {}; S.project.statuses.forEach(s => c[s] = 0); D.forEach(d => c[d.status] = (c[d.status] || 0) + 1);
   const maj = D.filter(d => d.status !== 'Closed' && /^Major/.test(d.severity || '')).length, tri = D.filter(d => d.status !== 'Closed' && d.severity === 'To triage').length;
-  const pend = D.filter(d => d.aiPending).length, rev = D.filter(d => d.aiReview).length;
-  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt">Major <b>${maj}</b>${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '');
-  $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
+  const pend = D.filter(d => d.aiPending).length, rev = D.filter(d => d.aiReview).length, toRev = D.filter(d => d.status === 'Ready for review' && !can.contractor() && (d.createdBy === S.user.email || can.admin())).length;
+  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt">Major <b>${maj}</b>${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '') + (toRev || S.F.toReview ? `<button class="cnt chk ${S.F.toReview ? 'on' : ''}" data-tr="1">🔎 For me to inspect <b>${toRev}</b></button>` : '');
+  $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } if (b.dataset.tr) { S.F.toReview = !S.F.toReview; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
   const L = filtered();
   $('lmeta').textContent = L.length + ' of ' + D.length + ' shown';
   $('list').innerHTML = L.length ? L.map(d => { const sev = /^Major/.test(d.severity || '') ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
@@ -217,19 +217,20 @@ async function newDefect() {
 }
 export function openEditor(d, isNew, isDraft) {
   const w = isDraft ? d : JSON.parse(JSON.stringify(d)); const p = S.project;
-  ED = { d: w, isNew: !!isNew, orig: isNew ? null : S.defects.find(x => x.id === d.id) };
+  ED = { d: w, isNew: !!isNew, orig: isNew ? null : S.defects.find(x => x.id === d.id), removed: ED && ED.d === d ? ED.removed : [] };
   const ro = !can.edit(), con = can.contractor();
   const dis = ro || con ? 'disabled' : '';
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
   const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status) : p.statuses;
   $('edBody').innerHTML = `${w.aiPending ? '<div class="ainote show">📵 Site note recorded out of coverage. Gemini will fill in the form when the phone is back in service. You can still edit and pin it now.</div>' : ''}${w.aiReview ? '<div class="ainote show">✨ Gemini filled this in from your site note while you were out of coverage. Check the fields, then Save to mark it checked.</div>' : ''}
-  ${!ro && !con ? `<div class="dict">
+  ${!ro && !con && (isNew || w.createdBy === S.user.email || (!w.createdBy && can.admin())) ? `<div class="dict">
     <div class="row1"><button class="mic" id="mic" title="Hold to talk"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
     <textarea id="dt" placeholder="Hold the mic and say it how you would on site, e.g. &quot;Unit 7 bathroom, silicone to the shower tray is patchy and there's a gap behind the vanity, contractor to redo before handover&quot;">${esc(w.transcript || '')}</textarea></div>
     <div class="row2"><button class="ai" id="aiGo">✨ Interpret with Gemini</button><label><input type="checkbox" id="aiPh" checked> include first photo</label><span id="aiSt" class="muted"></span></div>
     <div class="ainote" id="aiNote"></div></div>` : ''}
-  ${con ? '<p class="note muted small">As the contractor you can update the status, add photos and add comments. Other changes are made by the project team.</p>' : ''}
+  ${con ? '<p class="note muted small">You can add photos, attach files, add a response and mark the item ready for inspection. Other changes are made by the project team.</p>' : ''}
+  ${!isNew && !ro ? workflowBar(w, con) : ''}
   <div class="grid">
     <label class="f full">Title ${!dis ? '<a href="#" id="edTyp" class="small" style="float:right">⚡ Typical defects</a>' : ''}<input name="title" value="${esc(w.title)}" ${dis} placeholder="Short name, e.g. Shower tray silicone incomplete"></label>
     <label class="f full">Description<textarea name="desc" ${dis}>${esc(w.desc)}</textarea></label>
@@ -260,9 +261,11 @@ export function openEditor(d, isNew, isDraft) {
   </div>
   <h3 class="sec">Photos <span class="sp"></span>${!ro ? '<span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Tap a photo to mark it up</span>' : ''}</h3>
   <div class="photos" id="phs"></div>
-  <h3 class="sec">Comments and history</h3>
-  ${!ro ? '<label class="f"><textarea id="cmt" style="min-height:44px" placeholder="Add a comment (saved with your name and the time)"></textarea></label>' : ''}
-  <div class="hist">${(w.history || []).slice().reverse().map(h => `<div><b>${esc(nzDT(h.t))}</b> · ${esc(h.who)}: ${esc(h.txt)}</div>`).join('') || '<div>No history yet.</div>'}</div>
+  <h3 class="sec">Attachments</h3>
+  <div class="files" id="fls">${(w.files || []).map((f, i) => `<div class="file"><a href="#" data-f="${i}">📎 ${esc(f.name)}</a><span class="muted small"> · ${esc(f.by || '')} ${esc(nzDate((f.t || '').slice(0, 10)))}${f.pending ? ' · waiting to upload' : ''}</span>${!ro && (can.edit() || f.isNew) ? ` <button data-fx="${i}" class="small">✕</button>` : ''}</div>`).join('')}${!ro ? '<button id="addfile" class="small">📎 Attach PDF or file</button>' : ''}</div>
+  <h3 class="sec">${con ? 'Response and history' : 'Comments and history'}</h3>
+  ${!ro ? `<label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>` : ''}
+  <div class="hist">${(w.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(h => `<div><b>${esc(nzDT(h.t))}</b> · ${esc(h.who)}: ${esc(h.txt)}</div>`).join('') || '<div>No history yet.</div>'}</div>
   ${w.ext ? `<details class="ext"><summary>Original record (${esc(w.extRef || w.source)})</summary>${Object.entries(w.ext).filter(e => e[1]).map(([k, v]) => `<p><b>${esc(k)}:</b> ${esc(v)}</p>`).join('')}</details>` : ''}`;
   const body = $('edBody');
   body.querySelector('[name=unit]').onchange = e => { const u = unitInfo(e.target.value); if (u) { if (u.block) body.querySelector('[name=block]').value = u.block; if (u.level) body.querySelector('[name=level]').value = u.level; } };
@@ -291,6 +294,14 @@ async function renderPhotos() {
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
   if ($('addph')) $('addph').onclick = () => $('fPhoto').click();
   if ($('addcam')) $('addcam').onclick = () => $('fCam').click();
+  if ($('addfile')) $('addfile').onclick = () => $('fAttach').click();
+  $('fls').querySelectorAll('[data-f]').forEach(a => a.onclick = async ev => { ev.preventDefault(); const f = (ED.d.files || [])[+a.dataset.f]; if (!f) return; const u = f.data || (f.url ? await imgUrl(f.url) : ''); if (u) window.open(u, '_blank'); else toast('This file is still waiting to upload'); });
+  $('fls').querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { const i = +b.dataset.fx; const f = ED.d.files[i]; if (f.path && !f.isNew) (ED.removed = ED.removed || []).push(f.path); ED.d.files.splice(i, 1); openEditor(ED.d, ED.isNew, true); });
+  const wf = (status, label, needComment) => async () => { collect(); const c = $('cmt') ? $('cmt').value.trim() : ''; if (needComment && !c) { toast(label + ': add a short comment first so the other side knows what happened'); $('cmt').focus(); return; } const sel = $('edBody').querySelector('[name=status]'); if (sel) { if (![...sel.options].some(o => o.value === status)) { const o = document.createElement('option'); o.textContent = status; sel.appendChild(o); } sel.value = status; } ED.d.status = status; ED.wfLabel = label; await saveEditor(); };
+  if ($('wfReady')) $('wfReady').onclick = wf('Ready for review', 'Ready for inspection', true);
+  if ($('wfAccept')) $('wfAccept').onclick = wf('Closed', 'Accepted and closed', false);
+  if ($('wfReopen')) $('wfReopen').onclick = wf('Open', 'Reopened and sent back', true);
+  if ($('wfProg')) $('wfProg').onclick = wf('In progress', 'In progress', false);
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
   requestAnimationFrame(() => Nav.refit($('edBody')));
 }
@@ -306,9 +317,10 @@ async function saveEditor() {
   try {
     if (ED.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
     d.photos = await uploadPhotos(pid, d.id, d.photos || []);
+    d.files = await uploadFiles(pid, d.id, d.files || []);
     (ED.removed || []).forEach(p => S.store.deleteFile(p));
     const cm = $('cmt') ? $('cmt').value.trim() : '';
-    const clean = o => { const c = { ...o }; delete c.isNew; delete c.zoneHit; c.photos = (c.photos || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); return c; };
+    const clean = o => { const c = { ...o }; delete c.isNew; delete c.zoneHit; c.photos = (c.photos || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); c.files = (c.files || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); return c; };
     if (ED.isNew) {
       newH.push({ t, who, txt: 'Raised (' + d.source + '). Status ' + d.status + '.' }); if (cm) newH.push({ t, who, txt: cm });
       if (d.aiPending) newH.push({ t, who, txt: 'Site note recorded out of coverage; waiting for Gemini.' });
@@ -317,12 +329,15 @@ async function saveEditor() {
     } else {
       const o = ED.orig || {}, patch = {}, ch = [];
       const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'transcript', 'aiPending'];
+      if (ED.wfLabel) { ch.push(ED.wfLabel.toLowerCase()); }
       if (o.aiReview && !can.contractor()) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
       ['status', 'severity', 'responsible', 'targetDate', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
       const ph = clean(d).photos; if (JSON.stringify(ph) !== JSON.stringify(o.photos || [])) { patch.photos = ph; ch.push('photos ' + (o.photos || []).length + ' → ' + ph.length); }
-      if (ch.length) newH.push({ t, who, txt: 'Changed ' + ch.join('; ') + '.' }); if (cm) newH.push({ t, who, txt: cm });
+      const fl = clean(d).files; if (JSON.stringify(fl) !== JSON.stringify(o.files || [])) { patch.files = fl; ch.push('attachments ' + (o.files || []).length + ' → ' + fl.length); }
+      if (ED.wfLabel) { newH.push({ t, who, txt: ED.wfLabel + (cm ? ': ' + cm : '.') }); const rest = ch.filter(x => x !== ED.wfLabel.toLowerCase() && !/^status /.test(x)); if (rest.length) newH.push({ t, who, txt: 'Changed ' + rest.join('; ') + '.' }); }
+      else { if (ch.length) newH.push({ t, who, txt: 'Changed ' + ch.join('; ') + '.' }); if (cm) newH.push({ t, who, txt: cm }); }
       if (!Object.keys(patch).length && !newH.length) { b.done(); closeEditor(); return; }
       patch.updated = t; patch.updatedBy = S.user.email;
       await S.store.updateDefect(pid, d.id, patch, newH);
@@ -470,10 +485,11 @@ function wire() {
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
-  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', review: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
+  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = newDefectChooser;
+  $('fAttach').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; if (!ED) return; for (const f of fs) { if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB'); continue; } const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); (ED.d.files = ED.d.files || []).push({ id: uid(), name: f.name, mime: f.type || 'application/octet-stream', data, t: new Date().toISOString(), by: S.user.name, isNew: true }); } collect(); openEditor(ED.d, ED.isNew, true); };
   $('fCam').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await addPhotos([f]); };
   $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
   $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); S.local.noList = h; saveLocal(); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
@@ -489,6 +505,16 @@ function wire() {
   initDrop({ Admin, FM, addPhotos, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
 }
 // Quick-pick a typical defect: fills title, description, action, trade, type, severity and element; keeps location and photos.
+// One-tap workflow: the responsible party marks it ready; the raiser (or an admin/editor) accepts or sends it back.
+function workflowBar(w, con) {
+  const mine = w.createdBy === S.user.email, reviewer = !con && (mine || can.edit());
+  const b = [];
+  if (w.status !== 'Closed' && w.status !== 'Ready for review') b.push('<button class="go" id="wfReady">✅ Ready for inspection</button>');
+  if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>');
+  if (w.status === 'Ready for review' && reviewer) b.push('<button class="go" id="wfAccept">✔ Accept and close</button><button class="warn" id="wfReopen">↩ Reopen and send back</button>');
+  if (w.status === 'Ready for review' && !reviewer) return '<p class="note">Marked ready for inspection; waiting for ' + esc(w.createdBy || 'the project team') + ' to review.</p>';
+  return b.length ? '<div class="wf">' + b.join('') + '</div>' : '';
+}
 function typicalPicker() {
   const list = typicalList(S.project); const cur = collect(); const room = (cur.room || '').toLowerCase();
   const draw = q => { q = (q || '').toLowerCase(); const L = list.filter(x => !q || (x.t + ' ' + x.d + ' ' + x.tr + ' ' + (x.el || '')).toLowerCase().includes(q)); const rank = x => (room && x.r && room.includes(x.r.toLowerCase())) ? 0 : 1; L.sort((a, b) => rank(a) - rank(b) || a.tr.localeCompare(b.tr));

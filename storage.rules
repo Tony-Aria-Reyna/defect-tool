@@ -26,7 +26,7 @@ service firebase.storage {
       allow read: if canRead(pid);
       allow create, update: if folder in ['plans', 'photos'] && canUpload(pid)
         && request.resource.size < 20 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*|application/pdf');
+        && request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.*|text/.*|message/rfc822|application/octet-stream');
       allow delete: if canDelete(pid);
     }
   }

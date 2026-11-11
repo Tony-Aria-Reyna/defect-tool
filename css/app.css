@@ -267,3 +267,6 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .signbox a{color:var(--navy);font-weight:600}
 
 .btnlist .tp{text-align:left}.btnlist .tp small{display:block;font-weight:400;color:var(--muted)}
+
+.wf{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}.wf button{flex:1;min-width:140px;padding:12px;font-weight:600;border-radius:8px}.wf .go{background:#1c7c54;color:#fff;border:0}.wf .warn{background:#fff3c4;border:1px solid #e3b31b}
+.files .file{padding:6px 0;border-bottom:1px solid var(--line)}.files .file a{font-weight:600}.files button.small{padding:2px 8px}
