@@ -219,9 +219,13 @@ export async function showPlan(id, focus) {
   if (Admin.zoneActive() && id !== S.curPlan) { if (!(await Admin.zoneSwitch(id))) return; }
   S.curPlan = id; const p = S.plans.find(x => x.id === id) || null;
   $('plantabs').querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === id));
-  S.ceiling = S.ceiling || {}; const useRcp = p && p.rcpImg && S.ceiling[p.id] && !can.contractor();
-  await PV.setPlan(p, p ? await imgUrl(useRcp ? p.rcpImg : p.img) : ''); PV.setZonesVisible(false);
-  let rb = $('bRcp'); if (!rb) { rb = document.createElement('button'); rb.id = 'bRcp'; rb.className = 'rcpfab'; $('planPane').appendChild(rb); rb.onclick = () => { S.ceiling[S.curPlan] = !S.ceiling[S.curPlan]; showPlan(S.curPlan); }; } rb.style.display = p && p.rcpImg && !can.contractor() ? '' : 'none'; rb.textContent = useRcp ? '⬆ Ceiling plan (tap for floor)' : '⬇ Floor plan (tap for ceiling)'; rb.classList.toggle('on', !!useRcp);
+  // Alternative views of the same sheet (ceiling plan, wall plan, cladding elevations…). Pins dropped on a view take its surface.
+  S.view = S.view || {}; const views = planViews(p), vkey = views.some(v => v.key === S.view[p && p.id]) && !can.contractor() ? S.view[p.id] : 'floor', cur = views.find(v => v.key === vkey) || views[0];
+  await PV.setPlan(p, p ? await imgUrl(cur.img) : ''); PV.setZonesVisible(false);
+  let rb = $('bRcp'); if (!rb) { rb = document.createElement('div'); rb.id = 'bRcp'; rb.className = 'viewbar'; $('planPane').appendChild(rb); }
+  rb.style.display = p && views.length > 1 && !can.contractor() ? '' : 'none';
+  rb.innerHTML = views.map(v => `<button data-view="${esc(v.key)}" class="${v.key === vkey ? 'on' : ''}">${esc(v.name)}</button>`).join('');
+  rb.querySelectorAll('button').forEach(b => b.onclick = () => { S.view[S.curPlan] = b.dataset.view; showPlan(S.curPlan); });
   if (Admin.zoneActive()) { await Admin.zoneEditor(PV); }
   renderPins(); if (isMobile() && focus) setTab('plan');
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));
@@ -232,10 +236,19 @@ function startPlacing(pl) {
   if ($('bPin')) { $('bPin').classList.add('on'); $('bPin').textContent = '✕ Cancel pin'; }
 }
 function stopPlacing() { placing = null; PV.setMode('view'); if ($('bPin')) { $('bPin').classList.remove('on'); $('bPin').textContent = '📍 Add pin'; } }
+// Views of a plan: the floor plan itself plus any attached sheets (ceiling, walls, cladding). rcpImg is the older single-view field.
+export function planViews(p) {
+  if (!p) return [{ key: 'floor', name: 'Floor', surface: 'Floor', img: '' }];
+  const v = [{ key: 'floor', name: 'Floor', surface: p.surface || 'Floor', img: p.img }];
+  if (p.rcpImg && !(p.views || []).some(x => x.key === 'ceiling')) v.push({ key: 'ceiling', name: 'Ceiling', surface: 'Ceiling', img: p.rcpImg, path: p.rcpPath });
+  (p.views || []).forEach(x => v.push(x));
+  return v;
+}
+export const VIEW_TYPES = [['ceiling', 'Ceiling plan (RCP)', 'Ceiling'], ['walls', 'Wall plan / internal elevations', 'Wall'], ['cladding', 'Cladding / external elevations', 'Exterior cladding'], ['roof', 'Roof plan', 'Roof'], ['services', 'Services plan', 'Services'], ['joinery', 'Joinery / fit-out plan', 'Joinery']];
 function applyZone(d, x, y, planId) {
   const p = S.plans.find(q => q.id === planId); d.plan = planId; d.x = x; d.y = y;
   const hit = locate(p.zones, x, y);
-  if (S.ceiling && S.ceiling[planId]) d.surface = 'Ceiling'; else if (!d.surface) d.surface = p.surface || 'Floor';
+  const cv = planViews(p).find(v => v.key === ((S.view || {})[planId] || 'floor')); if (cv && cv.key !== 'floor') d.surface = cv.surface; else if (!d.surface) d.surface = p.surface || 'Floor';
   if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (hit.item) d.item = hit.item; else if (hit.room) d.item = d.item || ''; d.block = hit.block || p.block || d.block; d.level = hit.level || p.level || d.level; d.zoneHit = [hit.unit && 'Unit ' + hit.unit, hit.room, hit.item, d.surface].filter(Boolean).join(', '); }
   else { d.block = p.block || d.block; d.level = p.level || d.level; d.zoneHit = ''; }
 }
@@ -552,7 +565,7 @@ function openMenu() {
 /* ================================================================ wiring */
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } } });
-  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered });
+  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
