@@ -221,11 +221,19 @@ export async function showPlan(id, focus) {
   $('plantabs').querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === id));
   // Alternative views of the same sheet (ceiling plan, wall plan, cladding elevations…). Pins dropped on a view take its surface.
   S.view = S.view || {}; const views = planViews(p), vkey = views.some(v => v.key === S.view[p && p.id]) && !can.contractor() ? S.view[p.id] : 'floor', cur = views.find(v => v.key === vkey) || views[0];
-  await PV.setPlan(p, p ? await imgUrl(cur.img) : ''); PV.setZonesVisible(false);
+  await PV.setPlan(p, p ? await imgUrl(cur.img) : ''); PV.setZonesVisible(false); PV.setImageFit(cur.fit || null);
   let rb = $('bRcp'); if (!rb) { rb = document.createElement('div'); rb.id = 'bRcp'; rb.className = 'viewbar'; $('planPane').appendChild(rb); }
   rb.style.display = p && views.length > 1 && !can.contractor() ? '' : 'none';
   rb.innerHTML = views.map(v => `<button data-view="${esc(v.key)}" class="${v.key === vkey ? 'on' : ''}">${esc(v.name)}</button>`).join('');
   rb.querySelectorAll('button').forEach(b => b.onclick = () => { S.view[S.curPlan] = b.dataset.view; showPlan(S.curPlan); });
+  // elevations that look at this floor plan: one button each, opening the sheet zoomed to that face
+  let eb = $('bElev'); if (!eb) { eb = document.createElement('div'); eb.id = 'bElev'; eb.className = 'viewbar elevbar'; $('planPane').appendChild(eb); }
+  const elevs = p ? S.plans.flatMap(ep => (ep.kind === 'elevation' ? ((ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : [])) : []).filter(l => l.planId === p.id).map(l => ({ ep, l }))) : [];
+  const backTo = p && p.kind === 'elevation' ? [...new Set(((p.links && p.links.length) ? p.links : (p.link ? [p.link] : [])).map(l => l.planId))].map(id => S.plans.find(q => q.id === id)).filter(Boolean) : [];
+  eb.style.display = (elevs.length || backTo.length) ? '' : 'none';
+  eb.innerHTML = elevs.map((x, i) => `<button data-el="${i}" title="${esc(x.ep.name)}">📐 ${esc(x.l.face || x.ep.face || 'Elevation')}</button>`).join('') + backTo.map(fp => `<button data-fp="${esc(fp.id)}">⬚ ${esc(fp.name)}</button>`).join('');
+  eb.querySelectorAll('[data-el]').forEach(b => b.onclick = async () => { const x = elevs[+b.dataset.el]; await showPlan(x.ep.id); if (x.l.band) { const bx = x.l.bandX || [0, 1]; PV.zoomTo(bx[0], x.l.band[0], bx[1], x.l.band[1]); } });
+  eb.querySelectorAll('[data-fp]').forEach(b => b.onclick = () => showPlan(b.dataset.fp));
   if (Admin.zoneActive()) { await Admin.zoneEditor(PV); }
   renderPins(); if (isMobile() && focus) setTab('plan');
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));

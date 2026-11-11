@@ -133,6 +133,8 @@ export class PlanView {
   zoomAt(cx, cy, f) { const ns = this._clamp(this.pv.s * f); this.pv.x = cx - (cx - this.pv.x) * ns / this.pv.s; this.pv.y = cy - (cy - this.pv.y) * ns / this.pv.s; this.pv.s = ns; this.pv.user = 1; this._apply(); }
   _apply() { this.inner.style.transform = `translate(${this.pv.x}px,${this.pv.y}px) scale(${this.pv.s})`; this.inner.style.setProperty('--inv', 1 / this.pv.s); this.svg.style.setProperty('--inv', 1 / this.pv.s); if (this.showZones || this.mode !== 'view') this._drawZones(); }
   fit() { if (!this.plan || !this.vp.clientWidth) return; const s = this._minS(); this.pv = { s, x: (this.vp.clientWidth - this.plan.w * s) / 2, y: (this.vp.clientHeight - this.plan.h * s) / 2 }; this._apply(); }
+  zoomTo(x0, y0, x1, y1) { if (!this.plan) return; const W = this.plan.w, H = this.plan.h, s = Math.min(this.vp.clientWidth / ((x1 - x0) * W * 1.08), this.vp.clientHeight / ((y1 - y0) * H * 1.08)); this.pv = { s, x: this.vp.clientWidth / 2 - (x0 + x1) / 2 * W * s, y: this.vp.clientHeight / 2 - (y0 + y1) / 2 * H * s, user: 1 }; this._apply(); }
+  setImageFit(fit) { this.img.style.transformOrigin = '0 0'; this.img.style.transform = fit ? `translate(${fit.tx * this.plan.w}px, ${fit.ty * this.plan.h}px) scale(${fit.sx}, ${fit.sy})` : ''; }
   focus(x, y, zoom = 3) { if (!this.plan) return; const s = Math.max(this.pv.s, this._minS() * zoom); this.pv = { s, x: this.vp.clientWidth / 2 - x * this.plan.w * s, y: this.vp.clientHeight / 2 - y * this.plan.h * s, user: 1 }; this._apply(); }
   async setPlan(plan, url) {
     this.plan = plan; this.vp.classList.toggle('noplan', !plan); if (!plan) return;
