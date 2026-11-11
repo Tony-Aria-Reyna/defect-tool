@@ -47,6 +47,9 @@ async function firebaseStore() {
       history.replaceState(null, '', location.pathname);
       return true;
     },
+    async signInPassword(email, pw) { await U.signInWithEmailAndPassword(auth, email, pw); },
+    async createPassword(email, pw) { try { await U.createUserWithEmailAndPassword(auth, email, pw); } catch (e) { if ((e.code || '') === 'auth/email-already-in-use') { await U.signInWithEmailAndPassword(auth, email, pw); } else throw e; } },
+    async resetPassword(email) { await U.sendPasswordResetEmail(auth, email, { url: location.origin + location.pathname }); },
     async signOut() { await U.signOut(auth); },
     async isSuper() {
       if (superCache !== null) return superCache;
@@ -156,7 +159,7 @@ async function localStore() {
     get user() { return signed() ? user : null; },
     onAuth(cb) { authCb = cb; setTimeout(() => cb(signed() ? user : null), 0); return () => {}; },
     async signInGoogle() { localStorage.setItem('rd-demo-signed', '1'); authCb && authCb(user); },
-    async sendLink() { await api.signInGoogle(); },
+    async sendLink() { await api.signInGoogle(); }, async signInPassword() { await api.signInGoogle(); }, async createPassword() { await api.signInGoogle(); }, async resetPassword() {},
     async completeLink() { return false; },
     async signOut() { localStorage.removeItem('rd-demo-signed'); authCb && authCb(null); },
     async isSuper() { return true; },

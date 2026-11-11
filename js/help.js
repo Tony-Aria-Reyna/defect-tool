@@ -14,6 +14,7 @@ Raising a defect
 - Or tap + New (desktop) and type.
 - Several defects in one breath is fine: the first fills the form and the others appear under "more defects heard" with a button to add them.
 - No coverage on site: hold the mic as usual (or use the keyboard microphone). The note is saved on the phone with its pin and photos; when the phone finds service, Gemini fills in the form and the item shows under "To check" at the top of the list. Open each one, check it, Save.
+- Signing in: use your email and a password (first time: tap "Create a password"). Google sign-in also works. Install the app on the phone (menu > Install on this phone) so it stays signed in.
 - If the mic does not work (common on iPhone when the app is opened from the home screen): tap in the text box and use the microphone key on your keyboard, then tap "Interpret with Gemini".
 
 Pins and rooms
