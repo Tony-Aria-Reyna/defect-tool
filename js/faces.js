@@ -37,7 +37,11 @@ export function deriveFacePath(lines, side, along, vr, opt = {}) {
   // room boundaries, when the plan has them, say where the building is: the face is the wall just outside the boundary; where there
   // is no boundary (a lobby, a stair) the outermost wall in the band is used
   const zedges = []; (opt.zones || []).forEach(z => { if (!z.poly || z.poly.length < 3 || (z.kind !== 'unit' && z.kind !== 'room' && z.kind !== 'area')) return; z.poly.forEach((p, i) => { const a = toUV(side, p), b = toUV(side, z.poly[(i + 1) % z.poly.length]); zedges.push({ u0: Math.min(a[0], b[0]), u1: Math.max(a[0], b[0]), va: a[1], vb: b[1], ua: a[0], ub: b[0] }); }); });
-  const zoneV = u => { const vs = zedges.filter(e => e.u0 <= u && u <= e.u1 && e.u1 - e.u0 > 1e-6).map(e => e.va + (u - e.ua) / (e.ub - e.ua) * (e.vb - e.va)); return vs.length ? outer(...vs) : null; };
+  // only boundaries on the near half of the building count (the far row of units must not pull the face back to the corridor
+  // where a stair or lobby bay has no boundary of its own)
+  const allV = zedges.flatMap(e => [e.va, e.vb]); const vmid = allV.length ? (Math.min(...allV) + Math.max(...allV)) / 2 : null;
+  const nearHalf = v => vmid == null || ((side === 'top' || side === 'left') ? v <= vmid : v >= vmid);
+  const zoneV = u => { const vs = zedges.filter(e => e.u0 <= u && u <= e.u1 && e.u1 - e.u0 > 1e-6).map(e => e.va + (u - e.ua) / (e.ub - e.ua) * (e.vb - e.va)).filter(nearHalf); return vs.length ? outer(...vs) : null; };
   const n = Math.floor((along[1] - along[0]) / step) + 1, runs = [];
   for (let i = 0; i < n; i++) {
     const u = along[0] + i * step, zv = zedges.length ? zoneV(u) : null, inw = inward(side);

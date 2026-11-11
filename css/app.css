@@ -313,3 +313,4 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .zsvg polyline.zf{fill:none;stroke:#d64545;stroke-linejoin:round;stroke-linecap:round;opacity:.85}.zsvg polyline.zfsel{stroke:#e11;opacity:1}.zsvg text.zft{fill:#d64545;font-weight:700}
 .zsvg polygon.zb{fill:rgba(0,102,204,.14);stroke:#06c;stroke-dasharray:none}.zsvg polygon.zbro{fill:rgba(0,102,204,.04);stroke:#8ab;stroke-dasharray:6 4;pointer-events:none}.zsvg text.zbt{fill:#06c;font-weight:700}.zsvg text.zbrot{fill:#8ab;font-weight:700}
 .zeditor .viewbar,.zeditor .vbtoggle,.zeditor .pinfab{display:none!important}
+.pin.dragging{opacity:.75;filter:drop-shadow(0 6px 6px rgba(0,0,0,.4));z-index:9}

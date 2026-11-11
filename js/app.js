@@ -267,7 +267,7 @@ export function elevToFloor(ep, ex, ey) {
   if (L.side && L.gmap && L.gmap.length >= 2) {
     // grid-mapped position along the face, dropped onto the stepped face path (or the straight a-b line when there is no path)
     const u = Faces.gridMap(L.gmap, ex); const pt = Faces.pathAt(L.path, L.side, u) || Faces.fromUV(L.side, u, Faces.toUV(L.side, L.a)[1]);
-    x = pt[0]; y = pt[1]; const inw = Faces.inward(L.side); const nv = 10 / (Faces.isAlong(L.side) ? fp.h : fp.w); nx = Faces.isAlong(L.side) ? 0 : inw * nv; ny = Faces.isAlong(L.side) ? inw * nv : 0;
+    x = pt[0]; y = pt[1]; const inw = Faces.inward(L.side); const nv = 1.5 / (Faces.isAlong(L.side) ? fp.h : fp.w); /* the pin sits on the line itself; only the unit lookup walks inwards */ nx = Faces.isAlong(L.side) ? 0 : inw * nv; ny = Faces.isAlong(L.side) ? inw * nv : 0;
   } else {
     const t = (ex - L.ea) / ((L.eb - L.ea) || 1); x = L.a[0] + t * (L.b[0] - L.a[0]); y = L.a[1] + t * (L.b[1] - L.a[1]);
     // nudge slightly inside the building so the point lands in the unit behind the face
@@ -280,7 +280,9 @@ export function elevToFloor(ep, ex, ey) {
   }
   const px = Math.max(0, Math.min(1, x + nx * 3)), py = Math.max(0, Math.min(1, y + ny * 3));
   // the unit behind the face: the first unit or room met walking inwards (a deck or porch in front of a unit still belongs to it)
-  let hit = locate(fp.zones, px, py), k = 4; while (!(hit && (hit.unit || hit.room)) && k < 40) { hit = locate(fp.zones, x + nx * k, y + ny * k); k += 3; }
+  let hit = locate(fp.zones, px, py), k = 4; while (!(hit && (hit.unit || hit.room)) && k < 160) { hit = locate(fp.zones, x + nx * k, y + ny * k); k += 4; }
+  // a few steps further usually reaches the room behind the wall (the unit outline sits on the wall, the room inside it)
+  if (hit && hit.unit && !hit.room) { for (let j = k; j < k + 24; j += 4) { const h2 = locate(fp.zones, x + nx * j, y + ny * j); if (h2 && h2.room && String(h2.unit || hit.unit) === String(hit.unit)) { hit = h2; break; } } }
   return { planId: fp.id, x: px, y: py, face: [x, y], hit: hit || null };
 }
 // After a face line changes, every pin on that elevation is dropped onto the floor plan again from its elevation position.
@@ -302,6 +304,17 @@ export async function remapElevationPins(epId) {
   if (n) render();
   return n;
 }
+// A pin dragged to a new spot on the plan it sits on: location fields that the pin filled in follow it; hand-typed ones stay.
+async function movePin(id, x, y) {
+  const d = S.defects.find(q => q.id === id); if (!d) return; const planId = d.plan === S.curPlan ? d.plan : (d.plan2 === S.curPlan ? d.plan2 : null); if (!planId) return;
+  const w = JSON.parse(JSON.stringify(d)), auto = d.autoLoc || {};
+  if (planId === d.plan) { applyZone(w, x, y, planId); }
+  else { w.x2 = x; w.y2 = y; const fp = S.plans.find(q => q.id === planId), hit = locate(fp.zones, x, y) || {}; w.unit = hit.unit || ''; w.room = hit.room || ''; w.autoLoc = { unit: w.unit, room: w.room }; }
+  const patch = { x: w.x, y: w.y, plan2: w.plan2 || null, x2: w.x2 ?? null, y2: w.y2 ?? null, autoLoc: w.autoLoc || null };
+  if (!d.unit || String(d.unit) === String(auto.unit || '')) patch.unit = w.unit || ''; if (!d.room || d.room === (auto.room || '')) patch.room = w.room || '';
+  if (w.item && (!d.item || d.item === auto.item)) patch.item = w.item;
+  try { await S.store.updateDefect(S.project.id, id, patch); Object.assign(d, patch); render(); toast(`${id} moved${patch.unit ? ' · Unit ' + patch.unit : ''}${patch.room ? ' · ' + patch.room : ''}`, 2500); } catch (e) { toast('Could not move the pin: ' + friendly(e)); }
+}
 function applyZone(d, x, y, planId) {
   const p = S.plans.find(q => q.id === planId); d.plan = planId; d.x = x; d.y = y;
   if (p.kind === 'elevation') {
@@ -313,7 +326,7 @@ function applyZone(d, x, y, planId) {
   d.plan2 = null;
   const hit = locate(p.zones, x, y);
   const cv = planViews(p).find(v => v.key === ((S.view || {})[planId] || 'floor')); if (cv && cv.key !== 'floor') d.surface = cv.surface; else if (!d.surface) d.surface = p.surface || 'Floor';
-  if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (hit.item) d.item = hit.item; else if (hit.room) d.item = d.item || ''; d.block = hit.block || p.block || d.block; d.level = hit.level || p.level || d.level; d.zoneHit = [hit.unit && 'Unit ' + hit.unit, hit.room, hit.item, d.surface].filter(Boolean).join(', '); }
+  if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (hit.item) d.item = hit.item; else if (hit.room) d.item = d.item || ''; d.block = hit.block || p.block || d.block; d.level = hit.level || p.level || d.level; d.autoLoc = { unit: d.unit || '', room: d.room || '', item: hit.item || '' }; d.zoneHit = [hit.unit && 'Unit ' + hit.unit, hit.room, hit.item, d.surface].filter(Boolean).join(', '); }
   else { d.block = p.block || d.block; d.level = p.level || d.level; d.zoneHit = ''; }
 }
 async function onPlace(x, y) {
@@ -637,7 +650,7 @@ function openMenu() {
 
 /* ================================================================ wiring */
 function wire() {
-  PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } } });
+  PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, onPinMoved: movePin });
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
