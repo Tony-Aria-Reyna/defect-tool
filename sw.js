@@ -1,7 +1,7 @@
 // Resero Defects - offline support. The app shell and libraries are cached; data is cached by Firestore itself.
-const VERSION = 'resero-defects-2.23.1';
+const VERSION = 'resero-defects-2.24.0';
 const SHELL = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'img/resero-navy.png', 'img/resero-white.png',
-  'js/app.js', 'js/admin.js', 'js/fm.js', 'js/pack.js', 'js/dnd.js', 'js/help.js', 'js/nav.js', 'js/install.js', 'js/typicals.js', 'js/ai.js', 'js/config.js', 'js/exports.js', 'js/photos.js', 'js/planview.js', 'js/state.js', 'js/store.js', 'js/util.js',
+  'js/app.js', 'js/admin.js', 'js/faces.js', 'js/fm.js', 'js/pack.js', 'js/dnd.js', 'js/help.js', 'js/nav.js', 'js/install.js', 'js/typicals.js', 'js/ai.js', 'js/config.js', 'js/exports.js', 'js/photos.js', 'js/planview.js', 'js/state.js', 'js/store.js', 'js/util.js',
   'lib/firebase/firebase-app.js', 'lib/firebase/firebase-auth.js', 'lib/firebase/firebase-firestore.js', 'lib/firebase/firebase-storage.js',
   'lib/pdf-lib.min.js', 'lib/jszip.min.js', 'lib/xlsx.bundle.js', 'lib/pdfjs/pdf.min.mjs', 'lib/pdfjs/pdf.worker.min.mjs'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => null)))).then(() => self.skipWaiting())); });

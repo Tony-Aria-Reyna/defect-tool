@@ -1,5 +1,6 @@
 // Resero Defects - main app: sign in, projects, workspace, defect editor.
 import { createStore, createSandbox, isDemo } from './store.js';
+import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate } from './util.js';
@@ -259,21 +260,31 @@ export function elevToFloor(ep, ex, ey) {
   const links = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []);
   const inside = l => (!l.band || (ey >= l.band[0] && ey <= l.band[1])) && (!l.bandX || (ex >= l.bandX[0] && ex <= l.bandX[1]));
   const L = links.find(inside) || links.find(l => !l.band || (ey >= l.band[0] && ey <= l.band[1])) || links[0]; if (!L || !L.planId) return null; const fp = S.plans.find(q => q.id === L.planId); if (!fp) return null;
-  const t = (ex - L.ea) / ((L.eb - L.ea) || 1), x = L.a[0] + t * (L.b[0] - L.a[0]), y = L.a[1] + t * (L.b[1] - L.a[1]);
-  // nudge slightly inside the building so the point lands in the unit behind the face
-  const dx = L.b[0] - L.a[0], dy = L.b[1] - L.a[1], len = Math.hypot(dx * fp.w, dy * fp.h) || 1; let nx = -dy * fp.h / len * 10 / fp.w, ny = dx * fp.w / len * 10 / fp.h;
-  // pick the side of the face that is inside the building: a unit boundary there, else towards the centre of the units
-  const hitUnit = sgn => { const h = locate(fp.zones, x + sgn * nx * 3, y + sgn * ny * 3); return h && (h.unit || h.zone.kind === 'unit' || h.zone.kind === 'room'); };
-  const units = (fp.zones || []).filter(z => z.kind === 'unit' && z.poly && z.poly.length > 2), ctr = units.length ? units.flatMap(z => z.poly).reduce((a, p) => [a[0] + p[0] / (units.length * 4), a[1] + p[1] / (units.length * 4)], [0, 0]) : [0.5, 0.5];
-  const towards = ((ctr[0] - x) * nx + (ctr[1] - y) * ny) >= 0 ? 1 : -1;
-  const sgn = hitUnit(1) && !hitUnit(-1) ? 1 : hitUnit(-1) && !hitUnit(1) ? -1 : towards; nx *= sgn; ny *= sgn;
-  return { planId: fp.id, x: Math.max(0, Math.min(1, x + nx * 3)), y: Math.max(0, Math.min(1, y + ny * 3)), face: [x, y] };
+  let x, y, nx, ny;
+  if (L.side && L.gmap && L.gmap.length >= 2) {
+    // grid-mapped position along the face, dropped onto the stepped face path (or the straight a-b line when there is no path)
+    const u = Faces.gridMap(L.gmap, ex); const pt = Faces.pathAt(L.path, L.side, u) || Faces.fromUV(L.side, u, Faces.toUV(L.side, L.a)[1]);
+    x = pt[0]; y = pt[1]; const inw = Faces.inward(L.side); const nv = 10 / (Faces.isAlong(L.side) ? fp.h : fp.w); nx = Faces.isAlong(L.side) ? 0 : inw * nv; ny = Faces.isAlong(L.side) ? inw * nv : 0;
+  } else {
+    const t = (ex - L.ea) / ((L.eb - L.ea) || 1); x = L.a[0] + t * (L.b[0] - L.a[0]); y = L.a[1] + t * (L.b[1] - L.a[1]);
+    // nudge slightly inside the building so the point lands in the unit behind the face
+    const dx = L.b[0] - L.a[0], dy = L.b[1] - L.a[1], len = Math.hypot(dx * fp.w, dy * fp.h) || 1; nx = -dy * fp.h / len * 10 / fp.w; ny = dx * fp.w / len * 10 / fp.h;
+    // pick the side of the face that is inside the building: a unit boundary there, else towards the centre of the units
+    const hitUnit = sgn => { const h = locate(fp.zones, x + sgn * nx * 3, y + sgn * ny * 3); return h && (h.unit || h.zone.kind === 'unit' || h.zone.kind === 'room'); };
+    const units = (fp.zones || []).filter(z => z.kind === 'unit' && z.poly && z.poly.length > 2), ctr = units.length ? units.flatMap(z => z.poly).reduce((a, p) => [a[0] + p[0] / (units.length * 4), a[1] + p[1] / (units.length * 4)], [0, 0]) : [0.5, 0.5];
+    const towards = ((ctr[0] - x) * nx + (ctr[1] - y) * ny) >= 0 ? 1 : -1;
+    const sgn = hitUnit(1) && !hitUnit(-1) ? 1 : hitUnit(-1) && !hitUnit(1) ? -1 : towards; nx *= sgn; ny *= sgn;
+  }
+  const px = Math.max(0, Math.min(1, x + nx * 3)), py = Math.max(0, Math.min(1, y + ny * 3));
+  // the unit behind the face: the first unit or room met walking inwards (a deck or porch in front of a unit still belongs to it)
+  let hit = locate(fp.zones, px, py), k = 4; while (!(hit && (hit.unit || hit.room)) && k < 40) { hit = locate(fp.zones, x + nx * k, y + ny * k); k += 3; }
+  return { planId: fp.id, x: px, y: py, face: [x, y], hit: hit || null };
 }
 function applyZone(d, x, y, planId) {
   const p = S.plans.find(q => q.id === planId); d.plan = planId; d.x = x; d.y = y;
   if (p.kind === 'elevation') {
     const m = elevToFloor(p, x, y); d.surface = d.surface && d.surface !== 'Floor' ? d.surface : 'Exterior cladding';
-    if (m) { d.plan2 = m.planId; d.x2 = m.x; d.y2 = m.y; const fp = S.plans.find(q => q.id === m.planId), hit = locate(fp.zones, m.x, m.y); d.block = p.block || fp.block || d.block; d.level = p.level || d.level || fp.level; if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (!d.level && hit.level) d.level = hit.level; } d.zoneHit = [hit && hit.unit && 'Unit ' + hit.unit, hit && hit.room, d.surface, 'also pinned on ' + fp.name].filter(Boolean).join(', '); }
+    if (m) { d.plan2 = m.planId; d.x2 = m.x; d.y2 = m.y; const fp = S.plans.find(q => q.id === m.planId), hit = m.hit || locate(fp.zones, m.x, m.y); d.block = p.block || fp.block || d.block; d.level = p.level || d.level || fp.level; if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (!d.level && hit.level) d.level = hit.level; } d.zoneHit = [hit && hit.unit && 'Unit ' + hit.unit, hit && hit.room, d.surface, 'also pinned on ' + fp.name].filter(Boolean).join(', '); }
     else { d.plan2 = null; d.block = p.block || d.block; d.level = p.level || d.level; d.zoneHit = d.surface + ' (elevation not linked to a floor plan yet)'; }
     return;
   }

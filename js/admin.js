@@ -1,9 +1,10 @@
 // Admin areas: project settings, users, plans, room boundaries, import, Gemini settings.
 import { S, can, saveLocal, withDefaults, unitList } from './state.js';
 import { DEFAULTS, ROLES, ROLE_HELP, APP } from './config.js';
-import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, compressImage, dataUrlToBlob, natural, todayISO, loadScript, centroid, pointInPoly, polyArea } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, compressImage, dataUrlToBlob, natural, todayISO, loadScript, centroid, pointInPoly, polyArea, loadImage } from './util.js';
 import { aiCall } from './ai.js';
 import * as Nav from './nav.js';
+import * as Faces from './faces.js';
 
 let X = {};   // callbacks from app.js
 export function init(ctx) { X = ctx; }
@@ -99,10 +100,10 @@ export async function usersDialog() {
 /* ================================================================ plans */
 export async function plansDialog() {
   const pid = S.project.id;
-  const rows = await Promise.all(S.plans.map(async (p, i) => `<div class="planrow" data-id="${esc(p.id)}"><img src="${esc(await S.store.resolveUrl(p.img))}" alt=""><div class="pi"><input data-k="name" value="${esc(p.name)}" placeholder="Name"><input data-k="code" value="${esc(p.code || '')}" placeholder="Drawing no. / rev"><input data-k="block" value="${esc(p.block || '')}" placeholder="Block / building"><input data-k="level" value="${esc(p.level || '')}" placeholder="Level"></div><div><button class="btn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button> <button class="btn" data-del="${esc(p.id)}">Delete</button><br><span class="muted small">${(p.zones || []).length} room boundaries</span><br><span class="muted small">${p.kind === 'elevation' ? (((p.links && p.links.length) || p.link) ? '📐 Elevation (' + esc(p.face || 'linked') + '), linked to ' + esc((S.plans.find(q => q.id === ((p.links && p.links[0]) || p.link).planId) || {}).name || '?') : '📐 Elevation, not linked yet') : 'Floor plan'}</span> <button class="btn small" data-elev="${esc(p.id)}">${p.kind === 'elevation' ? 'Link another face / re-link' : 'This is an elevation…'}</button>${p.kind === 'elevation' ? ` <button class="btn small" data-elevx="${esc(p.id)}">make it a floor plan</button>` : ''}<br><span class="muted small">Views: ${X.planViews(p).filter(v => v.key !== 'floor').map(v => esc(v.name) + ` <button class="btn small" data-rcpx="${esc(p.id)}" data-vk="${esc(v.key)}" title="Remove this view">✕</button>`).join(' · ') || 'floor only'}</span><br><label class="btn small" style="cursor:pointer">+ Attach a view (ceiling, walls, cladding…)<input type="file" data-rcp="${esc(p.id)}" accept="application/pdf,image/*" hidden></label></div></div>`));
+  const rows = await Promise.all(S.plans.map(async (p, i) => `<div class="planrow" data-id="${esc(p.id)}"><img src="${esc(await S.store.resolveUrl(p.img))}" alt=""><div class="pi"><input data-k="name" value="${esc(p.name)}" placeholder="Name"><input data-k="code" value="${esc(p.code || '')}" placeholder="Drawing no. / rev"><input data-k="block" value="${esc(p.block || '')}" placeholder="Block / building"><input data-k="level" value="${esc(p.level || '')}" placeholder="Level"></div><div><button class="btn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button> <button class="btn" data-del="${esc(p.id)}">Delete</button><br><span class="muted small">${(p.zones || []).length} room boundaries</span><br><span class="muted small">${p.kind === 'elevation' ? (((p.links && p.links.length) || p.link) ? '📐 Elevation (' + esc(p.face || 'linked') + '), linked to ' + esc((S.plans.find(q => q.id === ((p.links && p.links[0]) || p.link).planId) || {}).name || '?') : '📐 Elevation, not linked yet') : 'Floor plan'}</span> <button class="btn small" data-elev="${esc(p.id)}">${p.kind === 'elevation' ? 'Link another face / re-link' : 'This is an elevation…'}</button>${p.kind === 'elevation' && p.links && p.links.length ? ` <button class="btn small" data-faces="${esc(p.id)}">Show faces</button>` : ''}${p.kind === 'elevation' ? ` <button class="btn small" data-elevx="${esc(p.id)}">make it a floor plan</button>` : ''}<br><span class="muted small">Views: ${X.planViews(p).filter(v => v.key !== 'floor').map(v => esc(v.name) + ` <button class="btn small" data-rcpx="${esc(p.id)}" data-vk="${esc(v.key)}" title="Remove this view">✕</button>`).join(' · ') || 'floor only'}</span><br><label class="btn small" style="cursor:pointer">+ Attach a view (ceiling, walls, cladding…)<input type="file" data-rcp="${esc(p.id)}" accept="application/pdf,image/*" hidden></label></div></div>`));
   modal(`<h2>Plans</h2><p class="note">Upload floor plans as PDF (any page size) or images. Each PDF page becomes a plan. Block and level are used to fill in the location when you drop a pin.</p>
   ${rows.join('') || '<p class="muted">No plans yet.</p>'}
-  <div class="act" style="justify-content:flex-start"><label class="btn go" style="cursor:pointer">⬆ Upload plans<input type="file" id="plUp" accept="application/pdf,image/*" multiple hidden></label></div>
+  <div class="act" style="justify-content:flex-start"><label class="btn go" style="cursor:pointer">⬆ Upload plans<input type="file" id="plUp" accept="application/pdf,image/*" multiple hidden></label> <button class="btn" id="plAuto" title="Read the titles, grid bubbles and level markers on every elevation sheet and link each face to the right floor plan">Link elevations automatically</button></div>
   <div class="act"><button id="plX">Close</button><button class="go" id="plSave">Save changes</button></div>`, true);
   $('plX').onclick = closeModal;
   $('plUp').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await uploadPlans(fs); };
@@ -117,6 +118,8 @@ export async function plansDialog() {
       if (!bx) return null; const sy = by ? by.s : bx.s, ty = by ? by.t : 0; if (Math.abs(bx.s - 1) < 0.004 && Math.abs(bx.t) < 0.004 && Math.abs(sy - 1) < 0.004 && Math.abs(ty) < 0.004) return null; return { sx: bx.s, sy, tx: bx.t, ty }; };
     $('avGo').onclick = async () => { if ($('avT').value === 'elevation') { closeModal(); const before = new Set(S.plans.map(q => q.id)); await uploadPlans([f]); const np = S.plans.find(q => !before.has(q.id)); if (np) { closeModal(); linkElevation(np); } return; } const key = $('avT').value, name = $('avN').value.trim() || key, surface = (X.VIEW_TYPES.find(t => t[0] === key) || [])[2] || 'Floor'; closeModal(); const b = busy('Attaching ' + name + '…'); try { const pg = (await renderPlanFile(f, [1], true))[0]; if (!pg) throw new Error('Could not read the file'); const path = `projects/${pid}/plans/${p.id}-${key}.jpg`; const url = await S.store.putFile(path, dataUrlToBlob(pg.data), true); const views = (p.views || []).filter(v => v.key !== key); const fit = gridFit(p.grids, pg.grids); views.push({ key, name, surface, img: url, path, fit: fit || null, grids: pg.grids || [] }); const { rcpImg, rcpPath, ...rest } = p; if (rcpImg && key !== 'ceiling' && !views.some(v => v.key === 'ceiling')) views.push({ key: 'ceiling', name: 'Ceiling', surface: 'Ceiling', img: rcpImg, path: rcpPath }); await S.store.savePlan(pid, { ...rest, views }); await X.reloadProject(); b.done(); toast(name + ' view attached' + (fit ? ', aligned to the floor plan by its grid bubbles' : '')); plansDialog(); } catch (x) { b.done(); toast('Could not attach: ' + x.message, 6000); } }; });
   document.querySelectorAll('[data-elev]').forEach(bt => bt.onclick = () => linkElevation(S.plans.find(x => x.id === bt.dataset.elev)));
+  document.querySelectorAll('[data-faces]').forEach(bt => bt.onclick = () => facePreview(S.plans.find(x => x.id === bt.dataset.faces)));
+  if ($('plAuto')) $('plAuto').onclick = async () => { const eps = S.plans.filter(p => p.kind === 'elevation' || looksLikeElevation(p.labels, p.name)); if (!eps.length) return toast('No elevation sheets found. Upload the elevation PDF first.'); const b = busy('Linking elevations…'); let n = 0; const notes = []; try { for (const ep of eps) { const r = await autoLinkElevation(ep, { quiet: true }); if (r.links.length) n++; notes.push(...r.notes); } } finally { b.done(); } await X.reloadProject(); toast(`${n} of ${eps.length} elevation sheets linked`, 5000); if (n) plansDialog(); else modal(`<h2>Nothing linked</h2><p class="note">${notes.map(esc).join('<br>') || 'No readable titles or grid bubbles on the elevation sheets.'}</p><div class="act"><button class="go" id="naOk">OK</button></div>`), $('naOk') && ($('naOk').onclick = closeModal); };
   document.querySelectorAll('[data-elevx]').forEach(bt => bt.onclick = async () => { const p = S.plans.find(x => x.id === bt.dataset.elevx); const { kind, link, links, face, ...rest } = p; await S.store.savePlan(pid, rest); await X.reloadProject(); plansDialog(); });
   document.querySelectorAll('[data-rcpx]').forEach(bt => bt.onclick = async () => { const p = S.plans.find(x => x.id === bt.dataset.rcpx), key = bt.dataset.vk; if (!(await confirmBox('Remove this view?', 'Remove'))) return; const { rcpImg, rcpPath, ...rest } = p; let views = X.planViews(p).filter(v => v.key !== 'floor' && v.key !== key); const gone = X.planViews(p).find(v => v.key === key); await S.store.savePlan(pid, { ...rest, views }); if (gone && gone.path) S.store.deleteFile(gone.path); await X.reloadProject(); plansDialog(); });
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { const p = S.plans.find(x => x.id === b.dataset.del); const n = S.defects.filter(d => d.plan === p.id).length; if (!(await confirmBox(`Delete the plan "${p.name}"?${n ? ` ${n} pinned defects will lose their pin (the defects are kept).` : ''}`, 'Delete'))) return; await S.store.deletePlan(pid, p.id); if (p.path) S.store.deleteFile(p.path); await X.reloadProject(); plansDialog(); });
@@ -133,6 +136,15 @@ export async function renderPlanFile(f, pagesWanted, withGrids) {
   } else { const c = await compressImage(f, 3000, 0.75); out.push({ data: c.dataUrl, w: c.w, h: c.h }); }
   return out;
 }
+const unitsCentre = fp => { const u = (fp.zones || []).filter(z => z.kind === 'unit' && z.poly && z.poly.length > 2); if (!u.length) return [0.5, 0.5]; const pts = u.flatMap(z => z.poly); return [pts.reduce((a, p) => a + p[0], 0) / pts.length, pts.reduce((a, p) => a + p[1], 0) / pts.length]; };
+// A straight a-b link from the tapping wizard gets the stepped face path along the same wall, when the plan carries wall lines.
+function withPath(link, fp) {
+  if (!fp) return link; const a = link.a, b = link.b, dx = b[0] - a[0], dy = b[1] - a[1]; const c = unitsCentre(fp);
+  const side = Math.abs(dx) >= Math.abs(dy) ? (c[1] > (a[1] + b[1]) / 2 ? 'top' : 'bottom') : (c[0] > (a[0] + b[0]) / 2 ? 'left' : 'right');
+  const uA = Faces.toUV(side, a)[0], uB = Faces.toUV(side, b)[0], v = (Faces.toUV(side, a)[1] + Faces.toUV(side, b)[1]) / 2;
+  const path = Faces.deriveFacePath(fp.lines, side, [Math.min(uA, uB), Math.max(uA, uB)], [v - 0.08, v + 0.08], { zones: fp.zones });
+  return { ...link, side, axis: Faces.isAlong(side) ? 'x' : 'y', gmap: [[link.ea, uA], [link.eb, uB]], path };
+}
 // Wizard: mark a plan as an elevation and link it to a floor plan by tapping the two ends of the building face on each.
 export async function linkElevation(ep) {
   const floors = S.plans.filter(q => q.id !== ep.id && q.kind !== 'elevation'); if (!floors.length) return toast('Upload the floor plan first');
@@ -141,8 +153,9 @@ export async function linkElevation(ep) {
     <label class="f">Floor plan this elevation belongs to<select id="leF">${floors.map(f => `<option value="${esc(f.id)}" ${ep.link && ep.link.planId === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
     <label class="f">Face and storey<input id="leN" value="" placeholder="e.g. East, ground floor"></label>
     <p class="note" id="leAuto"></p>
-    <div class="act"><button id="leX">Cancel</button><button id="leGrid" style="display:none">Auto-link using grid bubbles</button><button class="go" id="leGo">Link by tapping</button></div>`);
+    <div class="act"><button id="leX">Cancel</button>${Faces.readElevationSheet(ep).length ? '<button class="go" id="leAll">Link everything automatically</button>' : ''}<button id="leGrid" style="display:none">Auto-link using grid bubbles</button><button id="leTrace">Trace the face by tapping</button><button class="go" id="leGo">Link by tapping</button></div>`);
   $('leX').onclick = closeModal;
+  if ($('leAll')) $('leAll').onclick = async () => { closeModal(); const b = busy('Reading the sheet…'); try { await autoLinkElevation(ep); } finally { b.done(); } };
   const common = () => { const fp = floors.find(q => q.id === $('leF').value); if (!fp || !fp.grids || !ep.grids) return []; const pl = new Set(fp.grids.map(g => g.l)); return [...new Set(ep.grids.filter(g => pl.has(g.l)).map(g => g.l))]; };
   const upd = () => { const c = common(); $('leGrid').style.display = c.length >= 2 ? '' : 'none'; $('leAuto').textContent = c.length >= 2 ? `Both drawings carry grid bubbles ${c.slice(0, 3).join(', ')}… (${c.length} in common), so the link can be worked out from those: you only tap the storey band on the elevation and once on the face on the floor plan.` : 'No shared grid bubbles found between the two drawings; link by tapping the face ends.'; };
   $('leF').onchange = upd; upd();
@@ -153,18 +166,32 @@ export async function linkElevation(ep) {
     const f = await X.pickPoint(fid, 'Floor plan (3 of 3): tap anywhere ON THE OUTSIDE WALL of the face this elevation shows'); if (!f) return;
     const bandY = [Math.min(t1.y, t2.y) - 0.02, Math.max(t1.y, t2.y) + 0.02], bandX = [Math.min(t1.x, t2.x) - 0.03, Math.max(t1.x, t2.x) + 0.03];
     const eg = ep.grids.filter(g => g.x >= bandX[0] && g.x <= bandX[1] && g.y >= bandY[0] - 0.25 && g.y <= bandY[1]);   // bubbles sit above the drawing
-    const pl = {}; fp.grids.forEach(g => { const d = Math.min(Math.abs(g.y - f.y), Math.abs(g.x - f.x)); if (!pl[g.l] || d < pl[g.l]._d) pl[g.l] = { ...g, _d: d }; });
-    let pairs = eg.filter(g => pl[g.l]).sort((a, b) => a.x - b.x); const alpha = pairs.filter(g => /[A-Z]/.test(g.l)); if (alpha.length >= 2) pairs = alpha;   // lettered grids beat stray dimension numbers
-    const seen = new Set(); const uniq = pairs.filter(g => !seen.has(g.l) && seen.add(g.l));
-    if (uniq.length < 2) { toast('Could not find two shared grid bubbles in that band; link by tapping instead', 6000); return; }
-    const L = uniq[0], R = uniq[uniq.length - 1], gL = pl[L.l], gR = pl[R.l];
-    // grids that run across the sheet (AA…AK) give plan x; grids that run down the sheet (A1…A6, on an end face) give plan y
-    const alongX = Math.abs(gR.x - gL.x) >= Math.abs(gR.y - gL.y);
-    const pa = alongX ? [gL.x, f.y] : [f.x, gL.y], pb = alongX ? [gR.x, f.y] : [f.x, gR.y];
-    const link = { planId: fid, face, band: [bandY[0] + 0.02, bandY[1] - 0.02], bandX: [bandX[0] + 0.03, bandX[1] - 0.03], a: pa, b: pb, ea: L.x, eb: R.x, grids: [L.l, R.l] };
+    const f0 = Faces.faceFromGrids(ep, { ...fp, grids: gridsOf(fp) }, eg, [bandY[0] + 0.02, bandY[1] - 0.02], [bandX[0] + 0.03, bandX[1] - 0.03], { v: null });
+    if (!f0) { toast('Could not find two shared grid bubbles in that band; link by tapping instead', 6000); return; }
+    // the tap on the outside wall says which side of the building this is, when the grids alone cannot tell
+    const vTap = Faces.toUV(f0.side, [f.x, f.y])[1], vA = Faces.toUV(f0.side, f0.a)[1];
+    if (!f0.path) { f0.a = Faces.fromUV(f0.side, Faces.toUV(f0.side, f0.a)[0], vTap); f0.b = Faces.fromUV(f0.side, Faces.toUV(f0.side, f0.b)[0], vTap); }
+    else if (Math.abs(vTap - vA) > 0.12) { const other = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[f0.side]; const f1 = Faces.faceFromGrids(ep, { ...fp, grids: gridsOf(fp) }, eg, f0.band, f0.bandX); if (f1 && f1.path && Math.abs(Faces.toUV(other, Faces.pathAt(f1.path, other, Faces.toUV(other, [f.x, f.y])[0]) || f1.a)[1] - vTap) < Math.abs(vTap - vA)) Object.assign(f0, f1); }
+    const L = { l: f0.grids[0] }, R = { l: f0.grids[1] };
+    const link = { planId: fid, face, ...f0 };
     const { link: _old, ...rest } = ep; const existing2 = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []); const links = existing2.filter(l => !(l.face === face && l.planId === fid)); links.push(link);
     await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
     toast(`Linked ${face || 'face'} using grids ${L.l} to ${R.l}. Drop a pin to check it lands in the right unit.`, 7000);
+  };
+  $('leTrace').onclick = async () => {
+    const fid = $('leF').value, face = $('leN').value.trim(), fp = floors.find(q => q.id === fid); closeModal(); if (ZE) await close(true);
+    const t1 = await X.pickPoint(ep.id, 'Elevation (1 of 4): tap the TOP-LEFT of the ' + (face || 'storey') + ' band'); if (!t1) return;
+    const t2 = await X.pickPoint(ep.id, 'Elevation (2 of 4): tap the BOTTOM-RIGHT of the band'); if (!t2) return;
+    const ea = await X.pickPoint(ep.id, 'Elevation (3 of 4): tap the LEFT end of the building at ground level'); if (!ea) return;
+    const eb = await X.pickPoint(ep.id, 'Elevation (4 of 4): tap the RIGHT end of the building'); if (!eb) return;
+    const pts = []; while (true) { const q = await X.pickPoint(fid, `Floor plan: tap each corner of the outside wall in order, LEFT to RIGHT as seen on the elevation (${pts.length} so far). Press Cancel when the last corner is done.`); if (!q) break; pts.push([q.x, q.y]); }
+    if (pts.length < 2) return toast('At least two corners are needed', 5000);
+    const a = pts[0], b = pts[pts.length - 1], dx = b[0] - a[0], dy = b[1] - a[1]; const side = Math.abs(dx) >= Math.abs(dy) ? (unitsCentre(fp)[1] > (a[1] + b[1]) / 2 ? 'top' : 'bottom') : (unitsCentre(fp)[0] > (a[0] + b[0]) / 2 ? 'left' : 'right');
+    const path = pts.map(q => [+q[0].toFixed(4), +q[1].toFixed(4)]); const uA = Faces.toUV(side, a)[0], uB = Faces.toUV(side, b)[0];
+    const link = { planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], bandX: [Math.min(t1.x, t2.x), Math.max(t1.x, t2.x)], a, b, ea: ea.x, eb: eb.x, side, axis: Faces.isAlong(side) ? 'x' : 'y', gmap: [[ea.x, uA], [eb.x, uB]], path, traced: true };
+    const { link: _old, ...rest } = ep; const links = existing.filter(l => !(l.face === face && l.planId === fid)); links.push(link);
+    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
+    toast('Linked along ' + pts.length + ' corners. Pins on this elevation now land on ' + fp.name + ' as well.', 6000);
   };
   $('leGo').onclick = async () => {
     const fid = $('leF').value, face = $('leN').value.trim(); closeModal(); if (ZE) await close(true);
@@ -176,14 +203,80 @@ export async function linkElevation(ep) {
     const ea = await X.pickPoint(ep.id, 'Elevation (5 of 6): tap the SAME left corner of the building on the elevation, at ground level'); if (!ea) return;
     const eb = await X.pickPoint(ep.id, 'Elevation (6 of 6): tap the SAME right corner of the building on the elevation'); if (!eb) return;
     if (Math.abs(eb.x - ea.x) < 0.08) return toast('The two elevation points are too close together. Start again and tap the two far ends of the building.', 7000);
-    const link = { planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], bandX: [Math.min(t1.x, t2.x), Math.max(t1.x, t2.x)], a: [a.x, a.y], b: [b.x, b.y], ea: ea.x, eb: eb.x };
+    const link = withPath({ planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], bandX: [Math.min(t1.x, t2.x), Math.max(t1.x, t2.x)], a: [a.x, a.y], b: [b.x, b.y], ea: ea.x, eb: eb.x }, floors.find(q => q.id === fid));
     const { link: _old, ...rest } = ep; const links = existing.filter(l => !(l.face === face && l.planId === fid) && !(l.planId === fid && Math.abs((l.band ? (l.band[0] + l.band[1]) / 2 : -1) - (link.band[0] + link.band[1]) / 2) < 0.02)); links.push(link);
     await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
     toast('Linked. Pins on this elevation now land on ' + (floors.find(f => f.id === fid) || {}).name + ' as well.', 6000);
   };
 }
+// A sheet is an elevation when its drawing titles say so (and none says floor plan), or when the file name does.
+export function looksLikeElevation(labels, name) {
+  const titles = (labels || []).filter(l => Faces.isElevTitle(l.t));
+  if (titles.length) return !(labels || []).some(l => /floor plan/i.test(l.t));
+  return /elev/i.test(name || '') && !/plan/i.test(name || '');
+}
+const LEVEL_ORDER = ['basement', 'lower', 'ground', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth'];
+export const levelRank = l => { const t = String(l || '').toLowerCase(); const i = LEVEL_ORDER.findIndex(k => t.includes(k)); if (i >= 0) return i; const m = /(?:level|l)\s*(\d+)/i.exec(t); if (m) return 1 + +m[1]; const n = parseInt(t, 10); return isNaN(n) ? 2 : 1 + n; };
+// grid bubbles for a floor plan; when a sheet's bubbles are drawn as outlines and could not be read, borrow them from a sibling
+// sheet of the same block and size (the same building drawn in the same frame)
+export function gridsOf(fp) {
+  const ok = g => (g || []).filter(x => Faces.GRID_RE.test(x.l) && /[A-Z]/.test(x.l)).length >= 2;
+  if (ok(fp.grids)) return fp.grids;
+  const sib = S.plans.find(q => q.id !== fp.id && q.kind !== 'elevation' && (q.block || '') === (fp.block || '') && q.w === fp.w && q.h === fp.h && ok(q.grids));
+  return sib ? sib.grids : (fp.grids || []);
+}
+// Link an elevation sheet to the floor plans without any tapping. Reads the drawing titles (block, face), the grid bubbles above
+// each drawing (which floor plan, which way round, where along the face) and the level markers (which storey band), then derives the
+// stepped face path from the floor plan's wall lines. Returns { links, notes } and saves the plan.
+export async function autoLinkElevation(ep, opt = {}) {
+  const notes = [], links = [];
+  const drawings = Faces.readElevationSheet(ep);
+  if (!drawings.length) { if (!opt.quiet) toast('No elevation titles or grid bubbles could be read on this sheet, so it has to be linked by tapping.', 7000); return { links, notes: ['no readable titles or grid bubbles'] }; }
+  const floors = S.plans.filter(q => q.id !== ep.id && q.kind !== 'elevation');
+  for (const dr of drawings) {
+    // one drawing can show two buildings side by side: split its grid bubbles by the block letter they start with
+    const groups = {}; dr.row.items.filter(g => /[A-Z]/.test(g.l)).forEach(g => { const k = g.l.length >= 2 ? g.l[0] : '_'; (groups[k] = groups[k] || []).push(g); });
+    for (const [k, items] of Object.entries(groups)) {
+      if (items.length < 2) continue;
+      const xs = items.map(g => g.x), bandX = [Math.min(...xs) - 0.04, Math.max(...xs) + 0.04];
+      // floor plans whose grids carry these labels, grouped by block
+      const labs = new Set(items.map(g => g.l));
+      let cands = floors.filter(fp => gridsOf(fp).filter(g => labs.has(g.l)).length >= 2);
+      if (dr.block && cands.some(fp => (fp.block || '').toUpperCase() === dr.block.toUpperCase())) cands = cands.filter(fp => (fp.block || '').toUpperCase() === dr.block.toUpperCase());
+      if (!cands.length) { notes.push(`${dr.title}: no floor plan carries grids ${[...labs].slice(0, 4).join(', ')}`); continue; }
+      const byBlock = {}; cands.forEach(fp => { (byBlock[fp.block || ''] = byBlock[fp.block || ''] || []).push(fp); });
+      const blk = Object.keys(byBlock).sort((a, b) => byBlock[b].length - byBlock[a].length)[0], storeys = byBlock[blk].sort((a, b) => levelRank(a.level) - levelRank(b.level) || (a.order || 0) - (b.order || 0));
+      const bands = Faces.storeyBands(dr, storeys.length);
+      storeys.forEach((fp, i) => {
+        const f = Faces.faceFromGrids({ ...ep, grids: ep.grids }, { ...fp, grids: gridsOf(fp) }, items, bands[i], bandX);
+        if (!f) { notes.push(`${dr.title}: could not match grids to ${fp.name}`); return; }
+        const face = [dr.face || dr.title, fp.level || ('level ' + (i + 1))].filter(Boolean).join(', ');
+        links.push({ planId: fp.id, face, ...f, auto: true, title: dr.title });
+        notes.push(`${face} → ${fp.name} (${f.side} face, grids ${f.grids[0]} to ${f.grids[1]}, ${f.path ? f.path.length / 2 + ' steps' : 'straight: no wall lines found'}${dr.levels.length ? '' : ', storey bands split evenly: no level markers read'})`);
+      });
+    }
+  }
+  if (links.length) {
+    const { link: _old, ...rest } = ep;
+    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: [...new Set(links.map(l => l.face.split(',')[0]))].join(' / '), links, zones: ep.zones || [] });
+    ep.links = links; ep.kind = 'elevation';
+  }
+  if (!opt.quiet) { await X.reloadProject(); if (links.length) facePreview(S.plans.find(q => q.id === ep.id) || ep, notes); else toast('Could not link: ' + notes.join('; '), 9000); }
+  return { links, notes };
+}
+// Show the floor plans with the derived face paths drawn on them, so the links can be checked at a glance.
+export async function facePreview(ep, notes) {
+  const links = (ep.links && ep.links.length) ? ep.links : [];
+  const byPlan = {}; links.forEach(l => { (byPlan[l.planId] = byPlan[l.planId] || []).push(l); });
+  const cols = ['#e11', '#06c', '#190', '#d60', '#909', '#088'];
+  const imgs = await Promise.all(Object.entries(byPlan).map(async ([pid, ls]) => { const fp = S.plans.find(q => q.id === pid); if (!fp) return ''; const im = await loadImage(await S.store.resolveUrl(fp.img)); const c = document.createElement('canvas'); const sc = Math.min(1, 1400 / im.width); c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc); const x = c.getContext('2d'); x.drawImage(im, 0, 0, c.width, c.height);
+    ls.forEach((l, i) => { x.strokeStyle = cols[(links.indexOf(l)) % cols.length]; x.lineWidth = 5; x.lineJoin = 'round'; const pts = l.path && l.path.length > 1 ? l.path : [l.a, l.b]; x.beginPath(); pts.forEach((p, j) => x[j ? 'lineTo' : 'moveTo'](p[0] * c.width, p[1] * c.height)); x.stroke(); x.fillStyle = x.strokeStyle; x.font = 'bold 22px sans-serif'; const m = pts[Math.floor(pts.length / 2)]; x.fillText(l.face || '', m[0] * c.width + 8, m[1] * c.height - 8); });
+    return `<p><b>${esc(fp.name)}</b>: ${ls.map(l => `<span style="color:${cols[links.indexOf(l) % cols.length]}">■ ${esc(l.face)}</span>`).join(' ')}</p><img src="${c.toDataURL('image/jpeg', 0.8)}" style="max-width:100%;border:1px solid #ccc">`; }));
+  modal(`<h2>Faces linked: ${esc(ep.name)}</h2><p>Each coloured line is where that part of the elevation sits on the floor plan, following the steps in the building. Pins dropped on the elevation land on these lines, just inside the wall. If a line follows the wrong wall, re-link that face by tapping (Plans › Link another face).</p>${imgs.join('')}${notes && notes.length ? '<p class="note">' + notes.map(esc).join('<br>') + '</p>' : ''}<div class="act"><button class="go" id="fpOk">Done</button></div>`, true);
+  $('fpOk').onclick = closeModal;
+}
 export async function uploadPlans(files) {
-  const pid = S.project.id, b = busy('Reading plans…'); let order = S.plans.length;
+  const pid = S.project.id, b = busy('Reading plans…'); let order = S.plans.length; const newElevs = [];
   try {
     for (const f of files) {
       const base0 = f.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ');
@@ -202,16 +295,21 @@ export async function uploadPlans(files) {
         for (const n of want) {
           b.set(`Rendering ${f.name} page ${n}…`); const pg = await doc.getPage(n); const v1 = pg.getViewport({ scale: 1 }); const scale = Math.min(4, 3000 / Math.max(v1.width, v1.height));
           const vp = pg.getViewport({ scale }); const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height); const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
-          await pg.render({ canvasContext: x, viewport: vp }).promise; let lines = [], grids = []; try { lines = await extractPdfLines(pg, pdfjs, v1); } catch (e) { console.warn('lines', e); } try { grids = await extractPdfGrids(pg, v1); } catch (e) {} pages.push({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height, suffix: want.length > 1 ? ' p' + n : '', lines, grids });
+          await pg.render({ canvasContext: x, viewport: vp }).promise; let lines = [], grids = [], labels = []; try { lines = await extractPdfLines(pg, pdfjs, v1); } catch (e) { console.warn('lines', e); } try { grids = await extractPdfGrids(pg, v1); labels = await extractPdfLabels(pg, v1); } catch (e) {} pages.push({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height, suffix: want.length > 1 ? ' p' + n : '', lines, grids, labels });
         }
       } else { const c = await compressImage(f, 3000, 0.75); pages.push({ data: c.dataUrl, w: c.w, h: c.h, suffix: '' }); }
       for (const pg of pages) {
         const id = uid(), path = `projects/${pid}/plans/${id}.jpg`; b.set('Uploading ' + base + pg.suffix + '…');
         const img = await S.store.putFile(path, dataUrlToBlob(pg.data));
-        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: guessBlock, level: guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [], lines: pg.lines || [], grids: pg.grids || [] });
+        const isElev = looksLikeElevation(pg.labels, base + pg.suffix);
+        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: guessBlock, level: isElev ? '' : guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [], lines: pg.lines || [], grids: pg.grids || [], labels: pg.labels || [], ...(isElev ? { kind: 'elevation', links: [] } : {}) });
+        if (isElev) newElevs.push(id);
       }
     }
-    b.done(); await X.reloadProject(); toast('Plans uploaded. Check the names, block and level, then Save.'); plansDialog();
+    b.done(); await X.reloadProject();
+    // elevation sheets link themselves to the floor plans from the grid bubbles and level markers they carry
+    let linked = 0; for (const id of newElevs) { const ep = S.plans.find(q => q.id === id); if (!ep) continue; try { const r = await autoLinkElevation(ep, { quiet: true }); if (r && r.links.length) linked++; } catch (e) { console.warn('autolink', e); } }
+    if (linked) { await X.reloadProject(); toast(`Plans uploaded. ${linked} elevation sheet${linked === 1 ? '' : 's'} linked to the floor plans automatically; open Plans to review the faces.`, 7000); } else toast('Plans uploaded. Check the names, block and level, then Save.'); plansDialog();
   } catch (e) { b.done(); console.error(e); toast('Could not upload the plan: ' + e.message, 6000); }
 }
 function parsePages(s, max) { const o = []; s.split(/[,\s]+/).forEach(t => { const m = /^(\d+)(?:-(\d+))?$/.exec(t); if (!m) return; for (let i = +m[1]; i <= +(m[2] || m[1]); i++) if (i >= 1 && i <= max) o.push(i); }); return [...new Set(o)]; }
@@ -443,8 +541,8 @@ export async function importJson(file) {
   if (j.type === 'plangrids' && Array.isArray(j.plans)) {
     if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change plans');
     const keyPlan = k => S.plans.find(x => (k === 'AG' && /Block A/i.test(x.name) && /Ground/i.test(x.name)) || (k === 'AF' && /Block A/i.test(x.name) && /First/i.test(x.name)) || (k === 'BG' && /Block B/i.test(x.name) && /Ground/i.test(x.name)) || (k === 'BF' && /Block B/i.test(x.name) && /First/i.test(x.name)));
-    let n = 0; for (const p of j.plans) { const t = (p.key && keyPlan(p.key)) || (p.match && S.plans.find(x => ((x.code || '') + ' ' + x.name).replace(/\s/g, '').includes(p.match))); if (!t) continue; await S.store.savePlan(S.project.id, { ...t, grids: p.grids }); n++; }
-    await X.reloadProject(); toast(`Grid bubbles added to ${n} plan${n === 1 ? '' : 's'}`); return;
+    let n = 0, ne = 0; const eps = []; for (const p of j.plans) { const t = (p.key && keyPlan(p.key)) || (p.match && S.plans.find(x => ((x.code || '') + ' ' + x.name).replace(/\s/g, '').includes(p.match))); if (!t) continue; await S.store.savePlan(S.project.id, { ...t, grids: p.grids, ...(p.labels ? { labels: p.labels } : {}), ...(p.lines ? { lines: p.lines } : {}) }); n++; if (t.kind === 'elevation' || looksLikeElevation(p.labels || t.labels, t.name)) eps.push(t.id); }
+    await X.reloadProject(); for (const id of eps) { const ep = S.plans.find(q => q.id === id); try { const r = await autoLinkElevation(ep, { quiet: true }); if (r.links.length) ne++; } catch (e) { console.warn(e); } } await X.reloadProject(); toast(`Grid bubbles added to ${n} plan${n === 1 ? '' : 's'}` + (ne ? `; ${ne} elevation sheet${ne === 1 ? '' : 's'} linked automatically` : ''), 6000); if (ne === 1) facePreview(S.plans.find(q => q.id === eps[0])); return;
   }
   if (j.type === 'elevlinks' && Array.isArray(j.plans)) {
     if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change plans');
@@ -576,10 +674,24 @@ export async function importRenumber(j) {
 // Pull the straight lines out of a vector PDF page (walls, grids) so boundaries can snap to them. Returns a flat
 // normalised array [x0,y0,x1,y1,…] of the longest segments. Scanned PDFs have no vectors and return [].
 // Grid bubble labels (AA, AB, 1, 2…) with their positions, from the page text. Lets elevations be linked to plans automatically.
+// Text on the sheet, joined into lines: items on one baseline with small gaps become one label. Used for grid bubbles
+// (which some CAD exports write one letter at a time) and for drawing titles and level markers on elevation sheets.
+export async function extractPdfText(pg, v1) {
+  const tc = await pg.getTextContent(), W = v1.width, H = v1.height, vb = pg.view, items = [];
+  for (const it of tc.items) { const t = (it.str || ''); if (!t.trim()) continue; const h = Math.abs(it.transform[3]) || Math.abs(it.transform[1]) || it.height || 6; const x0 = (it.transform[4] - vb[0]) / W, y = 1 - (it.transform[5] - vb[1]) / H, w = (it.width || 0) / W; if (x0 < -0.01 || x0 > 1.01 || y < -0.01 || y > 1.01) continue; items.push({ t, x0, x1: x0 + w, y, h: h / H, rot: Math.abs(it.transform[1]) > Math.abs(it.transform[0]) }); }
+  items.sort((a, b) => (a.y - b.y) || (a.x0 - b.x0));
+  const lines = [];
+  for (const it of items) { if (it.rot) continue; const L = lines[lines.length - 1]; if (L && Math.abs(L.y - it.y) < Math.max(0.002, L.h * 0.5) && it.x0 - L.x1 < Math.max(0.004, L.h * 1.2) && it.x0 >= L.x1 - 0.004) { L.t += (it.x0 - L.x1 > L.h * 0.25 && !/\s$/.test(L.t) && !/^\s/.test(it.t) ? ' ' : '') + it.t; L.x1 = Math.max(L.x1, it.x1); } else lines.push({ t: it.t, x0: it.x0, x1: it.x1, y: it.y, h: it.h }); }
+  return lines.map(l => ({ t: l.t.replace(/\s+/g, ' ').trim(), x: +((l.x0 + l.x1) / 2).toFixed(4), y: +(l.y - l.h / 2).toFixed(4) })).filter(l => l.t);
+}
 export async function extractPdfGrids(pg, v1) {
-  const tc = await pg.getTextContent(), W = v1.width, H = v1.height, vb = pg.view, out = [];
-  for (const it of tc.items) { const t = (it.str || '').trim(); if (!/^([A-Z]{1,2}|\d{1,2}|[A-Z]\d{1,2})$/.test(t)) continue; const x = (it.transform[4] + (it.width || 0) / 2 - vb[0]) / W, y = 1 - (it.transform[5] + (it.height || 0) / 2 - vb[1]) / H; if (x < 0 || x > 1 || y < 0 || y > 1) continue; out.push({ l: t, x: +x.toFixed(4), y: +y.toFixed(4) }); }
-  return out.slice(0, 300);
+  const lines = await extractPdfText(pg, v1);
+  return lines.filter(l => Faces.GRID_RE.test(l.t)).map(l => ({ l: l.t, x: l.x, y: l.y })).slice(0, 300);
+}
+// Labels worth keeping from a sheet: drawing titles, level markers and floor names (not the whole notes column).
+export async function extractPdfLabels(pg, v1) {
+  const lines = await extractPdfText(pg, v1);
+  return lines.filter(l => /elevation|section|floor plan|roof plan|site plan/i.test(l.t) || /^(RL|FFL|FL)?\s*\d{1,3}[.,]\d{3}$/i.test(l.t) || /^(ground|first|second|third|fourth|lower|upper)\s*(floor|level)?$|^level\s*\d+$|^L\d$/i.test(l.t)).slice(0, 200);
 }
 export async function extractPdfLines(pg, pdfjs, v1) {
   const ops = await pg.getOperatorList(), OPS = pdfjs.OPS, W = v1.width, H = v1.height, vb = pg.view;
