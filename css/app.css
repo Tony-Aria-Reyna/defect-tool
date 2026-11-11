@@ -262,3 +262,5 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 #dropov.show{display:flex}
 #dropov>div{background:#fff;border:3px dashed var(--teal);border-radius:16px;padding:28px 36px;text-align:center;max-width:90%}
 #dropov b{display:block;font-size:20px;color:var(--navy);margin-bottom:6px}#dropov span{color:var(--muted)}
+
+.cnt.chk{background:#fff3c4;border-color:#e3b31b}.cnt.chk.on{background:#e3b31b;color:#fff}.tag.chk{background:#fff3c4;color:#6b4f00}

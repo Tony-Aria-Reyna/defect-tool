@@ -40,12 +40,12 @@ async function boot() {
     if (last && (await openProject(last, true))) return;
     showProjects();
   });
-  addEventListener('online', () => { netbar(); flushOutbox(); }); addEventListener('offline', netbar);
+  addEventListener('online', () => { netbar(); flushOutbox().then(processPendingAI); }); addEventListener('offline', netbar); setInterval(() => processPendingAI(), 45000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   wire();
 }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; return (e && e.message) || String(e); }
-async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'Offline: changes are saved on this device and will sync when you are back online' + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
+async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
 
 /* ================================================================ projects */
 export async function showProjects() {
@@ -77,7 +77,7 @@ export async function openProject(pid, quiet) {
     S.curPlan = S.plans[0] ? S.plans[0].id : null;
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
-    S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar); }, e => toast('Sync problem: ' + friendly(e), 5000));
+    S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar).then(processPendingAI); }, e => toast('Sync problem: ' + friendly(e), 5000));
     FM.start(pid); setTab('list'); b && b.done(); return true;
   } catch (e) { b && b.done(); console.error(e); if (!quiet) toast('Could not open the project: ' + friendly(e), 5000); return false; }
 }
@@ -102,7 +102,7 @@ function initFilters() {
 let filtersDirty = true;
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => F.status.has(d.status) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!q || [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible].join(' ').toLowerCase().includes(q)));
+  const r = S.defects.filter(d => (F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!q || [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible].join(' ').toLowerCase().includes(q)));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -115,12 +115,13 @@ export async function render() {
   if (filtersDirty) { initFilters(); filtersDirty = false; }
   const D = S.defects, c = {}; S.project.statuses.forEach(s => c[s] = 0); D.forEach(d => c[d.status] = (c[d.status] || 0) + 1);
   const maj = D.filter(d => d.status !== 'Closed' && /^Major/.test(d.severity || '')).length, tri = D.filter(d => d.status !== 'Closed' && d.severity === 'To triage').length;
-  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt">Major <b>${maj}</b>${tri ? ` · To triage <b>${tri}</b>` : ''}</span>`;
-  $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
+  const pend = D.filter(d => d.aiPending).length, rev = D.filter(d => d.aiReview).length;
+  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt">Major <b>${maj}</b>${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '');
+  $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
   const L = filtered();
   $('lmeta').textContent = L.length + ' of ' + D.length + ' shown';
   $('list').innerHTML = L.length ? L.map(d => { const sev = /^Major/.test(d.severity || '') ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
-    return `<div class="card ${S.sel === d.id ? 'sel' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.plan ? '<span class="tag" title="Pinned on a plan">📍</span>' : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+    return `<div class="card ${S.sel === d.id ? 'sel' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? '<span class="tag" title="Pinned on a plan">📍</span>' : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
   $('list').querySelectorAll('.card').forEach(el => el.onclick = () => { const d = S.defects.find(x => x.id === el.dataset.id); S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); });
   // thumbnails load lazily
   $('list').querySelectorAll('img[data-ph]').forEach(async im => { const d = S.defects.find(x => x.id === im.dataset.ph); if (d && d.photos[0]) im.src = await photoSrc(d.photos[0]); });
@@ -197,7 +198,7 @@ export function openEditor(d, isNew, isDraft) {
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
   const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status) : p.statuses;
-  $('edBody').innerHTML = `
+  $('edBody').innerHTML = `${w.aiPending ? '<div class="ainote show">📵 Site note recorded out of coverage. Gemini will fill in the form when the phone is back in service. You can still edit and pin it now.</div>' : ''}${w.aiReview ? '<div class="ainote show">✨ Gemini filled this in from your site note while you were out of coverage. Check the fields, then Save to mark it checked.</div>' : ''}
   ${!ro && !con ? `<div class="dict">
     <div class="row1"><button class="mic" id="mic" title="Hold to talk"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
     <textarea id="dt" placeholder="Hold the mic and say it how you would on site, e.g. &quot;Unit 7 bathroom, silicone to the shower tray is patchy and there's a gap behind the vanity, contractor to redo before handover&quot;">${esc(w.transcript || '')}</textarea></div>
@@ -240,7 +241,7 @@ export function openEditor(d, isNew, isDraft) {
   ${w.ext ? `<details class="ext"><summary>Original record (${esc(w.extRef || w.source)})</summary>${Object.entries(w.ext).filter(e => e[1]).map(([k, v]) => `<p><b>${esc(k)}:</b> ${esc(v)}</p>`).join('')}</details>` : ''}`;
   const body = $('edBody');
   body.querySelector('[name=unit]').onchange = e => { const u = unitInfo(e.target.value); if (u) { if (u.block) body.querySelector('[name=block]').value = u.block; if (u.level) body.querySelector('[name=level]').value = u.level; } };
-  if ($('mic')) { holdToTalk($('mic'), () => dictate($('dt'), $('mic'), aiStatus, () => { if (S.local.autoAI !== false) interpret(); })); $('aiGo').onclick = interpret; }
+  if ($('mic')) { holdToTalk($('mic'), () => dictate($('dt'), $('mic'), aiStatus, () => { if (!navigator.onLine) queueNote($('dt').value.trim()); else if (S.local.autoAI !== false) interpret(); })); $('aiGo').onclick = interpret; }
   if ($('setPin')) $('setPin').onclick = () => { collect(); const pl = { mode: 'edit', draft: ED.d, isNew: ED.isNew }; const tgt = ED.d.plan || (S.plans.find(x => x.block === ED.d.block && x.level === ED.d.level) || {}).id || S.curPlan; closeEditor(true); showPlan(tgt); setTab('plan'); startPlacing(pl); };
   if ($('clrPin')) $('clrPin').onclick = () => { collect(); ED.d.plan = ''; ED.d.x = ED.d.y = null; ED.d.zoneHit = ''; openEditor(ED.d, ED.isNew, true); };
   if ($('goPin')) $('goPin').onclick = () => { const d = ED.d; closeEditor(); showPlan(d.plan, d); setTab('plan'); };
@@ -280,11 +281,13 @@ async function saveEditor() {
     const clean = o => { const c = { ...o }; delete c.isNew; delete c.zoneHit; c.photos = (c.photos || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); return c; };
     if (ED.isNew) {
       newH.push({ t, who, txt: 'Raised (' + d.source + '). Status ' + d.status + '.' }); if (cm) newH.push({ t, who, txt: cm });
+      if (d.aiPending) newH.push({ t, who, txt: 'Site note recorded out of coverage; waiting for Gemini.' });
       const rec = clean({ ...d, created: t, createdBy: S.user.email, updated: t, updatedBy: S.user.email, history: newH });
       await S.store.createDefect(pid, rec);
     } else {
       const o = ED.orig || {}, patch = {}, ch = [];
-      const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'transcript'];
+      const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'transcript', 'aiPending'];
+      if (o.aiReview && !can.contractor()) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
       ['status', 'severity', 'responsible', 'targetDate', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
@@ -319,8 +322,43 @@ async function interpret() {
     if (extra.length) h += (h ? '<br>' : '') + `<b>${extra.length} more defect${extra.length > 1 ? 's' : ''} heard:</b> ` + extra.map(x => esc(x.title)).join(' · ') + `<br><button id="aiMore">Add ${extra.length > 1 ? 'them' : 'it'} as separate defect${extra.length > 1 ? 's' : ''}</button>`;
     if (h) { $('aiNote').innerHTML = h; $('aiNote').classList.add('show'); if ($('aiMore')) $('aiMore').onclick = () => addExtra(extra); }
     $('dt').value = ''; $('dt').dispatchEvent(new Event('input')); aiStatus('Filled in. Check and save.');
-  } catch (e) { if (e.message === 'nokey') { aiStatus(''); Admin.aiSettings('Set up Gemini to use the interpreter.'); } else aiStatus(e.message, true); }
+  } catch (e) {
+    if (e.message === 'nokey') { aiStatus(''); Admin.aiSettings('Set up Gemini to use the interpreter.'); }
+    else if (!navigator.onLine || /Could not reach|Failed to fetch|NetworkError|network/i.test(e.message)) queueNote(text);
+    else aiStatus(e.message, true);
+  }
   finally { btn.disabled = false; }
+}
+// No coverage: keep the note on the record; Gemini fills the form in when the phone is back in service.
+function queueNote(text) {
+  const d = ED.d; d.aiPending = true; d.transcript = text;
+  if (!d.title) { const el = $('edBody').querySelector('[name=title]'); el.value = d.title = 'Site note: ' + text.replace(/\s+/g, ' ').slice(0, 60); }
+  if (!d.desc) { const el = $('edBody').querySelector('[name=desc]'); el.value = d.desc = text; }
+  const m = /\bunit\s*(?:number\s*)?(\d{1,3})\b/i.exec(text); const b = $('edBody');
+  if (m && !d.unit && unitList(S.project).includes(m[1])) { const el = b.querySelector('[name=unit]'); if (el) { el.value = m[1]; el.dispatchEvent(new Event('change')); } d.unit = m[1]; collect(); if (!d.plan) { const z = findZone(d.unit, ''); if (z) { applyZone(d, z.x, z.y, z.plan.id); d.zoneHit = 'Pinned at the centre of Unit ' + d.unit + ' (move it if needed)'; drawLoc(); } } }
+  aiStatus('No coverage. Saved as a site note; Gemini will fill in the form when you are back in service, then it will show under "To check".');
+}
+let aiBusy = false;
+export async function processPendingAI() {
+  if (aiBusy || !navigator.onLine || !S.project || !can.edit()) return;
+  const todo = S.defects.filter(d => d.aiPending && d.transcript); if (!todo.length) return;
+  aiBusy = true; const pid = S.project.id;
+  try {
+    for (const d of todo) {
+      if (!S.project || S.project.id !== pid) break;
+      let o; try { const raw = await aiCall(aiPrompt(d.transcript, d)); o = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { if (!navigator.onLine || /Could not reach|Failed to fetch|network/i.test(e.message)) break; console.warn('pending AI', d.id, e); continue; }
+      const list = Array.isArray(o) ? o : (o.defects || [o]); if (!list.length) continue;
+      const t = new Date().toISOString(), x = list[0], patch = { aiPending: false, aiReview: true, updated: t, updatedBy: S.user.email };
+      Object.entries(AIMAP).forEach(([k, f]) => { if (x[k] != null && x[k] !== '') patch[f] = String(x[k]).replace(/—/g, ', '); });
+      if (/^Site note: /.test(d.title) && !patch.title) patch.title = d.title.replace(/^Site note: /, '');
+      const nd = { ...d, ...patch };
+      if (nd.unit) { const u = unitInfo(nd.unit); if (u) { if (!x.block && u.block) patch.block = u.block; if (!x.level && u.level) patch.level = u.level; } }
+      if (!d.plan) { const z = findZone(nd.unit, nd.room); if (z) { const tmp = {}; applyZone(tmp, z.x, z.y, z.plan.id); patch.plan = tmp.plan; patch.x = tmp.x; patch.y = tmp.y; patch.block = tmp.block || patch.block || d.block; patch.level = tmp.level || patch.level || d.level; patch.unit = tmp.unit || patch.unit || d.unit; patch.room = tmp.room || patch.room || d.room; } }
+      const qs = (o.questions || []).filter(Boolean);
+      await S.store.updateDefect(pid, d.id, patch, [{ t, who: 'Gemini', txt: 'Filled in from the site note recorded out of coverage. Please check.' + (qs.length ? ' Check: ' + qs.join(' · ') : '') }]);
+      if (list.length > 1) await createFromAI(list.slice(1), nd, 'Raised from the same site note as ' + d.id + ' (recorded out of coverage). Please check.', true);
+    }
+  } finally { aiBusy = false; }
 }
 function applyAI(x) {
   const b = $('edBody');
@@ -332,17 +370,18 @@ function applyAI(x) {
   if (!d.plan) { const z = findZone(d.unit, d.room); if (z) { applyZone(d, z.x, z.y, z.plan.id); d.zoneHit = (z.unitOnly ? 'Pinned at the centre of Unit ' + d.unit : 'Pinned in ' + d.zoneHit) + ' (move it if needed)'; } }
   drawLoc();
 }
-async function addExtra(extra) {
-  const base = collect(); const t = new Date().toISOString(), made = [];
+async function addExtra(extra) { const made = await createFromAI(extra, collect(), 'Raised from the same dictation as the item being edited.'); $('aiNote').innerHTML = 'Added ' + made.join(', ') + '.'; }
+async function createFromAI(extra, base, why, review) {
+  const t = new Date().toISOString(), made = [];
   for (const x of extra) {
     const d = await newDefect(); Object.entries(AIMAP).forEach(([k, f]) => { if (x[k]) d[f] = String(x[k]).replace(/—/g, ', '); });
     ['unit', 'room', 'block', 'level'].forEach(k => { if (!x[k]) d[k] = base[k]; }); d.source = base.source; d.dateRaised = base.dateRaised;
     const z = findZone(d.unit, d.room); if (z) applyZone(d, z.x, z.y, z.plan.id); else if (base.plan) { d.plan = base.plan; d.x = base.x; d.y = base.y; }
     d.id = await S.store.nextRef(S.project.id, S.project.idPrefix); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(S.project.id, S.project.idPrefix); d.transcript = base.transcript; delete d.isNew; delete d.zoneHit;
-    d.created = d.updated = t; d.createdBy = d.updatedBy = S.user.email; d.history = [{ t, who: S.user.name, txt: 'Raised (' + d.source + ') from the same dictation as the item being edited.' }];
+    d.created = d.updated = t; d.createdBy = d.updatedBy = S.user.email; if (review) d.aiReview = true; d.history = [{ t, who: S.user.name, txt: 'Raised (' + d.source + '). ' + why }];
     await S.store.createDefect(S.project.id, d); made.push(d.id);
   }
-  $('aiNote').innerHTML = 'Added ' + made.join(', ') + '.';
+  return made;
 }
 
 /* ================================================================ export */
@@ -399,7 +438,7 @@ function wire() {
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
-  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '' }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
+  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', review: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = newDefectChooser;

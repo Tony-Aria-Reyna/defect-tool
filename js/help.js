@@ -13,6 +13,7 @@ Raising a defect
 - Dictate: press and hold the microphone, say the defect the way you would to a colleague (where it is, what is wrong, who fixes it, by when), then let go. Gemini fills in the form and clears the note; anything it changed flashes yellow. Check it, then Save.
 - Or tap + New (desktop) and type.
 - Several defects in one breath is fine: the first fills the form and the others appear under "more defects heard" with a button to add them.
+- No coverage on site: hold the mic as usual (or use the keyboard microphone). The note is saved on the phone with its pin and photos; when the phone finds service, Gemini fills in the form and the item shows under "To check" at the top of the list. Open each one, check it, Save.
 - If the mic does not work (common on iPhone when the app is opened from the home screen): tap in the text box and use the microphone key on your keyboard, then tap "Interpret with Gemini".
 
 Pins and rooms
@@ -89,6 +90,7 @@ export async function siteCheck() {
   row('Installed as an app', matchMedia('(display-mode: standalone)').matches ? 'warn' : 'ok', matchMedia('(display-mode: standalone)').matches ? (/iPhone|iPad/.test(navigator.userAgent) ? 'On iPhone, live dictation is unreliable in the home-screen app. Use the Safari tab, or the keyboard microphone.' : 'OK on Android') : 'Running in a browser tab (fine)');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   row('Live dictation available', SR ? 'ok' : 'warn', SR ? '' : 'Not in this browser. Use the keyboard microphone in the text box instead.');
+  row('Dictation out of coverage', 'warn', 'Live dictation needs data. For sites with no signal: Android Settings > General management > Keyboard > Google voice typing (or Samsung voice input) > Offline speech recognition > download English (New Zealand). Then use the keyboard microphone in the note box. Notes are kept on the phone and Gemini fills them in when you are back in service.');
   row('Microphone permission', 'wait', '');
   try { const st = await navigator.mediaDevices.getUserMedia({ audio: true }); st.getTracks().forEach(t => t.stop()); upd('Microphone permission', 'ok', 'Allowed'); } catch (e) { upd('Microphone permission', 'warn', 'Not allowed yet: tap the mic once and choose Allow'); }
   const ob = await outboxCount(); row('Photos waiting to upload', ob ? 'warn' : 'ok', ob ? ob + ' waiting; they upload when online' : 'None');
