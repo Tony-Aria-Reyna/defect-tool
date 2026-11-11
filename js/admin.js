@@ -37,7 +37,7 @@ export function projectSettings(p) {
     <label class="f">Types<textarea id="psTyp" rows="5">${esc(lines(p.types))}</textarea></label>
     <label class="f">Trades<textarea id="psTr" rows="5">${esc(lines(p.trades))}</textarea></label>
     <label class="f">Room names<textarea id="psRooms" rows="5">${esc(lines(p.rooms))}</textarea></label>
-    <label class="f full">Notes for Gemini (products, systems, site terms)<textarea id="psAi" rows="3">${esc(p.aiContext || '')}</textarea></label>
+    <label class="f full">Project knowledge for Gemini (products, parties, site terms, how to classify)<textarea id="psAi" rows="6">${esc(p.aiContext || '')}</textarea></label>
   </div>
   <h3 class="sec">PDF schedule</h3>
   <div class="grid">
@@ -297,6 +297,7 @@ export async function importSheet(file) {
 }
 export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
+  if (j.type === 'aicontext' && (j.text || j.typicals)) { if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change the Gemini knowledge'); const patch = {}; if (j.text) patch.aiContext = j.text; if (Array.isArray(j.typicals)) patch.typicals = j.typicals; await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch); toast('Gemini project knowledge updated' + (j.typicals ? ' with ' + j.typicals.length + ' typical defects' : ''), 5000); return; }
   if (j.type === 'renumber' && j.map) return importRenumber(j);
   if (j.project && Array.isArray(j.plans) && j.plans.length && j.plans[0].img) return importProjectPack(j);
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);

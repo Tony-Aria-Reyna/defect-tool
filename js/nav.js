@@ -20,5 +20,6 @@ export function init(onLeave) {
 }
 export function leave() { ignore++; history.go(-2); setTimeout(() => { try { window.close(); } catch (e) {} }, 300); }
 // Textareas grow with their content
+export function refit(root) { (root || document).querySelectorAll('textarea').forEach(t => { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; }); }
 export function autosize(root) { (root || document).querySelectorAll('textarea').forEach(t => { if (t.dataset.auto) return; t.dataset.auto = '1'; const fit = () => { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; }; t.addEventListener('input', fit); requestAnimationFrame(fit); }); }
 new MutationObserver(() => autosize()).observe(document.documentElement, { childList: true, subtree: true });

@@ -40,6 +40,7 @@ export class PlanView {
       else { this.pv.x = st.px + dx; this.pv.y = st.py + dy; this.pv.user = 1; this._apply(); }
     });
     const up = e => { if (!pts.has(e.pointerId)) return; pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
+      if (pts.size === 1) { const r = [...pts.values()][0]; st = { x: r.x, y: r.y, px: this.pv.x, py: this.pv.y, t: 0, target: null, tol: 12 }; moved = 99; drag = null; }
       if (pts.size === 0 && st) { if (moved <= st.tol && Date.now() - st.t < 1200) this._tap(e, st.target);
         else if (drag && drag.kind === 'v' && this.selZone) { const n = this._norm(e), sn = this._snap(n, this.selZone, drag.i); if (sn.snapped) { this.selZone.poly[drag.i] = [sn.x, sn.y]; drag.shared.forEach(([z, j]) => { z.poly[j] = [sn.x, sn.y]; }); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); } }
         st = null; drag = null; } };

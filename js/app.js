@@ -13,6 +13,7 @@ import { initDrop } from './dnd.js';
 import { helpDialog, siteCheck } from './help.js';
 import * as Nav from './nav.js';
 import { installDialog, maybeNag, canInstall } from './install.js';
+import { typicalList } from './typicals.js';
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -51,7 +52,22 @@ async function boot() {
   let syncT = 0; addEventListener('rd-sync-error', e => { if (Date.now() - syncT < 10000) return; syncT = Date.now(); const m = (e.detail && e.detail.message) || ''; toast('A change could not sync to the cloud: ' + (/(permission|insufficient)/i.test(m) ? 'you do not have permission for that item' : m.slice(0, 120)), 7000); });
   addEventListener('online', () => { netbar(); flushOutbox().then(processPendingAI); }); addEventListener('offline', netbar); setInterval(() => processPendingAI(), 45000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  setTimeout(checkUpdate, 8000); setInterval(checkUpdate, 5 * 60000); addEventListener('online', () => setTimeout(checkUpdate, 3000));
   wire();
+}
+// Installed apps have no pull-to-refresh: look for a newer version and offer a one-tap reload.
+let updateShown = false;
+async function checkUpdate() {
+  if (!navigator.onLine || updateShown || isDemo()) return;
+  try {
+    const t = await (await fetch('js/config.js?u=' + Date.now(), { cache: 'no-store' })).text(); const m = /version:\s*'([^']+)'/.exec(t);
+    if (m && m[1] !== APP.version) { updateShown = true; const b = $('netbar'); b.innerHTML = `New version ${esc(m[1])} available · <b>tap to update</b>`; b.classList.add('show'); b.style.background = '#1c7c54'; b.onclick = reloadApp; }
+  } catch (e) {}
+}
+export async function reloadApp() {
+  try { const r = await navigator.serviceWorker.getRegistration(); if (r) await r.update(); } catch (e) {}
+  try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('resero-defects') && k !== 'resero-defects-img').map(k => caches.delete(k))); } catch (e) {}
+  location.reload();
 }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; if (/wrong-password|invalid-credential|invalid-login/.test(c)) return 'Wrong email or password. If you have not set a password yet, tap "Create a password".'; if (/user-not-found/.test(c)) return 'No password set for this email yet. Tap "Create a password".'; if (/weak-password/.test(c)) return 'Choose a stronger password (at least 8 characters).'; if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes or use "Forgot password".'; if (/network-request-failed/.test(c)) return 'No connection. Sign-in needs data the first time; once signed in the app works offline.'; return (e && e.message) || String(e); }
 async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
@@ -215,7 +231,7 @@ export function openEditor(d, isNew, isDraft) {
     <div class="ainote" id="aiNote"></div></div>` : ''}
   ${con ? '<p class="note muted small">As the contractor you can update the status, add photos and add comments. Other changes are made by the project team.</p>' : ''}
   <div class="grid">
-    <label class="f full">Title<input name="title" value="${esc(w.title)}" ${dis} placeholder="Short name, e.g. Shower tray silicone incomplete"></label>
+    <label class="f full">Title ${!dis ? '<a href="#" id="edTyp" class="small" style="float:right">⚡ Typical defects</a>' : ''}<input name="title" value="${esc(w.title)}" ${dis} placeholder="Short name, e.g. Shower tray silicone incomplete"></label>
     <label class="f full">Description<textarea name="desc" ${dis}>${esc(w.desc)}</textarea></label>
     <label class="f full">Action required<textarea name="action" style="min-height:44px" ${dis}>${esc(w.action)}</textarea></label>
   </div>
@@ -270,10 +286,13 @@ async function drawLoc() {
 }
 async function renderPhotos() {
   const w = ED.d, ro = !can.write();
-  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷<span>Add photo</span></div>' : '');
+  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addcam">📷<span>Camera</span></div><div class="addph" id="addph">🖼<span>From gallery</span></div>' : '');
   $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
   if ($('addph')) $('addph').onclick = () => $('fPhoto').click();
+  if ($('addcam')) $('addcam').onclick = () => $('fCam').click();
+  if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
+  requestAnimationFrame(() => Nav.refit($('edBody')));
 }
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }
@@ -376,6 +395,7 @@ function applyAI(x) {
   Object.entries(AIMAP).forEach(([k, f]) => { let v = x[k]; if (v == null || v === '') return; v = String(v).replace(/—/g, ', '); const el = b.querySelector(`[name=${f}]`); if (!el) return;
     if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === v)) { const o = document.createElement('option'); o.textContent = v; el.appendChild(o); }
     el.value = v; el.classList.remove('aifill'); void el.offsetWidth; el.classList.add('aifill'); });
+  Nav.refit($('edBody'));
   collect(); const d = ED.d;
   if (d.unit) { const u = unitInfo(d.unit); if (u) { if (!x.block && u.block) d.block = b.querySelector('[name=block]').value = u.block; if (!x.level && u.level) d.level = b.querySelector('[name=level]').value = u.level; } }
   if (!d.plan) { const z = findZone(d.unit, d.room); if (z) { applyZone(d, z.x, z.y, z.plan.id); d.zoneHit = (z.unitOnly ? 'Pinned at the centre of Unit ' + d.unit : 'Pinned in ' + d.zoneHit) + ' (move it if needed)'; } }
@@ -433,6 +453,7 @@ function openMenu() {
     ${can.edit() ? '<button id="mImp">⬆ Import register<small>Excel, CSV or a v1 backup file</small></button>' : ''}
     ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
     ${canInstall() ? '<button id="mInst">📲 Install on this phone<small>Home screen app, stays signed in</small></button>' : ''}
+    <button id="mReload">🔄 Reload app<small>Get the latest version (v${APP.version} now)</small></button>
     <button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>
     <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
     <button id="mProj">🗂 All projects<small>Switch project</small></button>
@@ -440,7 +461,7 @@ function openMenu() {
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
   on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
-  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
+  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
 
 /* ================================================================ wiring */
@@ -466,6 +487,16 @@ function wire() {
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
   document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) closeModal(); else if ($('sheet').classList.contains('show')) closeEditor(); else if (placing) stopPlacing(); });
   initDrop({ Admin, FM, addPhotos, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
+}
+// Quick-pick a typical defect: fills title, description, action, trade, type, severity and element; keeps location and photos.
+function typicalPicker() {
+  const list = typicalList(S.project); const cur = collect(); const room = (cur.room || '').toLowerCase();
+  const draw = q => { q = (q || '').toLowerCase(); const L = list.filter(x => !q || (x.t + ' ' + x.d + ' ' + x.tr + ' ' + (x.el || '')).toLowerCase().includes(q)); const rank = x => (room && x.r && room.includes(x.r.toLowerCase())) ? 0 : 1; L.sort((a, b) => rank(a) - rank(b) || a.tr.localeCompare(b.tr));
+    $('tpList').innerHTML = L.length ? L.map((x, i) => `<button class="tp" data-i="${list.indexOf(x)}"><b>${esc(x.t)}</b><small>${esc(x.tr)} · ${esc(x.s)}</small></button>`).join('') : '<p class="muted">Nothing matches. Type it in the title instead.</p>';
+    $('tpList').querySelectorAll('.tp').forEach(b => b.onclick = () => { const x = list[+b.dataset.i]; const body = $('edBody'), set = (n, v) => { const el = body.querySelector(`[name=${n}]`); if (!el || v == null) return; if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === v)) { const o = document.createElement('option'); o.textContent = v; el.appendChild(o); } el.value = v; el.classList.add('aifill'); };
+      set('title', x.t); set('desc', x.d); set('action', x.a); set('trade', x.tr); set('type', x.ty); set('severity', x.s); set('element', x.el); if (x.r && !cur.room) set('room', x.r); collect(); Nav.refit(body); closeModal(); toast('Filled from typical defect; adjust as needed'); }); };
+  modal(`<h2>Typical defects</h2><input id="tpQ" placeholder="Search, e.g. paint, door, sealant" style="width:100%;margin-bottom:8px"><div class="btnlist" id="tpList" style="max-height:60vh;overflow:auto"></div><div class="act"><button id="tpX">Close</button></div>`);
+  $('tpX').onclick = closeModal; $('tpQ').oninput = e => draw(e.target.value); draw(''); setTimeout(() => $('tpQ').focus(), 50);
 }
 function newDefectChooser() {
   modal(`<h2>New defect</h2><div class="btnlist">

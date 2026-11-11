@@ -1,6 +1,7 @@
 // Dictation (Web Speech API, en-NZ) and the Gemini interpreter.
 import { S, saveLocal, unitList } from './state.js';
 import { todayISO } from './util.js';
+import { typicalList } from './typicals.js';
 
 let REC = null, HOLD = null;
 // Hold-to-talk dictation. Each recognition session is a single utterance (continuous=false) and is restarted
@@ -74,7 +75,11 @@ PROJECT: ${p.name}${p.address ? ', ' + p.address : ''}. ${p.description || ''}
 ${units.length ? 'Units: ' + (units.length > 60 ? units.slice(0, 60).join(', ') + '…' : units.join(', ')) + '.' : ''}
 ${[...new Set(zones)].slice(0, 120).join('; ')}
 Rooms and areas on the plans: ${[...new Set([...roomNames, ...p.rooms])].join(', ')}.
-Main contractor: ${p.contractor || 'not stated'}. ${p.aiContext || ''}
+Main contractor: ${p.contractor || 'not stated'}.
+${p.aiContext ? 'PROJECT KNOWLEDGE:\n' + p.aiContext + '\n' : ''}
+TYPICAL DEFECT TITLES (reuse one of these as the title when the note matches it, so the register stays consistent): ${typicalList(p).map(x => x.t).join('; ')}.
+${((S.fm || {}).systems || []).length ? 'SPECIFIED SYSTEMS: ' + S.fm.systems.map(x => x.name).join('; ') + '.' : ''}
+${((S.fm || {}).assets || []).length ? 'BUILDING ELEMENTS AND PRODUCTS (use these names for "element"): ' + [...new Set(S.fm.assets.map(x => x.element).filter(Boolean))].slice(0, 120).join('; ') + '.' : ''}
 
 THE SITE NOTE (dictated, may contain speech-to-text errors; fix obvious mishearings such as "gyp" for GIB or "unit to" for unit 2):
 """${text}"""
