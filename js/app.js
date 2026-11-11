@@ -69,6 +69,7 @@ export async function reloadApp() {
   try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('resero-defects') && k !== 'resero-defects-img').map(k => caches.delete(k))); } catch (e) {}
   location.reload();
 }
+function viewAsBar() { let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } if (S.viewAs) { b.innerHTML = `👁 Viewing as <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · <a href="#" id="vaStop">stop</a>`; b.classList.add('show'); $('vaStop').onclick = e => { e.preventDefault(); S.viewAs = null; viewAsBar(); filtersDirty = true; $('bNew').style.display = can.edit() ? '' : 'none'; $('fab').style.display = can.edit() ? '' : 'none'; render(); if (ED) closeEditor(); }; } else b.classList.remove('show'); }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; if (/wrong-password|invalid-credential|invalid-login/.test(c)) return 'Wrong email or password. If you have not set a password yet, tap "Create a password".'; if (/user-not-found/.test(c)) return 'No password set for this email yet. Tap "Create a password".'; if (/weak-password/.test(c)) return 'Choose a stronger password (at least 8 characters).'; if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes or use "Forgot password".'; if (/network-request-failed/.test(c)) return 'No connection. Sign-in needs data the first time; once signed in the app works offline.'; return (e && e.message) || String(e); }
 async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
 
@@ -146,7 +147,8 @@ export async function render() {
   const L = filtered();
   $('lmeta').textContent = L.length + ' of ' + D.length + ' shown';
   $('list').innerHTML = L.length ? L.map(d => { const sev = /^Major/.test(d.severity || '') ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
-    return `<div class="card ${S.sel === d.id ? 'sel' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? '<span class="tag" title="Pinned on a plan">📍</span>' : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+    return `<div class="card ${S.sel === d.id ? 'sel' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? `<span class="tag loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</span>` : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+  $('list').querySelectorAll('.tag.loc').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
   $('list').querySelectorAll('.card').forEach(el => el.onclick = () => { const d = S.defects.find(x => x.id === el.dataset.id); S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); });
   // thumbnails load lazily
   $('list').querySelectorAll('img[data-ph]').forEach(async im => { const d = S.defects.find(x => x.id === im.dataset.ph); if (d && d.photos[0]) im.src = await photoSrc(d.photos[0]); });
@@ -206,6 +208,11 @@ function findZone(unit, room) {
   return null;
 }
 const centroid = poly => { let x = 0, y = 0; poly.forEach(p => { x += p[0]; y += p[1]; }); return [x / poly.length, y / poly.length]; };
+const uniq = a => [...new Set(a.filter(Boolean).map(String))];
+function blockList() { return uniq([...(S.project.blocks || []), ...S.plans.map(p => p.block), ...S.plans.flatMap(p => (p.zones || []).map(z => z.block)), ...S.defects.map(d => d.block)]).sort(natural); }
+function levelList() { return uniq([...(S.project.levels || []), ...S.plans.map(p => p.level), ...S.plans.flatMap(p => (p.zones || []).map(z => z.level)), ...S.defects.map(d => d.level)]).sort(natural); }
+// People on the project: members plus the responsible-party list, for "on behalf of".
+function peopleList() { const info = S.project.memberInfo || {}; return uniq([...Object.values(info).map(i => i.name || i.email), ...(S.project.responsible || [])]).sort(natural); }
 function unitInfo(u) { for (const p of S.plans) for (const z of (p.zones || [])) if (z.kind === 'unit' && String(z.unit) === String(u)) return { block: z.block || p.block, level: z.level || p.level }; return null; }
 
 /* ================================================================ editor */
@@ -240,8 +247,8 @@ export function openEditor(d, isNew, isDraft) {
   <div class="grid">
     <label class="f">Unit<select name="unit" ${dis}><option value="">Common / none</option>${units.map(u => `<option ${String(w.unit) === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label>
     <label class="f">Room / area<input name="room" value="${esc(w.room)}" list="rooms" ${dis}></label>
-    <label class="f">Block<input name="block" value="${esc(w.block)}" list="blocks" ${dis}></label>
-    <label class="f">Level<input name="level" value="${esc(w.level)}" list="levels" ${dis}></label>
+    <label class="f">Block<select name="block" ${dis}><option value="">Not set</option>${opts(blockList(), w.block)}</select></label>
+    <label class="f">Level<select name="level" ${dis}><option value="">Not set</option>${opts(levelList(), w.level)}</select></label>
     <label class="f full">Element / product<input name="element" value="${esc(w.element)}" ${dis} placeholder="e.g. Shower tray, cladding, fire door"></label>
   </div>
   <datalist id="rooms">${[...new Set([...S.plans.flatMap(pl => (pl.zones || []).filter(z => z.kind !== 'unit' && z.name).map(z => z.name)), ...p.rooms])].map(r => `<option>${esc(r)}</option>`).join('')}</datalist>
@@ -264,10 +271,11 @@ export function openEditor(d, isNew, isDraft) {
   <h3 class="sec">Attachments</h3>
   <div class="files" id="fls">${(w.files || []).map((f, i) => `<div class="file"><a href="#" data-f="${i}">📎 ${esc(f.name)}</a><span class="muted small"> · ${esc(f.by || '')} ${esc(nzDate((f.t || '').slice(0, 10)))}${f.pending ? ' · waiting to upload' : ''}</span>${!ro && (can.edit() || f.isNew) ? ` <button data-fx="${i}" class="small">✕</button>` : ''}</div>`).join('')}${!ro ? '<button id="addfile" class="small">📎 Attach PDF or file</button>' : ''}</div>
   <h3 class="sec">${con ? 'Response and history' : 'Comments and history'}</h3>
-  ${!ro ? `<label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>` : ''}
+  ${!ro ? `<label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="cmtFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}` : ''}
   <div class="hist">${(w.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(h => `<div><b>${esc(nzDT(h.t))}</b> · ${esc(h.who)}: ${esc(h.txt)}</div>`).join('') || '<div>No history yet.</div>'}</div>
   ${w.ext ? `<details class="ext"><summary>Original record (${esc(w.extRef || w.source)})</summary>${Object.entries(w.ext).filter(e => e[1]).map(([k, v]) => `<p><b>${esc(k)}:</b> ${esc(v)}</p>`).join('')}</details>` : ''}`;
   const body = $('edBody');
+  if (!ro && w.unit && (!w.block || !w.level)) { const u = unitInfo(w.unit); if (u) { if (!w.block && u.block) { w.block = u.block; body.querySelector('[name=block]').value = u.block; } if (!w.level && u.level) { w.level = u.level; body.querySelector('[name=level]').value = u.level; } } }
   body.querySelector('[name=unit]').onchange = e => { const u = unitInfo(e.target.value); if (u) { if (u.block) body.querySelector('[name=block]').value = u.block; if (u.level) body.querySelector('[name=level]').value = u.level; } };
   if ($('mic')) { holdToTalk($('mic'), () => dictate($('dt'), $('mic'), aiStatus, () => { if (!navigator.onLine) queueNote($('dt').value.trim()); else if (S.local.autoAI !== false) interpret(); })); $('aiGo').onclick = interpret; }
   if ($('setPin')) $('setPin').onclick = () => { collect(); const pl = { mode: 'edit', draft: ED.d, isNew: ED.isNew }; const tgt = ED.d.plan || (S.plans.find(x => x.block === ED.d.block && x.level === ED.d.level) || {}).id || S.curPlan; closeEditor(true); showPlan(tgt); setTab('plan'); startPlacing(pl); };
@@ -280,6 +288,14 @@ export function openEditor(d, isNew, isDraft) {
   $('sheet').classList.add('show');
 }
 function aiStatus(m, err) { const s = $('aiSt'); if (s) { s.textContent = m || ''; s.style.color = err ? '#b00000' : ''; } if (err && m) toast(m, 5000); }
+// Full-size plan window showing where a defect is, with a plain X to close.
+export async function showLocation(d) {
+  const p = S.plans.find(q => q.id === d.plan); if (!p || d.x == null) return toast('No pin on a plan yet');
+  modal(`<div class="locwin"><div class="lochead"><b>${esc(d.id || 'New')} · ${esc(d.title || '')}</b><span class="muted small"> ${esc(locText(d))} · ${esc(p.name)}</span><button id="locX" class="x" title="Close">✕</button></div><div class="locbody"><canvas id="locBig"></canvas></div><div class="act"><button id="locZoomOut">Whole plan</button><button id="locZoomIn">Close up</button></div></div>`, true);
+  let zoom = 2; const draw = async () => { const c = $('locBig'), x = c.getContext('2d'); const box = c.parentElement.getBoundingClientRect(); c.width = Math.floor(box.width); c.height = Math.floor(Math.max(300, innerHeight * 0.6));
+    try { const im = await loadImage(await imgUrl(p.img)); const fit = Math.min(c.width / p.w, c.height / p.h), s = fit * zoom, cx = d.x * p.w * s, cy = d.y * p.h * s; let ox = c.width / 2 - cx, oy = c.height / 2 - cy; if (zoom === 1) { ox = (c.width - p.w * s) / 2; oy = (c.height - p.h * s) / 2; } x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, ox, oy, p.w * s, p.h * s); const px = ox + d.x * p.w * s, py = oy + d.y * p.h * s; x.strokeStyle = SCOL[d.status] || '#d64545'; x.lineWidth = 3; x.beginPath(); x.arc(px, py, 18, 0, 7); x.stroke(); x.fillStyle = SCOL[d.status] || '#d64545'; x.beginPath(); x.arc(px, py, 7, 0, 7); x.fill(); } catch (e) {} };
+  $('locX').onclick = closeModal; $('locZoomOut').onclick = () => { zoom = 1; draw(); }; $('locZoomIn').onclick = () => { zoom = 3; draw(); }; await draw();
+}
 async function drawLoc() {
   const d = ED.d, c = $('locC'), x = c.getContext('2d'); const p = S.plans.find(q => q.id === d.plan);
   $('locT').innerHTML = esc(locText(d) || 'No location yet') + (p ? ' · ' + esc(p.name) : '') + (d.zoneHit ? `<br><span class="zonehit">Found: ${esc(d.zoneHit)}</span>` : '');
@@ -295,6 +311,7 @@ async function renderPhotos() {
   if ($('addph')) $('addph').onclick = () => $('fPhoto').click();
   if ($('addcam')) $('addcam').onclick = () => $('fCam').click();
   if ($('addfile')) $('addfile').onclick = () => $('fAttach').click();
+  $('locC').onclick = () => showLocation(ED.d); $('locC').style.cursor = 'zoom-in'; $('locC').title = 'Open the plan at this location';
   $('fls').querySelectorAll('[data-f]').forEach(a => a.onclick = async ev => { ev.preventDefault(); const f = (ED.d.files || [])[+a.dataset.f]; if (!f) return; const u = f.data || (f.url ? await imgUrl(f.url) : ''); if (u) window.open(u, '_blank'); else toast('This file is still waiting to upload'); });
   $('fls').querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { const i = +b.dataset.fx; const f = ED.d.files[i]; if (f.path && !f.isNew) (ED.removed = ED.removed || []).push(f.path); ED.d.files.splice(i, 1); openEditor(ED.d, ED.isNew, true); });
   const wf = (status, label, needComment) => async () => { collect(); const c = $('cmt') ? $('cmt').value.trim() : ''; if (needComment && !c) { toast(label + ': add a short comment first so the other side knows what happened'); $('cmt').focus(); return; } const sel = $('edBody').querySelector('[name=status]'); if (sel) { if (![...sel.options].some(o => o.value === status)) { const o = document.createElement('option'); o.textContent = status; sel.appendChild(o); } sel.value = status; } ED.d.status = status; ED.wfLabel = label; await saveEditor(); };
@@ -310,7 +327,7 @@ function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'
 // Next reference number from what this device knows (used when the server cannot be reached in time).
 function localNextRef() { const pre = (S.project.idPrefix || 'D') + '-'; let m = S.project.seq || 0; S.defects.forEach(d => { if (d.id.startsWith(pre)) { const n = parseInt(d.id.slice(pre.length), 10); if (n > m) m = n; } }); return m + 1; }
 async function saveEditor() {
-  const d = collect(); const who = S.user.name, t = new Date().toISOString(), pid = S.project.id, newH = [];
+  const d = collect(); const who = ($('cmtFor') && $('cmtFor').value) ? S.user.name + ' on behalf of ' + $('cmtFor').value : S.user.name, t = new Date().toISOString(), pid = S.project.id, newH = [];
   if (!d.title && !d.desc) { toast('Add a title or description first'); return; }
   if (!d.title) d.title = d.desc.split(/[.,;]/)[0].slice(0, 70);
   const b = busy(navigator.onLine ? 'Saving…' : 'Saving on this phone…');
@@ -467,7 +484,8 @@ function openMenu() {
     ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
     ${can.edit() ? '<button id="mImp">⬆ Import register<small>Excel, CSV or a v1 backup file</small></button>' : ''}
     ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
-    ${canInstall() ? '<button id="mInst">📲 Install on this phone<small>Home screen app, stays signed in</small></button>' : ''}
+    ${canInstall() ? `<button id="mInst">📲 Install ${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'on this phone' : 'as a desktop app'}<small>${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'Home screen app, stays signed in' : 'Opens in its own window from the Start menu or Dock'}</small></button>` : ''}
+    ${can.realAdmin() ? `<button id="mViewAs">👁 View as…<small>${S.viewAs ? 'Currently viewing as ' + esc(ROLES[S.viewAs] || S.viewAs) + ' (tap to change or stop)' : 'Test the app as an editor, contractor or viewer'}</small></button>` : ''}
     <button id="mReload">🔄 Reload app<small>Get the latest version (v${APP.version} now)</small></button>
     <button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>
     <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
@@ -476,7 +494,8 @@ function openMenu() {
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
   on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
-  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
+  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp);
+  on('mViewAs', () => { modal(`<h2>View as</h2><p>See the app the way another role sees it. Saving still uses your real permissions.</p><div class="btnlist">${['', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${(S.viewAs || '') === r ? 'go' : ''}">${r ? esc(ROLES[r] || r) : 'Myself (' + esc(ROLES[S.role] || (S.sup ? 'System admin' : S.role)) + ')'}</button>`).join('')}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { S.viewAs = b.dataset.va || null; closeModal(); viewAsBar(); filtersDirty = true; $('bNew').style.display = can.edit() ? '' : 'none'; $('fab').style.display = can.edit() ? '' : 'none'; render(); if (ED) closeEditor(); toast(S.viewAs ? 'Viewing as ' + (ROLES[S.viewAs] || S.viewAs) : 'Back to your own role'); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
 
 /* ================================================================ wiring */
@@ -489,7 +508,9 @@ function wire() {
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = newDefectChooser;
-  $('fAttach').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; if (!ED) return; for (const f of fs) { if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB'); continue; } const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); (ED.d.files = ED.d.files || []).push({ id: uid(), name: f.name, mime: f.type || 'application/octet-stream', data, t: new Date().toISOString(), by: S.user.name, isNew: true }); } collect(); openEditor(ED.d, ED.isNew, true); };
+  $('fAttach').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addFiles(fs); };
+  async function addFilesImpl(fs) { if (!ED) return; for (const f of fs) { if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB'); continue; } const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); (ED.d.files = ED.d.files || []).push({ id: uid(), name: f.name, mime: f.type || 'application/octet-stream', data, t: new Date().toISOString(), by: S.user.name, isNew: true }); } collect(); openEditor(ED.d, ED.isNew, true); toast(fs.length + ' file' + (fs.length > 1 ? 's' : '') + ' attached; Save to keep'); }
+  addFilesRef = addFilesImpl;
   $('fCam').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await addPhotos([f]); };
   $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
   $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); S.local.noList = h; saveLocal(); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
@@ -502,7 +523,7 @@ function wire() {
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
   document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) closeModal(); else if ($('sheet').classList.contains('show')) closeEditor(); else if (placing) stopPlacing(); });
-  initDrop({ Admin, FM, addPhotos, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
+  initDrop({ Admin, FM, addPhotos, addFiles, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
 }
 // Quick-pick a typical defect: fills title, description, action, trade, type, severity and element; keeps location and photos.
 // One-tap workflow: the responsible party marks it ready; the raiser (or an admin/editor) accepts or sends it back.
@@ -526,6 +547,8 @@ function typicalPicker() {
   $('tpX').onclick = closeModal;
   if ($('tpAdd')) $('tpAdd').onclick = async ev => { ev.preventDefault(); const t = templateFrom(cur); try { await S.store.addToLibrary('typicals', t); (S.lib = S.lib || []).push(t); toast('Added "' + t.t + '" to the Resero typical defects library'); draw($('tpQ').value); } catch (e) { toast('Could not save to the library: ' + e.message, 5000); } }; $('tpQ').oninput = e => draw(e.target.value); draw(''); setTimeout(() => $('tpQ').focus(), 50);
 }
+let addFilesRef = null;
+export async function addFiles(fs) { if (addFilesRef) return addFilesRef(fs); }
 function newDefectChooser() {
   modal(`<h2>New defect</h2><div class="btnlist">
     <button id="ndMic">🎤 Dictate<small>Say it, Gemini fills the form</small></button>

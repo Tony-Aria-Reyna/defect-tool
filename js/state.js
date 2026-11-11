@@ -10,11 +10,14 @@ export const S = {
 };
 export function saveLocal() { try { localStorage.setItem('rd-local', JSON.stringify(S.local)); } catch (e) {} }
 
+// "View as" lets an admin test the app as another role (client-side only; the server rules still apply to the real role).
+const R = () => S.viewAs || S.role, SUP = () => !S.viewAs && S.sup;
 export const can = {
-  admin: () => S.sup || S.role === 'admin',
-  edit: () => S.sup || S.role === 'admin' || S.role === 'editor',
-  contractor: () => !S.sup && S.role === 'contractor',
-  write: () => S.sup || ['admin', 'editor', 'contractor'].includes(S.role),
+  admin: () => SUP() || R() === 'admin',
+  edit: () => SUP() || R() === 'admin' || R() === 'editor',
+  contractor: () => !SUP() && R() === 'contractor',
+  write: () => SUP() || ['admin', 'editor', 'contractor'].includes(R()),
+  realAdmin: () => S.sup || S.role === 'admin',
 };
 
 // Fill any list a project has not customised with the defaults.

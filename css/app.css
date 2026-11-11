@@ -270,3 +270,7 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 
 .wf{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}.wf button{flex:1;min-width:140px;padding:12px;font-weight:600;border-radius:8px}.wf .go{background:#1c7c54;color:#fff;border:0}.wf .warn{background:#fff3c4;border:1px solid #e3b31b}
 .files .file{padding:6px 0;border-bottom:1px solid var(--line)}.files .file a{font-weight:600}.files button.small{padding:2px 8px}
+
+#viewAsBar{display:none;position:fixed;top:0;left:0;right:0;z-index:60;background:#6b4f00;color:#fff;text-align:center;padding:4px;font-size:13px}#viewAsBar.show{display:block}#viewAsBar a{color:#fff}
+.locwin .lochead{display:flex;align-items:center;gap:10px}.locwin .lochead .x{margin-left:auto;font-size:20px;background:none;border:0;cursor:pointer}.locwin .locbody{background:#eee;border-radius:8px;overflow:hidden}.locwin canvas{display:block;width:100%}
+.tag.loc{cursor:pointer}

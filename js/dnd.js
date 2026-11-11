@@ -27,7 +27,7 @@ function where() {
   return X.FM.currentModule() === 'defects' ? 'defects' : 'fm';
 }
 function hint() {
-  return { defect: 'Photos will be added to this defect', asset: 'Files will be uploaded and linked to this asset', plans: 'PDFs and images will be added as plans', defects: 'Import files (.json, Excel, CSV) or plan PDFs', fm: 'Files and folders will be filed in Documents by system and type' }[where()];
+  return { defect: 'Photos and PDFs will be added to this defect', asset: 'Files will be uploaded and linked to this asset', plans: 'PDFs and images will be added as plans', defects: 'Import files (.json, Excel, CSV) or plan PDFs', fm: 'Files and folders will be filed in Documents by system and type' }[where()];
 }
 // Read dropped files, including everything inside dropped folders (keeps each file's folder path).
 async function collect(dt) {
@@ -46,7 +46,7 @@ const ext = f => (/\.([a-z0-9]+)$/i.exec(f.name) || [])[1]?.toLowerCase() || '';
 const isImg = f => /^image\//.test(f.type) || ['jpg', 'jpeg', 'png', 'heic', 'webp'].includes(ext(f));
 async function route(files) {
   const w = where(), folder = files.some(f => f.relPath && f.relPath.includes('/'));
-  if (w === 'defect') { const im = files.filter(isImg); if (!im.length) return toast('Only photos can be dropped onto a defect'); return X.addPhotos(im); }
+  if (w === 'defect') { const im = files.filter(isImg), docs = files.filter(f => !isImg(f)); if (im.length) await X.addPhotos(im); if (docs.length) await X.addFiles(docs); return; }
   if (w === 'asset') return X.FM.dropDocs(files, X.FM.assetDropTarget());
   if (w === 'plans') { if (!can.admin()) return toast('Only project admins can add plans'); closeModal(); return X.Admin.uploadPlans(files.filter(f => ext(f) === 'pdf' || isImg(f))); }
   const json = files.filter(f => ext(f) === 'json'), sheets = files.filter(f => ['xlsx', 'xls', 'csv'].includes(ext(f)));
