@@ -130,13 +130,13 @@ export async function uploadPlans(files) {
         for (const n of want) {
           b.set(`Rendering ${f.name} page ${n}…`); const pg = await doc.getPage(n); const v1 = pg.getViewport({ scale: 1 }); const scale = Math.min(4, 3000 / Math.max(v1.width, v1.height));
           const vp = pg.getViewport({ scale }); const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height); const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
-          await pg.render({ canvasContext: x, viewport: vp }).promise; pages.push({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height, suffix: want.length > 1 ? ' p' + n : '' });
+          await pg.render({ canvasContext: x, viewport: vp }).promise; let lines = []; try { lines = await extractPdfLines(pg, pdfjs, v1); } catch (e) { console.warn('lines', e); } pages.push({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height, suffix: want.length > 1 ? ' p' + n : '', lines });
         }
       } else { const c = await compressImage(f, 3000, 0.75); pages.push({ data: c.dataUrl, w: c.w, h: c.h, suffix: '' }); }
       for (const pg of pages) {
         const id = uid(), path = `projects/${pid}/plans/${id}.jpg`; b.set('Uploading ' + base + pg.suffix + '…');
         const img = await S.store.putFile(path, dataUrlToBlob(pg.data));
-        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: guessBlock, level: guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [] });
+        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: guessBlock, level: guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [], lines: pg.lines || [] });
       }
     }
     b.done(); await X.reloadProject(); toast('Plans uploaded. Check the names, block and level, then Save.'); plansDialog();
@@ -309,6 +309,12 @@ export async function importJson(file) {
     $('hiGo').onclick = async () => { $('hiGo').disabled = true; let n = 0; try { for (const x of have) { $('hiSt').textContent = `Updating ${++n} of ${have.length}…`; const d = S.defects.find(q => q.id === x.id); const old = JSON.stringify((d.history || []).map(h => [h.t, h.who, h.txt])); const add = x.history.filter(h => !old.includes(JSON.stringify([h.t, h.who, h.txt]))); if (add.length) await S.store.updateDefect(S.project.id, x.id, { historyImported: j.id }, add); } await S.store.updateProject(S.project.id, { historyPacks: [...(S.project.historyPacks || []), j.id] }); S.project.historyPacks = [...(S.project.historyPacks || []), j.id]; closeModal(); toast('History added to ' + have.length + ' defects', 5000); } catch (e) { $('hiSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('hiGo').disabled = false; } };
     return;
   }
+  if (j.type === 'planlines' && Array.isArray(j.plans)) {
+    if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change plans');
+    const findPlan = p => S.plans.find(x => x.id === p.key) || S.plans.find(x => p.key && ((p.key === 'AG' && /Block A/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'AF' && /Block A/i.test(x.name) && /First/i.test(x.name)) || (p.key === 'BG' && /Block B/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'BF' && /Block B/i.test(x.name) && /First/i.test(x.name)))) || S.plans.find(x => x.name === p.name || x.code === p.code);
+    let n = 0; for (const p of j.plans) { const t = findPlan(p); if (!t) continue; await S.store.savePlan(S.project.id, { ...t, lines: p.lines }); n++; }
+    await X.reloadProject(); toast(`Drawing lines added to ${n} plan${n === 1 ? '' : 's'}; boundaries now snap to the walls on those plans`, 6000); return;
+  }
   if (j.type === 'renumber' && j.map) return importRenumber(j);
   if (j.project && Array.isArray(j.plans) && j.plans.length && j.plans[0].img) return importProjectPack(j);
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);
@@ -420,6 +426,30 @@ export async function importRenumber(j) {
       st('Done'); closeModal(); toast('Units renumbered', 5000); await X.reloadProject();
     } catch (e) { console.error(e); st(''); toast('Stopped: ' + e.message + '. Drop the file again to continue; it will not double-apply what is already done.', 9000); $('rnGo').disabled = false; }
   };
+}
+// Pull the straight lines out of a vector PDF page (walls, grids) so boundaries can snap to them. Returns a flat
+// normalised array [x0,y0,x1,y1,…] of the longest segments. Scanned PDFs have no vectors and return [].
+export async function extractPdfLines(pg, pdfjs, v1) {
+  const ops = await pg.getOperatorList(), OPS = pdfjs.OPS, W = v1.width, H = v1.height, vb = pg.view;
+  const segs = []; let m = [1, 0, 0, 1, 0, 0]; const stack = [];
+  const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+  const tp = (x, y) => { const px = m[0] * x + m[2] * y + m[4], py = m[1] * x + m[3] * y + m[5]; return [(px - vb[0]) / W, 1 - (py - vb[1]) / H]; };
+  const add = (a, b) => { const d = Math.hypot((a[0] - b[0]) * W, (a[1] - b[1]) * H); if (d > 6) segs.push({ d, s: [a[0], a[1], b[0], b[1]] }); };
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i], ar = ops.argsArray[i];
+    if (fn === OPS.save) stack.push(m); else if (fn === OPS.restore) m = stack.pop() || m; else if (fn === OPS.transform) m = mul(m, ar);
+    else if (fn === OPS.constructPath) {
+      const [subOps, coords] = ar; let k = 0, cur = null, start = null;
+      for (const o of subOps) {
+        if (o === OPS.moveTo) { cur = start = tp(coords[k], coords[k + 1]); k += 2; }
+        else if (o === OPS.lineTo) { const q = tp(coords[k], coords[k + 1]); k += 2; if (cur) add(cur, q); cur = q; }
+        else if (o === OPS.rectangle) { const x = coords[k], y = coords[k + 1], w = coords[k + 2], h = coords[k + 3]; k += 4; const a = tp(x, y), b = tp(x + w, y), c = tp(x + w, y + h), d = tp(x, y + h); add(a, b); add(b, c); add(c, d); add(d, a); cur = start = a; }
+        else if (o === OPS.curveTo) k += 6; else if (o === OPS.curveTo2 || o === OPS.curveTo3) k += 4; else if (o === OPS.closePath) { if (cur && start) add(cur, start); cur = start; }
+      }
+    }
+  }
+  segs.sort((a, b) => b.d - a.d);
+  return segs.slice(0, 4000).flatMap(x => x.s.map(v => +v.toFixed(4)));
 }
 export async function importProjectPack(j) {
   if (!S.sup && !S.project) return toast('Only a system administrator can create a project from a pack');

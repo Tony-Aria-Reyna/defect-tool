@@ -55,7 +55,27 @@ export class PlanView {
     bd = tol;
     this.zones.forEach(z => { if (!z.poly || z === skipZone) return; const P = z.poly; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L; if (t <= 0.02 || t >= 0.98) continue; const sx = ax + t * (bx - ax), sy = ay + t * (by - ay); const d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'line', zone: z, after: i }; } } });
     if (best && best.zone) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
-    return best || n;
+    if (best) return best;
+    return this._snapDrawing(n) || n;
+  }
+  // Snap to the lines of the drawing itself (walls, grids extracted from the PDF): a crossing of two lines first, else the nearest line.
+  _snapDrawing(n) {
+    const L = this.plan && this.plan.lines; if (!L || L.length < 4) return null;
+    const W = this.plan.w, H = this.plan.h, tol = 9 / this.pv.s, px = n.x * W, py = n.y * H, near = [];
+    for (let i = 0; i < L.length; i += 4) {
+      const ax = L[i] * W, ay = L[i + 1] * H, bx = L[i + 2] * W, by = L[i + 3] * H, dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+      let t = ((px - ax) * dx + (py - ay) * dy) / l2; if (t < -0.02 || t > 1.02) continue; t = Math.max(0, Math.min(1, t));
+      const fx = ax + t * dx, fy = ay + t * dy, d = Math.hypot(px - fx, py - fy); if (d < tol) near.push({ d, ax, ay, bx, by, fx, fy, ang: Math.atan2(dy, dx) });
+    }
+    if (!near.length) return null; near.sort((a, b) => a.d - b.d);
+    const a = near[0];
+    for (const b of near.slice(1, 12)) {   // crossing of two lines at different angles
+      const da = Math.abs(((a.ang - b.ang) % Math.PI + Math.PI) % Math.PI); if (da < 0.35 || da > Math.PI - 0.35) continue;
+      const x1 = a.ax, y1 = a.ay, x2 = a.bx, y2 = a.by, x3 = b.ax, y3 = b.ay, x4 = b.bx, y4 = b.by, den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4); if (!den) continue;
+      const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den, ix = x1 + t * (x2 - x1), iy = y1 + t * (y2 - y1);
+      if (Math.hypot(ix - px, iy - py) < tol * 1.6) return { x: ix / W, y: iy / H, snapped: 'drawing corner' };
+    }
+    return { x: a.fx / W, y: a.fy / H, snapped: 'drawing line' };
   }
   _norm(e) { const r = this.img.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }; }
   _zoneAt(e) { const n = this._norm(e); const hits = this.zones.filter(z => z.poly && z.poly.length > 2 && inPoly(n.x, n.y, z.poly)); hits.sort((a, b) => area(a.poly) - area(b.poly)); return hits[0] || null; }
