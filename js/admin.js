@@ -148,12 +148,15 @@ export async function linkElevation(ep) {
     const f = await X.pickPoint(fid, 'Floor plan (3 of 3): tap anywhere ON THE OUTSIDE WALL of the face this elevation shows'); if (!f) return;
     const bandY = [Math.min(t1.y, t2.y) - 0.02, Math.max(t1.y, t2.y) + 0.02], bandX = [Math.min(t1.x, t2.x) - 0.03, Math.max(t1.x, t2.x) + 0.03];
     const eg = ep.grids.filter(g => g.x >= bandX[0] && g.x <= bandX[1] && g.y >= bandY[0] - 0.25 && g.y <= bandY[1]);   // bubbles sit above the drawing
-    const pl = {}; fp.grids.forEach(g => { if (!pl[g.l] || Math.abs(g.y - f.y) < Math.abs(pl[g.l].y - f.y)) pl[g.l] = g; });
+    const pl = {}; fp.grids.forEach(g => { const d = Math.min(Math.abs(g.y - f.y), Math.abs(g.x - f.x)); if (!pl[g.l] || d < pl[g.l]._d) pl[g.l] = { ...g, _d: d }; });
     let pairs = eg.filter(g => pl[g.l]).sort((a, b) => a.x - b.x); const alpha = pairs.filter(g => /[A-Z]/.test(g.l)); if (alpha.length >= 2) pairs = alpha;   // lettered grids beat stray dimension numbers
     const seen = new Set(); const uniq = pairs.filter(g => !seen.has(g.l) && seen.add(g.l));
     if (uniq.length < 2) { toast('Could not find two shared grid bubbles in that band; link by tapping instead', 6000); return; }
-    const L = uniq[0], R = uniq[uniq.length - 1], snapY = f.y;
-    const link = { planId: fid, face, band: [bandY[0] + 0.02, bandY[1] - 0.02], bandX: [bandX[0] + 0.03, bandX[1] - 0.03], a: [pl[L.l].x, snapY], b: [pl[R.l].x, snapY], ea: L.x, eb: R.x, grids: [L.l, R.l] };
+    const L = uniq[0], R = uniq[uniq.length - 1], gL = pl[L.l], gR = pl[R.l];
+    // grids that run across the sheet (AA…AK) give plan x; grids that run down the sheet (A1…A6, on an end face) give plan y
+    const alongX = Math.abs(gR.x - gL.x) >= Math.abs(gR.y - gL.y);
+    const pa = alongX ? [gL.x, f.y] : [f.x, gL.y], pb = alongX ? [gR.x, f.y] : [f.x, gR.y];
+    const link = { planId: fid, face, band: [bandY[0] + 0.02, bandY[1] - 0.02], bandX: [bandX[0] + 0.03, bandX[1] - 0.03], a: pa, b: pb, ea: L.x, eb: R.x, grids: [L.l, R.l] };
     const { link: _old, ...rest } = ep; const existing2 = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []); const links = existing2.filter(l => !(l.face === face && l.planId === fid)); links.push(link);
     await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
     toast(`Linked ${face || 'face'} using grids ${L.l} to ${R.l}. Drop a pin to check it lands in the right unit.`, 7000);
