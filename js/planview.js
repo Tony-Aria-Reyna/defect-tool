@@ -150,7 +150,7 @@ export class PlanView {
   _drawZones(marq) {
     if (!this.plan) return; const W = this.plan.w, H = this.plan.h, inv = 1 / this.pv.s; this.multi = this.multi || new Set();
     const show = this.showZones || this.mode === 'zones' || this.mode === 'draw';
-    let h = '';
+    let h = '', hh = '';   // hh: corner handles of the selected shape, drawn last so nothing covers them
     const hide = this.hideKinds || new Set();
     if (show) [...this.zones].sort((a, b) => ({ unit: 0, area: 1, room: 2, item: 3 }[a.kind] || 0) - ({ unit: 0, area: 1, room: 2, item: 3 }[b.kind] || 0)).forEach(z => {
       if (!z.poly || z.poly.length < 3 || hide.has(z.kind)) return; const sel = this.selZone && this.selZone.id === z.id, msel = this.multi.has(z.id);
@@ -159,12 +159,13 @@ export class PlanView {
       h += `<polygon class="${cls}${sel ? ' zsel' : ''}${msel ? ' zmsel' : ''}" data-zid="${esc(z.id)}" points="${pts}" style="stroke-width:${(msel ? 3 : 2) * inv}px"/>`;
       const c = centroidOf(z.poly), lab = z.kind === 'unit' ? 'Unit ' + (z.unit || '') : (z.name || '');
       if (lab && (this.mode !== 'view' || this.pv.s > this._minS() * 1.6)) h += `<text x="${c[0] * W}" y="${c[1] * H}" class="zl ${cls}t" style="font-size:${(z.kind === 'unit' ? 15 : 12) * inv}px">${esc(lab)}</text>`;
-      if (sel && this.mode === 'zones') z.poly.forEach((p, i) => { h += `<circle data-v="${i}" class="zvh" cx="${p[0] * W}" cy="${p[1] * H}" r="${16 * inv}"/><circle data-v="${i}" class="zv ${this.selVertex === i ? 'vsel' : ''}" cx="${p[0] * W}" cy="${p[1] * H}" r="${8 * inv}" style="stroke-width:${2 * inv}px"/>`; });
+      if (sel && this.mode === 'zones') z.poly.forEach((p, i) => { hh += `<circle data-v="${i}" class="zvh" cx="${p[0] * W}" cy="${p[1] * H}" r="${16 * inv}"/><circle data-v="${i}" class="zv ${this.selVertex === i ? 'vsel' : ''}" cx="${p[0] * W}" cy="${p[1] * H}" r="${8 * inv}" style="stroke-width:${2 * inv}px"/>`; });
     });
     if (this.mode === 'draw' && this.draft && this.draft.length) {
       h += `<polyline class="zdraft" points="${this.draft.map(p => `${p[0] * W},${p[1] * H}`).join(' ')}" style="stroke-width:${2.5 * inv}px"/>`;
       this.draft.forEach((p, i) => h += `<circle class="zdv${i === 0 ? ' first' : ''}" cx="${p[0] * W}" cy="${p[1] * H}" r="${(i === 0 ? 9 : 6) * inv}" style="stroke-width:${2 * inv}px"/>`);
     }
+    h += hh;
     if (marq && marq.cur) { const x0 = Math.min(marq.start.x, marq.cur.x) * W, y0 = Math.min(marq.start.y, marq.cur.y) * H, x1 = Math.max(marq.start.x, marq.cur.x) * W, y1 = Math.max(marq.start.y, marq.cur.y) * H; h += `<rect class="marq" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" style="stroke-width:${1.5 * inv}px;stroke-dasharray:${6 * inv} ${4 * inv}"/>`; }
     this.svg.innerHTML = h;
   }
