@@ -249,7 +249,8 @@ export const VIEW_TYPES = [['ceiling', 'Ceiling plan (RCP)', 'Ceiling'], ['walls
 // plan are the two ends of the building face, ea/eb the same two points as x fractions on the elevation image.
 export function elevToFloor(ep, ex, ey) {
   const links = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []);
-  const L = links.find(l => l.band ? (ey >= l.band[0] && ey <= l.band[1]) : true) || links[0]; if (!L || !L.planId) return null; const fp = S.plans.find(q => q.id === L.planId); if (!fp) return null;
+  const inside = l => (!l.band || (ey >= l.band[0] && ey <= l.band[1])) && (!l.bandX || (ex >= l.bandX[0] && ex <= l.bandX[1]));
+  const L = links.find(inside) || links.find(l => !l.band || (ey >= l.band[0] && ey <= l.band[1])) || links[0]; if (!L || !L.planId) return null; const fp = S.plans.find(q => q.id === L.planId); if (!fp) return null;
   const t = (ex - L.ea) / ((L.eb - L.ea) || 1), x = L.a[0] + t * (L.b[0] - L.a[0]), y = L.a[1] + t * (L.b[1] - L.a[1]);
   // nudge slightly inside the building so the point lands in the unit behind the face
   const dx = L.b[0] - L.a[0], dy = L.b[1] - L.a[1], len = Math.hypot(dx * fp.w, dy * fp.h) || 1; let nx = -dy * fp.h / len * 10 / fp.w, ny = dx * fp.w / len * 10 / fp.h;

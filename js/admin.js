@@ -146,7 +146,7 @@ export async function linkElevation(ep) {
     const ea = await X.pickPoint(ep.id, 'Elevation: tap the LEFT end of the building face'); if (!ea) return;
     const eb = await X.pickPoint(ep.id, 'Elevation: tap the RIGHT end of the building face'); if (!eb) return;
     if (Math.abs(eb.x - ea.x) < 0.02) return toast('The two elevation points are too close together; try again');
-    const link = { planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], a: [a.x, a.y], b: [b.x, b.y], ea: ea.x, eb: eb.x };
+    const link = { planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], bandX: [Math.min(t1.x, t2.x), Math.max(t1.x, t2.x)], a: [a.x, a.y], b: [b.x, b.y], ea: ea.x, eb: eb.x };
     const { link: _old, ...rest } = ep; const links = existing.filter(l => !(l.face === face && l.planId === fid) && !(l.planId === fid && Math.abs((l.band ? (l.band[0] + l.band[1]) / 2 : -1) - (link.band[0] + link.band[1]) / 2) < 0.02)); links.push(link);
     await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
     toast('Linked. Pins on this elevation now land on ' + (floors.find(f => f.id === fid) || {}).name + ' as well.', 6000);
