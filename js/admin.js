@@ -164,6 +164,7 @@ export async function zoneEditor(PV) {
   Object.assign(PV.o, {
     onDrawn: poly => { PV.setMode('zones'); zoneDetails({ id: uid(), kind: ZE.drawKind, poly, block: plan.block || '', level: plan.level || '' }, true); },
     onZoneSelect: () => panel(), onDraftChange: () => panel(),
+    onEditStart: () => snap(),
     onZoneDragStart: z => { ZE.members = z.kind === 'unit' ? membersOf(z).map(m => ({ m, orig: m.poly.map(p => p.slice()) })) : null; },
     onVertexAdded: z => { toast('Corner added. Drag it to fit.', 1800); },
     onVertexSelect: i => { panel(); },
@@ -172,9 +173,15 @@ export async function zoneEditor(PV) {
   panel();
 }
 function membersOf(unitZone) { return ZE.zones.filter(z => z !== unitZone && z.kind !== 'unit' && pointInPoly(...centroid(z.poly), unitZone.poly)); }
+// Undo / redo for the boundary editor: snapshots of all shapes on this plan before each change (Ctrl+Z, Ctrl+Y).
+function snap() { if (!ZE) return; ZE.undo = ZE.undo || []; ZE.undo.push(JSON.stringify(ZE.zones)); if (ZE.undo.length > 60) ZE.undo.shift(); ZE.redo = []; }
+function restore(json) { const PV = ZE.PV, selId = PV.selZone && PV.selZone.id; ZE.zones = JSON.parse(json); PV.setZones(ZE.zones); PV.selectZone(ZE.zones.find(z => z.id === selId) || null); ZE.dirty = true; panel(); }
+function undo() { if (!ZE || !(ZE.undo || []).length) { toast('Nothing to undo'); return; } (ZE.redo = ZE.redo || []).push(JSON.stringify(ZE.zones)); restore(ZE.undo.pop()); }
+function redo() { if (!ZE || !(ZE.redo || []).length) return; (ZE.undo = ZE.undo || []).push(JSON.stringify(ZE.zones)); restore(ZE.redo.pop()); }
 function zoneKeys(e) {
+  if (ZE && (e.ctrlKey || e.metaKey) && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { if (e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; } if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) { e.preventDefault(); redo(); return; } }
   if (!ZE || $('modal').classList.contains('show') || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
-  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const PV = ZE.PV; if (PV.selVertex != null) { if (PV.deleteVertex()) { ZE.dirty = true; panel(); } } else if (PV.selZone) { const z = PV.selZone; ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); toast('Deleted ' + (z.kind === 'unit' ? 'Unit ' + z.unit + ' outline' : z.name || 'boundary') + '. Save to keep, or Close without saving to undo.', 4000); } }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const PV = ZE.PV; if (PV.selVertex != null) { if (PV.deleteVertex()) { ZE.dirty = true; panel(); } } else if (PV.selZone) { snap(); const z = PV.selZone; ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); toast('Deleted ' + (z.kind === 'unit' ? 'Unit ' + z.unit + ' outline' : z.name || 'boundary') + '. Ctrl+Z to undo.', 3000); } }
   if (e.key === 'Escape') { const PV = ZE.PV; if (PV.mode === 'draw') { PV.setMode('zones'); panel(); } else if (PV.selVertex != null) { PV.selVertex = null; PV._drawZones(); panel(); } }
 }
 function panel() {
@@ -196,6 +203,7 @@ function panel() {
   <div class="zb layers"><span class="muted small">Show:</span>${['unit', 'room', 'area'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas' }[k]}</span></label>`).join('')}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
   <p class="muted small">${ZE.zones.filter(q => q.kind === 'unit').length} units, ${ZE.zones.filter(q => q.kind === 'room').length} rooms, ${ZE.zones.filter(q => q.kind === 'area').length} common areas on this plan${ZE.dirty ? ' · <b>unsaved changes</b>' : ''}</p>
+  <div class="zb"><button id="zUndo2" ${(ZE.undo || []).length ? '' : 'disabled'}>↶ Undo</button><button id="zRedo2" ${(ZE.redo || []).length ? '' : 'disabled'}>↷ Redo</button></div>
   <div class="zb"><button class="go" id="zSave">Save boundaries</button><button id="zClose">Close without saving</button></div></div>`;
   el.classList.add('show');
   const on = (id, fn) => { if ($(id)) $(id).onclick = fn; };
@@ -207,10 +215,11 @@ function panel() {
   on('zU', () => draw('unit')); on('zR', () => draw('room')); on('zA', () => draw('area'));
   on('zUndo', () => { PV.undoPoint(); panel(); }); on('zFin', () => PV.finishDraw()); on('zCan', () => { PV.setMode('zones'); panel(); });
   on('zEd', () => zoneDetails(z, false)); on('zMv', () => { PV.moveZone = !PV.moveZone; panel(); });
+  on('zUndo2', undo); on('zRedo2', redo);
   on('zDelV', () => { if (!PV.deleteVertex()) toast('A shape needs at least three corners'); else { ZE.dirty = true; panel(); } });
-  on('zDel', async () => { if (!(await confirmBox('Delete this boundary?', 'Delete'))) return; ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
-  on('zDup', () => { const c = copyZone(z, 0.02, 0.02, null); ZE.zones.push(c); after(c); });
-  on('zDupU', () => { const nu = nextUnit(z.unit); const dx = Math.min(0.05, (Math.max(...z.poly.map(p => p[0])) - Math.min(...z.poly.map(p => p[0]))) * 1.05); const mem = membersOf(z); const cu = copyZone(z, dx, 0, nu); ZE.zones.push(cu); mem.forEach(m => ZE.zones.push(copyZone(m, dx, 0, m.unit ? nu : null))); after(cu, true); toast(`Copied as Unit ${nu}. Drag it into place (Move is on).`, 4000); });
+  on('zDel', async () => { if (!(await confirmBox('Delete this boundary?', 'Delete'))) return; snap(); ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
+  on('zDup', () => { snap(); const c = copyZone(z, 0.02, 0.02, null); ZE.zones.push(c); after(c); });
+  on('zDupU', () => { snap(); const nu = nextUnit(z.unit); const dx = Math.min(0.05, (Math.max(...z.poly.map(p => p[0])) - Math.min(...z.poly.map(p => p[0]))) * 1.05); const mem = membersOf(z); const cu = copyZone(z, dx, 0, nu); ZE.zones.push(cu); mem.forEach(m => ZE.zones.push(copyZone(m, dx, 0, m.unit ? nu : null))); after(cu, true); toast(`Copied as Unit ${nu}. Drag it into place (Move is on).`, 4000); });
   on('zSave', save); on('zClose', close);
   $('zPlan').onchange = async e => { await X.showPlan(e.target.value); };
   function after(c, move) { PV.setZones(ZE.zones); PV.selectZone(c); PV.moveZone = !!move; ZE.dirty = true; panel(); }
@@ -240,7 +249,7 @@ function zoneDetails(z, isNew) {
   $('zdX').onclick = () => { closeModal(); panel(); };
   $('zdOk').onclick = () => { z.kind = $('zdK').value; z.unit = $('zdU').value.trim(); z.name = z.kind === 'unit' ? '' : $('zdN').value.trim(); z.block = $('zdB').value.trim(); z.level = $('zdL').value.trim();
     if (z.kind === 'unit' && !z.unit) return toast('Enter the unit number'); if (z.kind !== 'unit' && !z.name) return toast('Enter the room or area name');
-    if (isNew) ZE.zones.push(z); ZE.dirty = true; closeModal(); ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z);
+    snap(); if (isNew) ZE.zones.push(z); ZE.dirty = true; closeModal(); ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z);
     if (isNew && z.kind === 'unit') { save().then(() => { modal(`<h2>Unit ${esc(z.unit || '')} outline saved</h2><p>Break it up into rooms now? Each room you draw inside it takes the unit number automatically.</p><div class="btnlist"><button id="zuRooms">⬠ Draw the rooms in this unit</button><button id="zuNext">⬚ Draw the next unit outline</button><button id="zuDup">⧉ Duplicate a finished unit onto this one</button><button id="zuStop">Stop drawing</button></div>`); $('zuRooms').onclick = () => { closeModal(); ZE.rect = true; S.local.zoneRect = true; saveLocal(); toast('Rectangles on: tap two opposite corners of each room. Untick Rectangles for an L-shape.', 4000); draw('room'); }; $('zuNext').onclick = () => { closeModal(); draw('unit'); }; $('zuDup').onclick = () => { closeModal(); ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel(); toast('Select a finished unit, tap Duplicate unit, then drag the copy over this outline.', 5000); }; $('zuStop').onclick = () => { closeModal(); ZE.PV.setMode('zones'); panel(); }; }); }
     else if (isNew) { save().then(() => { const next = { room: 'room', area: 'common area' }[z.kind]; toast(`Saved. Draw the next ${next}, or tap Cancel to stop.`, 3500); draw(z.kind); }); } else panel(); };
 }
