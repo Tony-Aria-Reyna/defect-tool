@@ -9,6 +9,7 @@ export function dictate(ta, btn, status, onEnd) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { status('Live dictation is not available in this browser. Tap the text box and use the microphone on your keyboard.', true); ta.focus(); return; }
   if (REC) { endDictation(); return; }
+  if (!navigator.onLine) { status('No coverage: live dictation needs data. Tap in the note box and use the microphone key on the keyboard instead, then Interpret.', true); ta.focus(); return; }
   const base = ta.value ? ta.value.trim() + ' ' : '';
   REC = { ta, btn, status, onEnd, base, done: '', r: null, stopping: false };
   btn.classList.add('rec'); status('Listening… let go when you have finished');
@@ -20,8 +21,8 @@ function spin() {
   const r = new SR(); R.r = r; r.lang = 'en-NZ'; r.continuous = false; r.interimResults = true;
   let cur = '';
   r.onresult = e => { cur = ''; for (let i = 0; i < e.results.length; i++) cur += e.results[i][0].transcript; R.ta.value = (R.base + R.done + cur).replace(/\s+/g, ' '); R.ta.dispatchEvent(new Event('input')); };
-  r.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') R.status('Microphone: ' + e.error + (e.error === 'not-allowed' ? ' (allow the microphone for this site)' : ''), true); };
-  r.onend = () => { if (cur.trim()) R.done += cur.trim() + ' '; cur = ''; R.ta.value = (R.base + R.done).trim(); if (R.stopping) finish(); else spin(); };
+  r.onerror = e => { if (e.error === 'network') { R.fatal = 'No coverage: live dictation needs data. Tap in the note box and use the microphone key on the keyboard instead, then Interpret.'; return; } if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture') R.fatal = 'Microphone: ' + e.error + (e.error === 'not-allowed' ? ' (allow the microphone for this site)' : ''); else if (e.error !== 'no-speech' && e.error !== 'aborted') R.status('Microphone: ' + e.error, true); };
+  r.onend = () => { if (cur.trim()) R.done += cur.trim() + ' '; cur = ''; R.ta.value = (R.base + R.done).trim(); if (R.fatal) { const m = R.fatal; R.stopping = true; finish(); R.status(m, true); R.ta.focus(); } else if (R.stopping) finish(); else spin(); };
   try { r.start(); } catch (e) { R.status('Could not start the microphone', true); finish(); }
 }
 function finish() { const R = REC; if (!R) return; REC = null; R.btn.classList.remove('rec'); R.status(''); const v = R.ta.value.trim(); if (v && v !== R.base.trim()) R.onEnd && R.onEnd(); }

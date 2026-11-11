@@ -10,10 +10,12 @@ export function init(onLeave) {
   history.pushState({ root: 1 }, '');   // the app's main screen sits one step above the guard
   armed = true;
   addEventListener('popstate', e => {
-    if (ignore > 0) { ignore--; if (stack.length && !(history.state && history.state.ov)) { /* fell through to root */ } return; }
+    const atGuard = !e.state || !!e.state.guard;      // never rest on the guard entry: one more back would leave the app silently
+    if (atGuard) history.pushState({ root: 1 }, '');
+    if (ignore > 0) { ignore--; return; }
     if (stack.length) { const o = stack.pop(); try { o.close(); } catch (x) {} return; }
-    // at the guard entry: ask before leaving
-    if (e.state && e.state.guard) { history.pushState({ root: 1 }, ''); onLeave(); }
+    if (e.state && e.state.ov) { history.back(); return; }   // stale overlay entry left by a race: step past it
+    if (atGuard) onLeave();
   });
 }
 export function leave() { ignore++; history.go(-2); setTimeout(() => { try { window.close(); } catch (e) {} }, 300); }
