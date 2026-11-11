@@ -13,7 +13,7 @@ async function obAll() { const d = await ob(); const os = d.transaction('q').obj
 const localUrls = {};
 export async function pendingUrl(photoId) { if (localUrls[photoId]) return localUrls[photoId]; const all = await obAll(); const it = all.find(x => x.photoId === photoId); return it ? (localUrls[photoId] = it.dataUrl) : ''; }
 
-export async function newPhoto(file) { const c = await compressImage(file, 1600, 0.8); return { id: uid(), data: c.dataUrl, t: new Date().toISOString(), by: S.user.name, isNew: true }; }
+export async function newPhoto(file) { const c = await compressImage(file, 1280, 0.72); return { id: uid(), data: c.dataUrl, t: new Date().toISOString(), by: S.user.name, isNew: true }; }
 
 // Upload the new photos of a defect being saved. Returns the photo list to store.
 export async function uploadPhotos(pid, defectId, photos) {

@@ -111,7 +111,8 @@ textarea{overflow:hidden}
 .zpanel .zsel{background:var(--teal2);border-radius:8px;padding:8px;margin:8px 0}
 .zpanel .hint{color:var(--muted);font-size:12px;margin:6px 0}
 #fab{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));width:64px;height:64px;border-radius:50%;border:0;background:var(--teal);color:var(--navy);box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:20;display:flex;align-items:center;justify-content:center}
-#fab svg{width:30px;height:30px}
+#fab svg{width:26px;height:26px}
+#fab .fabplus{font-size:30px;font-weight:700;line-height:1;margin-right:2px}
 #mtabs{display:none}
 /* editor */
 #sheet{position:fixed;inset:0;background:rgba(1,28,53,.45);z-index:30;display:none}

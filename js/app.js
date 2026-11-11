@@ -401,7 +401,8 @@ function wire() {
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '' }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
-  $('fab').onclick = async () => { openEditor(await newDefect(), true, true); if ($('mic')) $('mic').click(); };
+  $('fab').onclick = newDefectChooser;
+  $('fCam').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await addPhotos([f]); };
   $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
   $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); S.local.noList = h; saveLocal(); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
   if (S.local.noList) $('main').classList.add('nolist');
@@ -414,6 +415,20 @@ function wire() {
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
   document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) closeModal(); else if ($('sheet').classList.contains('show')) closeEditor(); else if (placing) stopPlacing(); });
   initDrop({ Admin, FM, addPhotos, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
+}
+function newDefectChooser() {
+  modal(`<h2>New defect</h2><div class="btnlist">
+    <button id="ndMic">🎤 Dictate<small>Say it, Gemini fills the form</small></button>
+    <button id="ndCam">📷 Take a photo<small>Opens the camera, then the form</small></button>
+    <button id="ndPin">📍 Pin on the plan<small>Tap where it is, the room fills in</small></button>
+    <button id="ndType">✎ Type it<small>Blank form</small></button>
+  </div><div class="act"><button id="ndX">Cancel</button></div>`);
+  $('ndX').onclick = closeModal;
+  const go = async after => { closeModal(); openEditor(await newDefect(), true, true); after && after(); };
+  $('ndMic').onclick = () => go(() => $('mic') && $('mic').click());
+  $('ndCam').onclick = () => go(() => $('fCam').click());
+  $('ndType').onclick = () => go();
+  $('ndPin').onclick = () => { closeModal(); if (!S.plans.length) { toast('No plans in this project'); return; } setTab('plan'); startPlacing({ mode: 'new' }); };
 }
 async function addPhotos(fs) {
   if (!ED) return;

@@ -177,7 +177,7 @@ function panel() {
   el.classList.toggle('collapsed', !!ZE.collapsed);
   el.innerHTML = `<div class="zhead"><h3>Room boundaries: ${esc(ZE.plan.name)}</h3><button id="zMin" title="${ZE.collapsed ? 'Expand' : 'Minimise'}">${ZE.collapsed ? '▴' : '▾'}</button><button id="zDone" class="go">Done</button></div><div class="zbody">
   <label class="f">Plan<select id="zPlan">${S.plans.map(p => `<option value="${esc(p.id)}" ${p.id === ZE.plan.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-  ${drawing ? `<div class="zsel"><b>Drawing a ${kindName[ZE.drawKind].toLowerCase()}</b><p class="hint">Tap each corner in turn. Tap the first point (white) or press Finish to close it. Zoom in for accuracy.</p>
+  ${drawing ? `<div class="zsel"><b>Drawing a ${kindName[ZE.drawKind].toLowerCase()}</b><p class="hint">Tap each corner in turn. Tapping near an existing corner or line snaps to it and joins the two, so they move together later. Tap the first point (white) or press Finish to close.</p>
      <div class="zb"><button id="zUndo">↶ Undo last point</button><button class="go" id="zFin" ${(PV.draft || []).length < 3 ? 'disabled' : ''}>Finish</button><button id="zCan">Cancel</button></div></div>` : `
   <p class="hint">Draw each unit outline first, then the rooms inside it. Then use "Duplicate unit" to copy a finished unit, with all its rooms, to the next one and drag it into place.</p>
   <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button></div>
@@ -210,11 +210,11 @@ function zoneDetails(z, isNew) {
   <div class="grid">
     <label class="f">Type<select id="zdK">${Object.entries(kinds).map(([k, l]) => `<option value="${k}" ${k === z.kind ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <label class="f">Unit number<input id="zdU" value="${esc(z.unit || '')}" list="zdUl"></label>
-    <label class="f full" id="zdNl">Room / area name<input id="zdN" value="${esc(z.name || '')}" list="zdRl"></label>
+    <label class="f full" id="zdNl">Room / area name<input id="zdN" value="${esc(z.name || '')}" list="zdRl" placeholder="Choose an existing name or type a new one"></label>
     <label class="f">Block / building<input id="zdB" value="${esc(z.block || '')}"></label>
     <label class="f">Level<input id="zdL" value="${esc(z.level || '')}"></label>
   </div>
-  <datalist id="zdRl">${S.project.rooms.map(r => `<option>${esc(r)}</option>`).join('')}</datalist><datalist id="zdUl">${unitList(S.project).map(u => `<option>${esc(u)}</option>`).join('')}</datalist>
+  <datalist id="zdRl">${[...new Set([...S.plans.flatMap(pl => (pl.zones || []).filter(q => q.kind !== 'unit' && q.name).map(q => q.name)), ...(ZE ? ZE.zones.filter(q => q.kind !== 'unit' && q.name).map(q => q.name) : []), ...S.project.rooms])].sort().map(r => `<option>${esc(r)}</option>`).join('')}</datalist><datalist id="zdUl">${unitList(S.project).map(u => `<option>${esc(u)}</option>`).join('')}</datalist>
   <p class="note">A room inside a unit outline takes its unit number automatically, so you can leave Unit blank for rooms.</p>
   <div class="act"><button id="zdX">${isNew ? 'Discard' : 'Cancel'}</button><button class="go" id="zdOk">OK</button></div>`);
   const sync = () => { $('zdNl').style.display = $('zdK').value === 'unit' ? 'none' : ''; }; $('zdK').onchange = sync; sync();

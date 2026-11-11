@@ -39,9 +39,22 @@ export class PlanView {
       else if (drag && drag.kind === 'z') { const n = this._norm(e), ddx = n.x - drag.start.x, ddy = n.y - drag.start.y; this.selZone.poly = drag.orig.map(p => [p[0] + ddx, p[1] + ddy]); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'z', ddx, ddy); this._drawZones(); }
       else { this.pv.x = st.px + dx; this.pv.y = st.py + dy; this.pv.user = 1; this._apply(); }
     });
-    const up = e => { if (!pts.has(e.pointerId)) return; pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (pts.size === 0 && st) { if (moved <= 4 && Date.now() - st.t < 700) this._tap(e, st.target); st = null; drag = null; } };
+    const up = e => { if (!pts.has(e.pointerId)) return; pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
+      if (pts.size === 0 && st) { if (moved <= 4 && Date.now() - st.t < 700) this._tap(e, st.target);
+        else if (drag && drag.kind === 'v' && this.selZone) { const n = this._norm(e), sn = this._snap(n, this.selZone, drag.i); if (sn.snapped) { this.selZone.poly[drag.i] = [sn.x, sn.y]; drag.shared.forEach(([z, j]) => { z.poly[j] = [sn.x, sn.y]; }); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); } }
+        st = null; drag = null; } };
     vp.addEventListener('pointerup', up); vp.addEventListener('pointercancel', up);
     vp.addEventListener('wheel', e => { e.preventDefault(); const r = vp.getBoundingClientRect(); this.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+  }
+  // Snap a plan-normalised point to an existing corner, or onto an existing boundary line (a new shared corner is added to that line).
+  _snap(n, skipZone, skipIdx) {
+    if (!this.plan) return n; const W = this.plan.w, H = this.plan.h, tol = 10 / this.pv.s; let best = null, bd = tol;
+    this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === skipZone && j === skipIdx) return; const d = Math.hypot((q[0] - n.x) * W, (q[1] - n.y) * H); if (d < bd) { bd = d; best = { x: q[0], y: q[1], snapped: 'corner' }; } }); });
+    if (best) return best;
+    bd = tol;
+    this.zones.forEach(z => { if (!z.poly || z === skipZone) return; const P = z.poly; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L; if (t <= 0.02 || t >= 0.98) continue; const sx = ax + t * (bx - ax), sy = ay + t * (by - ay); const d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'line', zone: z, after: i }; } } });
+    if (best && best.zone) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
+    return best || n;
   }
   _norm(e) { const r = this.img.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }; }
   _zoneAt(e) { const n = this._norm(e); const hits = this.zones.filter(z => z.poly && z.poly.length > 2 && inPoly(n.x, n.y, z.poly)); hits.sort((a, b) => area(a.poly) - area(b.poly)); return hits[0] || null; }
@@ -49,7 +62,7 @@ export class PlanView {
     if (!this.plan) return;
     const n = this._norm(e); const inside = n.x >= 0 && n.x <= 1 && n.y >= 0 && n.y <= 1;
     const pin = target && target.closest && target.closest('.pin');
-    if (this.mode === 'draw') { if (!inside) return; const d = this.draft; if (d.length > 2) { const f = d[0], r = this.img.getBoundingClientRect(); if (Math.hypot((f[0] - n.x) * r.width, (f[1] - n.y) * r.height) < 14) return this.finishDraw(); } d.push([n.x, n.y]); this._drawZones(); this.o.onDraftChange && this.o.onDraftChange(d); return; }
+    if (this.mode === 'draw') { if (!inside) return; const d = this.draft; if (d.length > 2) { const f = d[0], r = this.img.getBoundingClientRect(); if (Math.hypot((f[0] - n.x) * r.width, (f[1] - n.y) * r.height) < 14) return this.finishDraw(); } const sn = this._snap(n); d.push([sn.x, sn.y]); this._drawZones(); this.o.onDraftChange && this.o.onDraftChange(d); return; }
     if (this.mode === 'place') { if (inside) this.o.onPlace && this.o.onPlace(n.x, n.y); return; }
     if (this.mode === 'zones') { const z = this._zoneAt(e); this.selectZone(z); this.o.onZoneSelect && this.o.onZoneSelect(z); return; }
     if (pin) return this.o.onPinTap && this.o.onPinTap(pin.dataset.id);
