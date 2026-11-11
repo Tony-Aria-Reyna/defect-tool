@@ -25,7 +25,7 @@ export async function aiCall(prompt, imgDataUrl) {
     try { const r = await fetch(h.helperUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: h.helperKey || '', action: 'ai', prompt, file: data ? { mime: 'image/jpeg', data } : undefined }), redirect: 'follow' }); t = await r.text(); }
     catch (e) { throw new Error('Could not reach the Gemini helper. Check the internet and try again.'); }
     let j; try { j = JSON.parse(t); } catch (e) { throw new Error('The Gemini helper sent back something unexpected. Check its web address in Project settings.'); }
-    if (j.error) throw new Error(j.error === 'nokey' ? 'The Gemini helper has no key yet (Script properties GEMINI_KEY).' : /not allowed/.test(j.error) ? 'The Gemini helper key does not match (Project settings).' : 'Gemini said: ' + String(j.error).slice(0, 160));
+    if (j.error) throw new Error(j.error === 'nokey' ? 'The Gemini helper has no key yet (Script properties GEMINI_KEY).' : /not allowed/.test(j.error) ? 'Helper key does not match. The script\'s key ends "' + String(j.error).slice(-4) + '", the one you entered ends "' + String(h.helperKey || '').slice(-4) + '".' : 'Gemini said: ' + String(j.error).slice(0, 160));
     return j.text;
   }
   const key = S.local.geminiKey; if (!key) throw new Error('nokey');
