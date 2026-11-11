@@ -1,0 +1,20 @@
+name: Deploy Firebase rules
+on:
+  push:
+    branches: [main]
+    paths: ['firestore.rules', 'storage.rules', 'firebase.json', '.github/workflows/deploy-rules.yml']
+  workflow_dispatch:
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm i -g firebase-tools
+      - name: Deploy Firestore and Storage rules
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+          firebase deploy --only firestore:rules,storage --project resero-site-tools --non-interactive
