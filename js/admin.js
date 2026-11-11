@@ -175,7 +175,7 @@ export async function linkElevation(ep) {
     const L = { l: f0.grids[0] }, R = { l: f0.grids[1] };
     const link = { planId: fid, face, ...f0 };
     const { link: _old, ...rest } = ep; const existing2 = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []); const links = existing2.filter(l => !(l.face === face && l.planId === fid)); links.push(link);
-    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
+    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); try { const k = await X.remapElevationPins(ep.id); if (k) toast(k + ' existing pins re-mapped', 3000); } catch (e) {} await X.showPlan(ep.id);
     toast(`Linked ${face || 'face'} using grids ${L.l} to ${R.l}. Drop a pin to check it lands in the right unit.`, 7000);
   };
   $('leTrace').onclick = async () => {
@@ -190,7 +190,7 @@ export async function linkElevation(ep) {
     const path = pts.map(q => [+q[0].toFixed(4), +q[1].toFixed(4)]); const uA = Faces.toUV(side, a)[0], uB = Faces.toUV(side, b)[0];
     const link = { planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], bandX: [Math.min(t1.x, t2.x), Math.max(t1.x, t2.x)], a, b, ea: ea.x, eb: eb.x, side, axis: Faces.isAlong(side) ? 'x' : 'y', gmap: [[ea.x, uA], [eb.x, uB]], path, traced: true };
     const { link: _old, ...rest } = ep; const links = existing.filter(l => !(l.face === face && l.planId === fid)); links.push(link);
-    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
+    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); try { const k = await X.remapElevationPins(ep.id); if (k) toast(k + ' existing pins re-mapped', 3000); } catch (e) {} await X.showPlan(ep.id);
     toast('Linked along ' + pts.length + ' corners. Pins on this elevation now land on ' + fp.name + ' as well.', 6000);
   };
   $('leGo').onclick = async () => {
@@ -205,7 +205,7 @@ export async function linkElevation(ep) {
     if (Math.abs(eb.x - ea.x) < 0.08) return toast('The two elevation points are too close together. Start again and tap the two far ends of the building.', 7000);
     const link = withPath({ planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], bandX: [Math.min(t1.x, t2.x), Math.max(t1.x, t2.x)], a: [a.x, a.y], b: [b.x, b.y], ea: ea.x, eb: eb.x }, floors.find(q => q.id === fid));
     const { link: _old, ...rest } = ep; const links = existing.filter(l => !(l.face === face && l.planId === fid) && !(l.planId === fid && Math.abs((l.band ? (l.band[0] + l.band[1]) / 2 : -1) - (link.band[0] + link.band[1]) / 2) < 0.02)); links.push(link);
-    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
+    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); try { const k = await X.remapElevationPins(ep.id); if (k) toast(k + ' existing pins re-mapped', 3000); } catch (e) {} await X.showPlan(ep.id);
     toast('Linked. Pins on this elevation now land on ' + (floors.find(f => f.id === fid) || {}).name + ' as well.', 6000);
   };
 }
@@ -263,6 +263,7 @@ export async function autoLinkElevation(ep, opt = {}) {
     const { link: _old, ...rest } = ep;
     await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: [...new Set(links.map(l => l.face.split(',')[0]))].join(' / '), links, zones: ep.zones || [] });
     ep.links = links; ep.kind = 'elevation';
+    try { const k = await X.remapElevationPins(ep.id); if (k) notes.push(`${k} existing pin${k === 1 ? '' : 's'} on this sheet re-mapped to the floor plans`); } catch (e) { console.warn(e); }
   }
   if (!opt.quiet) { await X.reloadProject(); if (links.length) facePreview(S.plans.find(q => q.id === ep.id) || ep, notes); else toast('Could not link: ' + notes.join('; '), 9000); }
   return { links, notes };
@@ -556,7 +557,7 @@ export async function importJson(file) {
     let n = 0, missing = [];
     for (const ep of j.plans) { const t = S.plans.find(x => ((x.code || '') + ' ' + x.name).replace(/\s/g, '').includes(ep.match)); if (!t) { missing.push(ep.name || ep.match); continue; }
       const links = ep.links.map(l => { const fp = l.planId ? S.plans.find(x => x.id === l.planId) : keyPlan(l.planKey); return fp ? { ...l, planId: fp.id, planKey: undefined } : null; }).filter(Boolean);
-      const { link, ...rest } = t; await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: ep.face || t.face || '', links }); n++; }
+      const { link, ...rest } = t; await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: ep.face || t.face || '', links }); n++; await X.reloadProject(); try { await X.remapElevationPins(t.id); } catch (e) {} }
     await X.reloadProject(); toast(n ? `Elevation links set on ${n} sheet${n === 1 ? '' : 's'}` + (missing.length ? '; not found: ' + missing.join(', ') : '') : 'No matching elevation sheet found. Upload ' + j.plans.map(p => p.name).join(', ') + ' as a plan first.', 7000); return;
   }
   if (j.type === 'planlines' && Array.isArray(j.plans)) {

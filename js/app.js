@@ -224,17 +224,20 @@ export async function showPlan(id, focus) {
   S.view = S.view || {}; const views = planViews(p), vkey = views.some(v => v.key === S.view[p && p.id]) && !can.contractor() ? S.view[p.id] : 'floor', cur = views.find(v => v.key === vkey) || views[0];
   await PV.setPlan(p, p ? await imgUrl(cur.img) : ''); PV.setZonesVisible(false); PV.setImageFit(cur.fit || null);
   let rb = $('bRcp'); if (!rb) { rb = document.createElement('div'); rb.id = 'bRcp'; rb.className = 'viewbar'; $('planPane').appendChild(rb); }
-  rb.style.display = p && views.length > 1 && !can.contractor() ? '' : 'none';
+  rb.style.display = p && views.length > 1 && !can.contractor() ? '' : 'none'; rb.classList.toggle('hidden', rb.style.display === 'none');
   rb.innerHTML = views.map(v => `<button data-view="${esc(v.key)}" class="${v.key === vkey ? 'on' : ''}">${esc(v.name)}</button>`).join('');
   rb.querySelectorAll('button').forEach(b => b.onclick = () => { S.view[S.curPlan] = b.dataset.view; showPlan(S.curPlan); });
   // elevations that look at this floor plan: one button each, opening the sheet zoomed to that face
   let eb = $('bElev'); if (!eb) { eb = document.createElement('div'); eb.id = 'bElev'; eb.className = 'viewbar elevbar'; $('planPane').appendChild(eb); }
   const elevs = p ? S.plans.flatMap(ep => (ep.kind === 'elevation' ? ((ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : [])) : []).filter(l => l.planId === p.id).map(l => ({ ep, l }))) : [];
   const backTo = p && p.kind === 'elevation' ? [...new Set(((p.links && p.links.length) ? p.links : (p.link ? [p.link] : [])).map(l => l.planId))].map(id => S.plans.find(q => q.id === id)).filter(Boolean) : [];
-  eb.style.display = (elevs.length || backTo.length) ? '' : 'none';
+  eb.style.display = (elevs.length || backTo.length) ? '' : 'none'; eb.classList.toggle('hidden', eb.style.display === 'none');
   eb.innerHTML = elevs.map((x, i) => `<button data-el="${i}" title="${esc(x.ep.name)}">📐 ${esc(x.l.face || x.ep.face || 'Elevation')}</button>`).join('') + backTo.map(fp => `<button data-fp="${esc(fp.id)}">⬚ ${esc(fp.name)}</button>`).join('');
   eb.querySelectorAll('[data-el]').forEach(b => b.onclick = async () => { const x = elevs[+b.dataset.el]; await showPlan(x.ep.id); if (x.l.band) { const bx = x.l.bandX || [0, 1]; PV.zoomTo(bx[0], x.l.band[0], bx[1], x.l.band[1]); } });
   eb.querySelectorAll('[data-fp]').forEach(b => b.onclick = () => showPlan(b.dataset.fp));
+  // on a phone the sheet buttons fold away behind one chip so they do not cover the drawing
+  let vt = $('vbToggle'); if (!vt) { vt = document.createElement('button'); vt.id = 'vbToggle'; vt.className = 'vbtoggle'; $('planPane').appendChild(vt); vt.onclick = () => { const on = $('planPane').classList.toggle('vbopen'); vt.classList.toggle('on', on); }; }
+  const nb = (rb.style.display === 'none' ? 0 : views.length) + elevs.length + backTo.length; vt.style.display = nb ? '' : 'none'; vt.textContent = p && p.kind === 'elevation' ? '⬚ Floor plans' : '▤ Sheets' + (nb ? ' (' + nb + ')' : ''); $('planPane').classList.remove('vbopen'); vt.classList.remove('on');
   if (Admin.zoneActive()) { await Admin.zoneEditor(PV); }
   renderPins(); if (isMobile() && focus) setTab('plan');
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));
@@ -280,11 +283,30 @@ export function elevToFloor(ep, ex, ey) {
   let hit = locate(fp.zones, px, py), k = 4; while (!(hit && (hit.unit || hit.room)) && k < 40) { hit = locate(fp.zones, x + nx * k, y + ny * k); k += 3; }
   return { planId: fp.id, x: px, y: py, face: [x, y], hit: hit || null };
 }
+// After a face line changes, every pin on that elevation is dropped onto the floor plan again from its elevation position.
+// Unit and room are replaced only where they still hold what the pin filled in originally (hand edits are kept).
+export async function remapElevationPins(epId) {
+  const ep = S.plans.find(q => q.id === epId); if (!ep) return 0; let n = 0;
+  for (const d of S.defects.filter(q => q.plan === epId && q.x != null)) {
+    const m = elevToFloor(ep, d.x, d.y); if (!m) continue;
+    const patch = { plan2: m.planId, x2: m.x, y2: m.y }; const fp = S.plans.find(q => q.id === m.planId), hit = m.hit || locate(fp.zones, m.x, m.y);
+    const auto = d.autoLoc || {}; const nu = hit && hit.unit ? String(hit.unit) : '', nr = hit && hit.room ? hit.room : '';
+    if (!d.unit || String(d.unit) === String(auto.unit || '')) patch.unit = nu || d.unit || '';
+    if (!d.room || d.room === (auto.room || '')) patch.room = nr || d.room || '';
+    if (fp.block && !d.block) patch.block = fp.block; if (fp.level && (!d.level || d.level === ep.level)) patch.level = fp.level;
+    patch.autoLoc = { unit: patch.unit != null ? patch.unit : d.unit || '', room: patch.room != null ? patch.room : d.room || '' };
+    const changed = Object.keys(patch).some(k => k !== 'autoLoc' && JSON.stringify(patch[k] ?? '') !== JSON.stringify(d[k] ?? ''));
+    if (!changed) continue;
+    try { await S.store.updateDefect(S.project.id, d.id, patch); Object.assign(d, patch); n++; } catch (e) { console.warn('remap', d.id, e); }
+  }
+  if (n) render();
+  return n;
+}
 function applyZone(d, x, y, planId) {
   const p = S.plans.find(q => q.id === planId); d.plan = planId; d.x = x; d.y = y;
   if (p.kind === 'elevation') {
     const m = elevToFloor(p, x, y); d.surface = d.surface && d.surface !== 'Floor' ? d.surface : 'Exterior cladding';
-    if (m) { d.plan2 = m.planId; d.x2 = m.x; d.y2 = m.y; const fp = S.plans.find(q => q.id === m.planId), hit = m.hit || locate(fp.zones, m.x, m.y); d.block = fp.block || p.block || d.block; d.level = fp.level || p.level || d.level; if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (!d.level && hit.level) d.level = hit.level; } d.zoneHit = [hit && hit.unit && 'Unit ' + hit.unit, hit && hit.room, d.surface, 'also pinned on ' + fp.name].filter(Boolean).join(', '); }
+    if (m) { d.plan2 = m.planId; d.x2 = m.x; d.y2 = m.y; const fp = S.plans.find(q => q.id === m.planId), hit = m.hit || locate(fp.zones, m.x, m.y); d.block = fp.block || p.block || d.block; d.level = fp.level || p.level || d.level; if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (!d.level && hit.level) d.level = hit.level; } d.autoLoc = { unit: d.unit || '', room: d.room || '' }; d.zoneHit = [hit && hit.unit && 'Unit ' + hit.unit, hit && hit.room, d.surface, 'also pinned on ' + fp.name].filter(Boolean).join(', '); }
     else { d.plan2 = null; d.block = p.block || d.block; d.level = p.level || d.level; d.zoneHit = d.surface + ' (elevation not linked to a floor plan yet)'; }
     return;
   }
@@ -297,7 +319,7 @@ function applyZone(d, x, y, planId) {
 async function onPlace(x, y) {
   const pl = placing; stopPlacing();
   if (pl.mode === 'pick') { toast('✓ Point recorded', 1200); pl.resolve({ x, y }); return; }
-  if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); }
+  if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); ED.focusDesc = true; const el = $('edBody').querySelector('[name=desc]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
   else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
 }
 // Ask the user to tap one point on a plan (used when linking an elevation to a floor plan).
@@ -395,6 +417,8 @@ export function openEditor(d, isNew, isDraft) {
   $('edCancel').textContent = ro ? 'Close' : 'Cancel';
   if (!$('sheet').classList.contains('show')) Nav.open('editor', () => closeEditor());
   $('sheet').classList.add('show');
+  // straight after a pin is dropped the cursor goes into the description, so typing or dictating can start at once
+  if (ED.focusDesc) { ED.focusDesc = false; const el = $('edBody').querySelector('[name=desc]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
 }
 function aiStatus(m, err) { const s = $('aiSt'); if (s) { s.textContent = m || ''; s.style.color = err ? '#b00000' : ''; } if (err && m) toast(m, 5000); }
 // Full-size plan window showing where a defect is, with a plain X to close.
@@ -454,7 +478,7 @@ async function saveEditor() {
       await S.store.createDefect(pid, rec);
     } else {
       const o = ED.orig || {}, patch = {}, ch = [];
-      const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending'];
+      const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc'];
       if (ED.wfLabel) { ch.push(ED.wfLabel.toLowerCase()); }
       if (o.aiReview && !can.contractor()) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
@@ -625,7 +649,7 @@ function wire() {
   $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
   $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); S.local.noList = h; saveLocal(); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
   if (S.local.noList) $('main').classList.add('nolist');
-  $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); requestAnimationFrame(() => PV.fit()); };
+  $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
   $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1);
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
