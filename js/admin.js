@@ -135,17 +135,38 @@ export async function linkElevation(ep) {
   modal(`<h2>Link elevation: ${esc(ep.name)}</h2><p>Pins dropped on this elevation will also appear on the floor plan, and the report will show both. Link one <b>face and storey</b> at a time: for a two-storey building, link the ground floor band of the east elevation to the ground floor plan, then the first floor band to the first floor plan, and so on for each face. You will tap the top-left and bottom-right of that storey's band on the elevation, then the two ends of the face on the floor plan, then the same two ends on the elevation.</p>${existing.length ? '<p class="note">Linked so far: ' + existing.map(l => esc(l.face || 'face') + ' → ' + esc((S.plans.find(q => q.id === l.planId) || {}).name || '?')).join('; ') + '. Adding another keeps those.</p>' : ''}
     <label class="f">Floor plan this elevation belongs to<select id="leF">${floors.map(f => `<option value="${esc(f.id)}" ${ep.link && ep.link.planId === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
     <label class="f">Face and storey<input id="leN" value="" placeholder="e.g. East, ground floor"></label>
-    <div class="act"><button id="leX">Cancel</button><button class="go" id="leGo">Start tapping</button></div>`);
+    <p class="note" id="leAuto"></p>
+    <div class="act"><button id="leX">Cancel</button><button id="leGrid" style="display:none">Auto-link using grid bubbles</button><button class="go" id="leGo">Link by tapping</button></div>`);
   $('leX').onclick = closeModal;
+  const common = () => { const fp = floors.find(q => q.id === $('leF').value); if (!fp || !fp.grids || !ep.grids) return []; const pl = new Set(fp.grids.map(g => g.l)); return [...new Set(ep.grids.filter(g => pl.has(g.l)).map(g => g.l))]; };
+  const upd = () => { const c = common(); $('leGrid').style.display = c.length >= 2 ? '' : 'none'; $('leAuto').textContent = c.length >= 2 ? `Both drawings carry grid bubbles ${c.slice(0, 3).join(', ')}… (${c.length} in common), so the link can be worked out from those: you only tap the storey band on the elevation and once on the face on the floor plan.` : 'No shared grid bubbles found between the two drawings; link by tapping the face ends.'; };
+  $('leF').onchange = upd; upd();
+  $('leGrid').onclick = async () => {
+    const fid = $('leF').value, face = $('leN').value.trim(), fp = floors.find(q => q.id === fid); closeModal(); if (ZE) await close(true);
+    const t1 = await X.pickPoint(ep.id, 'Elevation (1 of 3): tap the TOP-LEFT of the ' + (face || 'storey') + ' band, i.e. the top of that storey at the left end of the drawing'); if (!t1) return;
+    const t2 = await X.pickPoint(ep.id, 'Elevation (2 of 3): tap the BOTTOM-RIGHT of the band, i.e. the floor level of that storey at the right end of the drawing'); if (!t2) return;
+    const f = await X.pickPoint(fid, 'Floor plan (3 of 3): tap anywhere ON THE OUTSIDE WALL of the face this elevation shows'); if (!f) return;
+    const bandY = [Math.min(t1.y, t2.y) - 0.02, Math.max(t1.y, t2.y) + 0.02], bandX = [Math.min(t1.x, t2.x) - 0.03, Math.max(t1.x, t2.x) + 0.03];
+    const eg = ep.grids.filter(g => g.x >= bandX[0] && g.x <= bandX[1] && g.y >= bandY[0] - 0.25 && g.y <= bandY[1]);   // bubbles sit above the drawing
+    const pl = {}; fp.grids.forEach(g => { if (!pl[g.l] || Math.abs(g.y - f.y) < Math.abs(pl[g.l].y - f.y)) pl[g.l] = g; });
+    const pairs = eg.filter(g => pl[g.l]).sort((a, b) => a.x - b.x); const seen = new Set(); const uniq = pairs.filter(g => !seen.has(g.l) && seen.add(g.l));
+    if (uniq.length < 2) { toast('Could not find two shared grid bubbles in that band; link by tapping instead', 6000); return; }
+    const L = uniq[0], R = uniq[uniq.length - 1], snapY = f.y;
+    const link = { planId: fid, face, band: [bandY[0] + 0.02, bandY[1] - 0.02], bandX: [bandX[0] + 0.03, bandX[1] - 0.03], a: [pl[L.l].x, snapY], b: [pl[R.l].x, snapY], ea: L.x, eb: R.x, grids: [L.l, R.l] };
+    const { link: _old, ...rest } = ep; const existing2 = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []); const links = existing2.filter(l => !(l.face === face && l.planId === fid)); links.push(link);
+    await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
+    toast(`Linked ${face || 'face'} using grids ${L.l} to ${R.l}. Drop a pin to check it lands in the right unit.`, 7000);
+  };
   $('leGo').onclick = async () => {
     const fid = $('leF').value, face = $('leN').value.trim(); closeModal(); if (ZE) await close(true);
-    const t1 = await X.pickPoint(ep.id, 'Elevation: tap the TOP-LEFT of the ' + (face || 'storey') + ' band (top of that storey, left end of the face)'); if (!t1) return;
-    const t2 = await X.pickPoint(ep.id, 'Elevation: now tap the BOTTOM-RIGHT of the same band (floor level of that storey, right end of the face)'); if (!t2) return;
-    const a = await X.pickPoint(fid, 'Floor plan: tap the LEFT end of the ' + (face || 'elevation') + ' face (as seen on the elevation)'); if (!a) return;
-    const b = await X.pickPoint(fid, 'Floor plan: now tap the RIGHT end of the same face'); if (!b) return;
-    const ea = await X.pickPoint(ep.id, 'Elevation: tap the LEFT end of the building face'); if (!ea) return;
-    const eb = await X.pickPoint(ep.id, 'Elevation: tap the RIGHT end of the building face'); if (!eb) return;
-    if (Math.abs(eb.x - ea.x) < 0.02) return toast('The two elevation points are too close together; try again');
+    const t1 = await X.pickPoint(ep.id, 'Elevation (1 of 6): tap the TOP-LEFT of the ' + (face || 'storey') + ' band: the top of that storey, at the left end of the drawing'); if (!t1) return;
+    const t2 = await X.pickPoint(ep.id, 'Elevation (2 of 6): tap the BOTTOM-RIGHT of the band: the floor level of that storey, at the right end of the drawing'); if (!t2) return;
+    const a = await X.pickPoint(fid, 'Floor plan (3 of 6): tap the OUTSIDE CORNER of the building at the LEFT end of this face, as you see it on the elevation'); if (!a) return;
+    const b = await X.pickPoint(fid, 'Floor plan (4 of 6): tap the outside corner at the RIGHT end of the same face (should be well away from the last tap)'); if (!b) return;
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 0.08) return toast('Those two floor plan points are almost the same spot. Start again and tap the two far ends of the face.', 7000);
+    const ea = await X.pickPoint(ep.id, 'Elevation (5 of 6): tap the SAME left corner of the building on the elevation, at ground level'); if (!ea) return;
+    const eb = await X.pickPoint(ep.id, 'Elevation (6 of 6): tap the SAME right corner of the building on the elevation'); if (!eb) return;
+    if (Math.abs(eb.x - ea.x) < 0.08) return toast('The two elevation points are too close together. Start again and tap the two far ends of the building.', 7000);
     const link = { planId: fid, face, band: [Math.min(t1.y, t2.y), Math.max(t1.y, t2.y)], bandX: [Math.min(t1.x, t2.x), Math.max(t1.x, t2.x)], a: [a.x, a.y], b: [b.x, b.y], ea: ea.x, eb: eb.x };
     const { link: _old, ...rest } = ep; const links = existing.filter(l => !(l.face === face && l.planId === fid) && !(l.planId === fid && Math.abs((l.band ? (l.band[0] + l.band[1]) / 2 : -1) - (link.band[0] + link.band[1]) / 2) < 0.02)); links.push(link);
     await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: links.map(l => l.face).filter(Boolean).join(' / '), links, zones: ep.zones || [] }); await X.reloadProject(); await X.showPlan(ep.id);
@@ -172,13 +193,13 @@ export async function uploadPlans(files) {
         for (const n of want) {
           b.set(`Rendering ${f.name} page ${n}…`); const pg = await doc.getPage(n); const v1 = pg.getViewport({ scale: 1 }); const scale = Math.min(4, 3000 / Math.max(v1.width, v1.height));
           const vp = pg.getViewport({ scale }); const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height); const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
-          await pg.render({ canvasContext: x, viewport: vp }).promise; let lines = []; try { lines = await extractPdfLines(pg, pdfjs, v1); } catch (e) { console.warn('lines', e); } pages.push({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height, suffix: want.length > 1 ? ' p' + n : '', lines });
+          await pg.render({ canvasContext: x, viewport: vp }).promise; let lines = [], grids = []; try { lines = await extractPdfLines(pg, pdfjs, v1); } catch (e) { console.warn('lines', e); } try { grids = await extractPdfGrids(pg, v1); } catch (e) {} pages.push({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height, suffix: want.length > 1 ? ' p' + n : '', lines, grids });
         }
       } else { const c = await compressImage(f, 3000, 0.75); pages.push({ data: c.dataUrl, w: c.w, h: c.h, suffix: '' }); }
       for (const pg of pages) {
         const id = uid(), path = `projects/${pid}/plans/${id}.jpg`; b.set('Uploading ' + base + pg.suffix + '…');
         const img = await S.store.putFile(path, dataUrlToBlob(pg.data));
-        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: guessBlock, level: guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [], lines: pg.lines || [] });
+        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: guessBlock, level: guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [], lines: pg.lines || [], grids: pg.grids || [] });
       }
     }
     b.done(); await X.reloadProject(); toast('Plans uploaded. Check the names, block and level, then Save.'); plansDialog();
@@ -410,6 +431,21 @@ export async function importJson(file) {
     $('zpGo').onclick = async () => { $('zpGo').disabled = true; let n = 0; try { for (const r of rows) { if (!r.t) continue; const zones = r.p.zones.map(z => ({ ...z, id: z.id || uid(), unit: (map && z.unit && map[z.unit]) ? map[z.unit] : (z.unit || ''), block: z.block || r.t.block || '', level: z.level || r.t.level || '' })); await S.store.savePlan(S.project.id, { ...r.t, zones }); n++; } closeModal(); await X.reloadProject(); toast(`Boundaries replaced on ${n} plan${n === 1 ? '' : 's'}`, 5000); } catch (e) { toast('Stopped: ' + e.message, 6000); $('zpGo').disabled = false; } };
     return;
   }
+  if (j.type === 'plangrids' && Array.isArray(j.plans)) {
+    if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change plans');
+    const keyPlan = k => S.plans.find(x => (k === 'AG' && /Block A/i.test(x.name) && /Ground/i.test(x.name)) || (k === 'AF' && /Block A/i.test(x.name) && /First/i.test(x.name)) || (k === 'BG' && /Block B/i.test(x.name) && /Ground/i.test(x.name)) || (k === 'BF' && /Block B/i.test(x.name) && /First/i.test(x.name)));
+    let n = 0; for (const p of j.plans) { const t = (p.key && keyPlan(p.key)) || (p.match && S.plans.find(x => ((x.code || '') + ' ' + x.name).replace(/\s/g, '').includes(p.match))); if (!t) continue; await S.store.savePlan(S.project.id, { ...t, grids: p.grids }); n++; }
+    await X.reloadProject(); toast(`Grid bubbles added to ${n} plan${n === 1 ? '' : 's'}`); return;
+  }
+  if (j.type === 'elevlinks' && Array.isArray(j.plans)) {
+    if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change plans');
+    const keyPlan = k => S.plans.find(x => (k === 'AG' && /Block A/i.test(x.name) && /Ground/i.test(x.name)) || (k === 'AF' && /Block A/i.test(x.name) && /First/i.test(x.name)) || (k === 'BG' && /Block B/i.test(x.name) && /Ground/i.test(x.name)) || (k === 'BF' && /Block B/i.test(x.name) && /First/i.test(x.name)));
+    let n = 0, missing = [];
+    for (const ep of j.plans) { const t = S.plans.find(x => ((x.code || '') + ' ' + x.name).replace(/\s/g, '').includes(ep.match)); if (!t) { missing.push(ep.name || ep.match); continue; }
+      const links = ep.links.map(l => { const fp = l.planId ? S.plans.find(x => x.id === l.planId) : keyPlan(l.planKey); return fp ? { ...l, planId: fp.id, planKey: undefined } : null; }).filter(Boolean);
+      const { link, ...rest } = t; await S.store.savePlan(S.project.id, { ...rest, kind: 'elevation', face: ep.face || t.face || '', links }); n++; }
+    await X.reloadProject(); toast(n ? `Elevation links set on ${n} sheet${n === 1 ? '' : 's'}` + (missing.length ? '; not found: ' + missing.join(', ') : '') : 'No matching elevation sheet found. Upload ' + j.plans.map(p => p.name).join(', ') + ' as a plan first.', 7000); return;
+  }
   if (j.type === 'planlines' && Array.isArray(j.plans)) {
     if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change plans');
     const findPlan = p => S.plans.find(x => x.id === p.key) || S.plans.find(x => p.key && ((p.key === 'AG' && /Block A/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'AF' && /Block A/i.test(x.name) && /First/i.test(x.name)) || (p.key === 'BG' && /Block B/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'BF' && /Block B/i.test(x.name) && /First/i.test(x.name)))) || S.plans.find(x => x.name === p.name || x.code === p.code);
@@ -530,6 +566,12 @@ export async function importRenumber(j) {
 }
 // Pull the straight lines out of a vector PDF page (walls, grids) so boundaries can snap to them. Returns a flat
 // normalised array [x0,y0,x1,y1,…] of the longest segments. Scanned PDFs have no vectors and return [].
+// Grid bubble labels (AA, AB, 1, 2…) with their positions, from the page text. Lets elevations be linked to plans automatically.
+export async function extractPdfGrids(pg, v1) {
+  const tc = await pg.getTextContent(), W = v1.width, H = v1.height, vb = pg.view, out = [];
+  for (const it of tc.items) { const t = (it.str || '').trim(); if (!/^([A-Z]{1,2}|\d{1,2}|[A-Z]\d{1,2})$/.test(t)) continue; const x = (it.transform[4] + (it.width || 0) / 2 - vb[0]) / W, y = 1 - (it.transform[5] + (it.height || 0) / 2 - vb[1]) / H; if (x < 0 || x > 1 || y < 0 || y > 1) continue; out.push({ l: t, x: +x.toFixed(4), y: +y.toFixed(4) }); }
+  return out.slice(0, 300);
+}
 export async function extractPdfLines(pg, pdfjs, v1) {
   const ops = await pg.getOperatorList(), OPS = pdfjs.OPS, W = v1.width, H = v1.height, vb = pg.view;
   const segs = []; let m = [1, 0, 0, 1, 0, 0]; const stack = [];

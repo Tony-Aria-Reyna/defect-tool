@@ -273,7 +273,7 @@ function applyZone(d, x, y, planId) {
 }
 async function onPlace(x, y) {
   const pl = placing; stopPlacing();
-  if (pl.mode === 'pick') { pl.resolve({ x, y }); return; }
+  if (pl.mode === 'pick') { toast('✓ Point recorded', 1200); pl.resolve({ x, y }); return; }
   if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); }
   else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
 }
