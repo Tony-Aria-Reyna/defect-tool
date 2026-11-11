@@ -207,11 +207,15 @@ function draw(kind) { ZE.drawKind = kind; ZE.PV.selectZone(null); ZE.PV.startDra
 function copyZone(z, dx, dy, unit) { const c = JSON.parse(JSON.stringify(z)); c.id = uid(); c.poly = c.poly.map(p => [p[0] + dx, p[1] + dy]); if (unit != null && (z.kind === 'unit' || z.unit)) c.unit = unit; return c; }
 function nextUnit(u) { const m = /^(.*?)(\d+)$/.exec(String(u || '')); if (!m) return (u || '') + '-copy'; const n = String(+m[2] + 1); return m[1] + (m[2].startsWith('0') ? n.padStart(m[2].length, '0') : n); }
 function zoneDetails(z, isNew) {
+  if (isNew && z.kind !== 'unit' && z.poly && z.poly.length > 2) {   // a room drawn inside a unit outline belongs to that unit
+    const c = centroid(z.poly), host = ZE.zones.filter(q => q.kind === 'unit' && q.poly && q.poly.length > 2 && pointInPoly(c[0], c[1], q.poly)).sort((a, b) => polyArea(a.poly) - polyArea(b.poly))[0];
+    if (host) { if (!z.unit) z.unit = host.unit || ''; if (!z.block) z.block = host.block || ''; if (!z.level) z.level = host.level || ''; }
+  }
   const kinds = { unit: 'Unit outline', room: 'Room', area: 'Common area' };
   modal(`<h2>${isNew ? 'New boundary' : 'Boundary details'}</h2>
   <div class="grid">
     <label class="f">Type<select id="zdK">${Object.entries(kinds).map(([k, l]) => `<option value="${k}" ${k === z.kind ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-    <label class="f">Unit number<input id="zdU" value="${esc(z.unit || '')}" list="zdUl"></label>
+    <label class="f">Unit number${isNew && z.kind !== 'unit' && z.unit ? ' <span class="muted small">(inside Unit ' + esc(z.unit) + ')</span>' : ''}<input id="zdU" value="${esc(z.unit || '')}" list="zdUl"></label>
     <label class="f full" id="zdNl">Room / area name<input id="zdN" value="${esc(z.name || '')}" list="zdRl" placeholder="Choose an existing name or type a new one"></label>
     <label class="f">Block / building<input id="zdB" value="${esc(z.block || '')}"></label>
     <label class="f">Level<input id="zdL" value="${esc(z.level || '')}"></label>
