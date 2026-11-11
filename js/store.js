@@ -128,6 +128,8 @@ async function firebaseStore() {
       await localWrite(F.updateDoc(D('projects', pid, 'defects', id), p));
     },
     async deleteDefect(pid, id) { await localWrite(F.deleteDoc(D('projects', pid, 'defects', id))); },
+    // a deleted defect that was the latest number hands that number back, so the next one does not leave a gap
+    async releaseRef(pid, n, highestLeft) { try { await Promise.race([F.runTransaction(db, async t => { const s = await t.get(D('projects', pid)); if ((s.data().seq || 0) === n) t.update(D('projects', pid), { seq: highestLeft }); }), delay(5000)]); } catch (e) {} },
     async nextRef(pid, prefix, localNext) {
       const offline = async () => { const n = localNext ? localNext() : 0; if (n) { localWrite(F.updateDoc(D('projects', pid), { seq: F.increment(1) })); return (prefix || 'D') + '-' + String(n).padStart(3, '0'); } return (prefix || 'D') + '-' + Date.now().toString(36).slice(-5).toUpperCase(); };
       if (!navigator.onLine) return offline();
@@ -204,6 +206,7 @@ async function localStore(dbName, asUser) {
     async createDefect(pid, d) { const { id, ...rest } = d; await put(`projects/${pid}/defects/${id}`, rest); emit(pid); },
     async updateDefect(pid, id, patch, newHistory) { const k = `projects/${pid}/defects/${id}`; const d = (await get(k)) || {}; const p = { ...patch }; delete p.id; delete p.history; const h = (d.history || []).concat(newHistory || []); await put(k, { ...d, ...p, history: h }); emit(pid); },
     async deleteDefect(pid, id) { await del(`projects/${pid}/defects/${id}`); emit(pid); },
+    async releaseRef(pid, n, highestLeft) { const p = await get('projects/' + pid); if ((p.seq || 0) === n) { p.seq = highestLeft; await put('projects/' + pid, p); } },
     async nextRef(pid, prefix) { const p = await get('projects/' + pid); p.seq = (p.seq || 0) + 1; await put('projects/' + pid, p); return (prefix || 'D') + '-' + String(p.seq).padStart(3, '0'); },
     async getPrivate(pid) { return (await get(`projects/${pid}/private/ai`)) || {}; },
     async setPrivate(pid, data) { const k = `projects/${pid}/private/ai`; await put(k, { ...((await get(k)) || {}), ...data }); },

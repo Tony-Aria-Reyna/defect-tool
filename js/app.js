@@ -497,7 +497,11 @@ async function saveEditor() {
 }
 async function deleteDefect() {
   if (!ED || ED.isNew) return; if (!(await confirmBox(`Delete ${ED.d.id}? This cannot be undone.`, 'Delete'))) return;
-  try { await S.store.deleteDefect(S.project.id, ED.d.id); (ED.d.photos || []).forEach(p => p.path && S.store.deleteFile(p.path)); closeEditor(); toast('Deleted'); } catch (e) { toast('Could not delete: ' + friendly(e)); }
+  try { const id = ED.d.id; await S.store.deleteDefect(S.project.id, id); (ED.d.photos || []).forEach(p => p.path && S.store.deleteFile(p.path)); closeEditor();
+    // if it was the latest number, hand the number back so the next defect takes it (builders see no gap)
+    const pre = (S.project.idPrefix || 'D') + '-', n = id.startsWith(pre) ? parseInt(id.slice(pre.length), 10) : NaN; let msg = 'Deleted';
+    if (!isNaN(n)) { let hi = 0; S.defects.forEach(d => { if (d.id !== id && d.id.startsWith(pre)) { const k = parseInt(d.id.slice(pre.length), 10); if (!isNaN(k) && k > hi) hi = k; } }); if (n > hi) { if (S.store.releaseRef) await S.store.releaseRef(S.project.id, n, hi); S.project.seq = Math.min(S.project.seq || 0, hi); msg = `Deleted. The next defect will be ${pre}${String(hi + 1).padStart(3, '0')}.`; } }
+    toast(msg, 4000); } catch (e) { toast('Could not delete: ' + friendly(e)); }
 }
 function step(dir) { if (!ED || ED.isNew) return; const L = filtered(); const i = L.findIndex(x => x.id === ED.d.id); const n = L[i + dir]; if (n) { S.sel = n.id; openEditor(n); renderPins(); } }
 
@@ -649,7 +653,7 @@ function wire() {
   $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
   $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); S.local.noList = h; saveLocal(); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
   if (S.local.noList) $('main').classList.add('nolist');
-  $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); requestAnimationFrame(() => PV.fit()); };
+  $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); $('zfull').textContent = '⛶'; requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); $('zfull').textContent = on ? '✕' : '⛶'; $('zfull').title = on ? 'Exit full screen' : 'Full screen'; requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
   $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1);
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
