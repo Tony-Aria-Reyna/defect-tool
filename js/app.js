@@ -14,6 +14,7 @@ import { helpDialog, siteCheck } from './help.js';
 import * as Nav from './nav.js';
 import { installDialog, maybeNag, canInstall } from './install.js';
 import { typicalList, templateFrom } from './typicals.js';
+const SURFACES = ['Floor', 'Wall', 'Ceiling', 'Exterior cladding', 'Roof', 'Joinery', 'Services'];
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -218,7 +219,9 @@ export async function showPlan(id, focus) {
   if (Admin.zoneActive() && id !== S.curPlan) { if (!(await Admin.zoneSwitch(id))) return; }
   S.curPlan = id; const p = S.plans.find(x => x.id === id) || null;
   $('plantabs').querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === id));
-  await PV.setPlan(p, p ? await imgUrl(p.img) : ''); PV.setZonesVisible(false);
+  S.ceiling = S.ceiling || {}; const useRcp = p && p.rcpImg && S.ceiling[p.id] && !can.contractor();
+  await PV.setPlan(p, p ? await imgUrl(useRcp ? p.rcpImg : p.img) : ''); PV.setZonesVisible(false);
+  let rb = $('bRcp'); if (!rb) { rb = document.createElement('button'); rb.id = 'bRcp'; rb.className = 'rcpfab'; $('planPane').appendChild(rb); rb.onclick = () => { S.ceiling[S.curPlan] = !S.ceiling[S.curPlan]; showPlan(S.curPlan); }; } rb.style.display = p && p.rcpImg && !can.contractor() ? '' : 'none'; rb.textContent = useRcp ? '⬆ Ceiling plan (tap for floor)' : '⬇ Floor plan (tap for ceiling)'; rb.classList.toggle('on', !!useRcp);
   if (Admin.zoneActive()) { await Admin.zoneEditor(PV); }
   renderPins(); if (isMobile() && focus) setTab('plan');
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));
@@ -232,7 +235,8 @@ function stopPlacing() { placing = null; PV.setMode('view'); if ($('bPin')) { $(
 function applyZone(d, x, y, planId) {
   const p = S.plans.find(q => q.id === planId); d.plan = planId; d.x = x; d.y = y;
   const hit = locate(p.zones, x, y);
-  if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; d.block = hit.block || p.block || d.block; d.level = hit.level || p.level || d.level; d.zoneHit = [hit.unit && 'Unit ' + hit.unit, hit.room].filter(Boolean).join(', '); }
+  if (S.ceiling && S.ceiling[planId]) d.surface = 'Ceiling'; else if (!d.surface) d.surface = p.surface || 'Floor';
+  if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (hit.item) d.item = hit.item; else if (hit.room) d.item = d.item || ''; d.block = hit.block || p.block || d.block; d.level = hit.level || p.level || d.level; d.zoneHit = [hit.unit && 'Unit ' + hit.unit, hit.room, hit.item, d.surface].filter(Boolean).join(', '); }
   else { d.block = p.block || d.block; d.level = p.level || d.level; d.zoneHit = ''; }
 }
 async function onPlace(x, y) {
@@ -262,7 +266,7 @@ function unitInfo(u) { for (const p of S.plans) for (const z of (p.zones || []))
 
 /* ================================================================ editor */
 let ED = null;
-const FIELDS = ['source', 'dateRaised', 'block', 'level', 'unit', 'room', 'element', 'title', 'desc', 'type', 'severity', 'trade', 'responsible', 'action', 'targetDate', 'status'];
+const FIELDS = ['source', 'dateRaised', 'block', 'level', 'unit', 'room', 'surface', 'item', 'element', 'title', 'desc', 'type', 'severity', 'trade', 'responsible', 'action', 'targetDate', 'status'];
 async function newDefect() {
   const p = S.project;
   return { id: '', isNew: true, source: S.local.source || p.sources[0], dateRaised: todayISO(), raisedBy: S.user.name, block: '', level: '', unit: '', room: '', element: '', title: '', desc: '', type: p.types[0], severity: p.severities.includes('Minor defect') ? 'Minor defect' : p.severities[0], trade: p.trades[0], responsible: p.responsible[0], action: '', targetDate: '', status: 'Open', plan: '', x: null, y: null, photos: [], history: [], transcript: '' };
@@ -292,11 +296,13 @@ export function openEditor(d, isNew, isDraft) {
   <div class="grid">
     <label class="f">Unit<select name="unit" ${dis}><option value="">Common / none</option>${units.map(u => `<option ${String(w.unit) === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label>
     <label class="f">Room / area<input name="room" value="${esc(w.room)}" list="rooms" ${dis}></label>
+    <label class="f">Surface<select name="surface" ${dis}><option value="">Not set</option>${opts(SURFACES, w.surface)}</select></label>
+    <label class="f">Item<input name="item" value="${esc(w.item || '')}" list="items" placeholder="e.g. Kitchen unit, Vanity, Shower" ${dis}></label>
     <label class="f">Block<select name="block" ${dis}><option value="">Not set</option>${opts(blockList(), w.block)}</select></label>
     <label class="f">Level<select name="level" ${dis}><option value="">Not set</option>${opts(levelList(), w.level)}</select></label>
     <label class="f full">Element / product<input name="element" value="${esc(w.element)}" ${dis} placeholder="e.g. Shower tray, cladding, fire door"></label>
   </div>
-  <datalist id="rooms">${[...new Set([...S.plans.flatMap(pl => (pl.zones || []).filter(z => z.kind !== 'unit' && z.name).map(z => z.name)), ...p.rooms])].map(r => `<option>${esc(r)}</option>`).join('')}</datalist>
+  <datalist id="items">${uniq([...S.plans.flatMap(p => (p.zones || []).filter(z => z.kind === 'item').map(z => z.name)), ...S.defects.map(d => d.item), ...(S.project.items || [])]).map(v => `<option value="${esc(v)}">`).join('')}</datalist><datalist id="rooms">${[...new Set([...S.plans.flatMap(pl => (pl.zones || []).filter(z => z.kind !== 'unit' && z.name).map(z => z.name)), ...p.rooms])].map(r => `<option>${esc(r)}</option>`).join('')}</datalist>
   <datalist id="blocks">${[...new Set(S.plans.map(x => x.block).filter(Boolean))].map(r => `<option>${esc(r)}</option>`).join('')}</datalist>
   <datalist id="levels">${[...new Set(S.plans.map(x => x.level).filter(Boolean))].map(r => `<option>${esc(r)}</option>`).join('')}</datalist>
   <div class="locbox" style="margin-top:8px"><canvas id="locC" width="300" height="200"></canvas><div><div id="locT" style="margin-bottom:6px"></div>${!ro && !con && S.plans.length ? `<button class="mini" id="setPin">📍 ${w.plan ? 'Move pin' : 'Pin on plan'}</button> ${w.plan ? '<button class="mini" id="clrPin">Remove pin</button>' : ''}` : ''}${w.plan && !ED.isNew ? ' <button class="mini" id="goPin">Show on plan</button>' : ''}</div></div>
@@ -414,7 +420,7 @@ async function deleteDefect() {
 function step(dir) { if (!ED || ED.isNew) return; const L = filtered(); const i = L.findIndex(x => x.id === ED.d.id); const n = L[i + dir]; if (n) { S.sel = n.id; openEditor(n); renderPins(); } }
 
 /* ---- Gemini ---- */
-const AIMAP = { title: 'title', description: 'desc', action: 'action', unit: 'unit', room: 'room', block: 'block', level: 'level', element: 'element', type: 'type', severity: 'severity', trade: 'trade', responsible: 'responsible', status: 'status', targetDate: 'targetDate' };
+const AIMAP = { title: 'title', description: 'desc', action: 'action', unit: 'unit', room: 'room', surface: 'surface', item: 'item', block: 'block', level: 'level', element: 'element', type: 'type', severity: 'severity', trade: 'trade', responsible: 'responsible', status: 'status', targetDate: 'targetDate' };
 async function interpret() {
   const text = $('dt').value.trim(); if (!text) { toast('Say or type the defect first'); return; }
   const cur = collect(); const btn = $('aiGo'); btn.disabled = true; aiStatus('Asking Gemini…'); $('aiNote').classList.remove('show');

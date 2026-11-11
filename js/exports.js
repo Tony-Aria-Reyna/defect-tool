@@ -3,7 +3,7 @@ import { loadScript, nzDate, todayISO, safeName, stamp } from './util.js';
 import { STATUS_COLOURS as SCOL, APP } from './config.js';
 
 const LIB = { pdflib: 'lib/pdf-lib.min.js', jszip: 'lib/jszip.min.js', xlsx: 'lib/xlsx.bundle.js' };
-export const locText = d => { const a = []; if (d.block) a.push(/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block); if (d.level) a.push(/^(ground|first|second|third|basement|level)/i.test(d.level) && !/floor|level/i.test(d.level) ? d.level + ' floor' : d.level); if (d.unit) a.push('Unit ' + d.unit); if (d.room) a.push(d.room); return a.join(', '); };
+export const locText = d => { const a = []; if (d.block) a.push(/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block); if (d.level) a.push(/^(ground|first|second|third|basement|level)/i.test(d.level) && !/floor|level/i.test(d.level) ? d.level + ' floor' : d.level); if (d.unit) a.push('Unit ' + d.unit); if (d.room) a.push(d.room); if (d.surface && d.surface !== 'Floor') a.push(d.surface); if (d.item) a.push(d.item); return a.join(', '); };
 export const pinLabel = d => String(d.id).replace(/^[A-Z]+-0*/, '') || d.id;
 
 function clean(s) { return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/—/g, ', ').replace(/→/g, '->').replace(/[^\n\x20-\x7e\xa0-\xff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–˜™š›œžŸ]/g, ''); }
@@ -118,7 +118,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
 
-export const COLS = [['ID', 'id'], ['Title', 'title'], ['Description', 'desc'], ['Action required', 'action'], ['Block', 'block'], ['Level', 'level'], ['Unit', 'unit'], ['Room / area', 'room'], ['Element', 'element'], ['Type', 'type'], ['Severity', 'severity'], ['Trade', 'trade'], ['Responsible', 'responsible'], ['Status', 'status'], ['Target date', 'targetDate'], ['Date raised', 'dateRaised'], ['Source', 'source'], ['External ref', 'extRef'], ['Plan', 'plan'], ['Photos', d => (d.photos || []).length], ['Last comment', d => { const h = (d.history || []).slice(-1)[0]; return h ? nzDate(h.t) + ' ' + h.who + ': ' + h.txt : ''; }], ['Last updated', d => d.updated ? nzDate(d.updated) : '']];
+export const COLS = [['ID', 'id'], ['Title', 'title'], ['Description', 'desc'], ['Action required', 'action'], ['Block', 'block'], ['Level', 'level'], ['Unit', 'unit'], ['Room / area', 'room'], ['Surface', 'surface'], ['Item', 'item'], ['Element', 'element'], ['Type', 'type'], ['Severity', 'severity'], ['Trade', 'trade'], ['Responsible', 'responsible'], ['Status', 'status'], ['Target date', 'targetDate'], ['Date raised', 'dateRaised'], ['Source', 'source'], ['External ref', 'extRef'], ['Plan', 'plan'], ['Photos', d => (d.photos || []).length], ['Last comment', d => { const h = (d.history || []).slice(-1)[0]; return h ? nzDate(h.t) + ' ' + h.who + ': ' + h.txt : ''; }], ['Last updated', d => d.updated ? nzDate(d.updated) : '']];
 export async function buildXlsx(L, ctx) {
   if (!window.XLSX) await loadScript(LIB.xlsx);
   const val = (d, f) => typeof f === 'function' ? f(d) : f === 'plan' ? ((ctx.plans.find(p => p.id === d.plan) || {}).name || '') : (d[f] == null ? '' : d[f]);

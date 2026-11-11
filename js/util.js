@@ -67,6 +67,6 @@ export function centroid(poly) { let x = 0, y = 0; poly.forEach(p => { x += p[0]
 export function locate(zones, x, y) {
   const hits = (zones || []).filter(z => z.poly && z.poly.length > 2 && pointInPoly(x, y, z.poly)).sort((a, b) => polyArea(a.poly) - polyArea(b.poly));
   if (!hits.length) return null;
-  const room = hits.find(z => z.kind !== 'unit' && z.name), withUnit = hits.find(z => z.unit);
-  return { zone: hits[0], room: room ? room.name : '', unit: withUnit ? String(withUnit.unit) : '', block: (hits.find(z => z.block) || {}).block || '', level: (hits.find(z => z.level) || {}).level || '' };
+  const item = hits.find(z => z.kind === 'item' && z.name), room = hits.find(z => (z.kind === 'room' || z.kind === 'area') && z.name), withUnit = hits.find(z => z.unit);
+  return { zone: hits[0], item: item ? item.name : '', room: room ? room.name : '', unit: withUnit ? String(withUnit.unit) : '', block: (hits.find(z => z.block) || {}).block || '', level: (hits.find(z => z.level) || {}).level || '' };
 }

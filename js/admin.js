@@ -99,16 +99,28 @@ export async function usersDialog() {
 /* ================================================================ plans */
 export async function plansDialog() {
   const pid = S.project.id;
-  const rows = await Promise.all(S.plans.map(async (p, i) => `<div class="planrow" data-id="${esc(p.id)}"><img src="${esc(await S.store.resolveUrl(p.img))}" alt=""><div class="pi"><input data-k="name" value="${esc(p.name)}" placeholder="Name"><input data-k="code" value="${esc(p.code || '')}" placeholder="Drawing no. / rev"><input data-k="block" value="${esc(p.block || '')}" placeholder="Block / building"><input data-k="level" value="${esc(p.level || '')}" placeholder="Level"></div><div><button class="btn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button> <button class="btn" data-del="${esc(p.id)}">Delete</button><br><span class="muted small">${(p.zones || []).length} room boundaries</span></div></div>`));
+  const rows = await Promise.all(S.plans.map(async (p, i) => `<div class="planrow" data-id="${esc(p.id)}"><img src="${esc(await S.store.resolveUrl(p.img))}" alt=""><div class="pi"><input data-k="name" value="${esc(p.name)}" placeholder="Name"><input data-k="code" value="${esc(p.code || '')}" placeholder="Drawing no. / rev"><input data-k="block" value="${esc(p.block || '')}" placeholder="Block / building"><input data-k="level" value="${esc(p.level || '')}" placeholder="Level"></div><div><button class="btn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button> <button class="btn" data-del="${esc(p.id)}">Delete</button><br><span class="muted small">${(p.zones || []).length} room boundaries</span><br><label class="btn small" style="cursor:pointer">${p.rcpImg ? '✓ Ceiling plan attached · replace' : '+ Attach ceiling plan (RCP)'}<input type="file" data-rcp="${esc(p.id)}" accept="application/pdf,image/*" hidden></label>${p.rcpImg ? ` <button class="btn small" data-rcpx="${esc(p.id)}">remove</button>` : ''}</div></div>`));
   modal(`<h2>Plans</h2><p class="note">Upload floor plans as PDF (any page size) or images. Each PDF page becomes a plan. Block and level are used to fill in the location when you drop a pin.</p>
   ${rows.join('') || '<p class="muted">No plans yet.</p>'}
   <div class="act" style="justify-content:flex-start"><label class="btn go" style="cursor:pointer">⬆ Upload plans<input type="file" id="plUp" accept="application/pdf,image/*" multiple hidden></label></div>
   <div class="act"><button id="plX">Close</button><button class="go" id="plSave">Save changes</button></div>`, true);
   $('plX').onclick = closeModal;
   $('plUp').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await uploadPlans(fs); };
+  document.querySelectorAll('[data-rcp]').forEach(i => i.onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const p = S.plans.find(x => x.id === i.dataset.rcp); const b = busy('Attaching ceiling plan…'); try { const pg = (await renderPlanFile(f, [1]))[0]; if (!pg) throw new Error('Could not read the file'); const path = `projects/${pid}/plans/${p.id}-rcp.jpg`; const url = await S.store.putFile(path, dataUrlToBlob(pg.data), true); await S.store.savePlan(pid, { ...p, rcpImg: url, rcpPath: path }); await X.reloadProject(); b.done(); toast('Ceiling plan attached. It must be the same sheet extent as the floor plan so pins line up.', 6000); plansDialog(); } catch (x) { b.done(); toast('Could not attach: ' + x.message, 6000); } });
+  document.querySelectorAll('[data-rcpx]').forEach(bt => bt.onclick = async () => { const p = S.plans.find(x => x.id === bt.dataset.rcpx); const { rcpImg, rcpPath, ...rest } = p; await S.store.savePlan(pid, rest); if (rcpPath) S.store.deleteFile(rcpPath); await X.reloadProject(); plansDialog(); });
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { const p = S.plans.find(x => x.id === b.dataset.del); const n = S.defects.filter(d => d.plan === p.id).length; if (!(await confirmBox(`Delete the plan "${p.name}"?${n ? ` ${n} pinned defects will lose their pin (the defects are kept).` : ''}`, 'Delete'))) return; await S.store.deletePlan(pid, p.id); if (p.path) S.store.deleteFile(p.path); await X.reloadProject(); plansDialog(); });
   document.querySelectorAll('[data-up]').forEach(b => b.onclick = async () => { const i = +b.dataset.up; const a = S.plans[i - 1], c = S.plans[i]; const t = a.order || i - 1; a.order = c.order || i; c.order = t; if (a.order === c.order) { a.order = i; c.order = i - 1; } await S.store.savePlan(pid, a); await S.store.savePlan(pid, c); await X.reloadProject(); plansDialog(); });
   $('plSave').onclick = async () => { const b = busy('Saving…'); for (const r of document.querySelectorAll('.planrow')) { const p = S.plans.find(x => x.id === r.dataset.id); r.querySelectorAll('[data-k]').forEach(i => p[i.dataset.k] = i.value.trim()); await S.store.savePlan(pid, p); } b.done(); closeModal(); await X.reloadProject(); toast('Plans saved'); };
+}
+// Render a PDF page (or image) to a plan-sized JPEG. Used for ceiling plans and other single-sheet attachments.
+export async function renderPlanFile(f, pagesWanted) {
+  const out = [];
+  if (/pdf/.test(f.type) || /\.pdf$/i.test(f.name)) {
+    const pdfjs = await import('../lib/pdfjs/pdf.min.mjs'); pdfjs.GlobalWorkerOptions.workerSrc = new URL('../lib/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+    const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
+    for (const n of (pagesWanted || [1])) { if (n > doc.numPages) continue; const pg = await doc.getPage(n); const v1 = pg.getViewport({ scale: 1 }); const scale = Math.min(4, 3000 / Math.max(v1.width, v1.height)); const vp = pg.getViewport({ scale }); const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height); const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); await pg.render({ canvasContext: x, viewport: vp }).promise; out.push({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height }); }
+  } else { const c = await compressImage(f, 3000, 0.75); out.push({ data: c.dataUrl, w: c.w, h: c.h }); }
+  return out;
 }
 export async function uploadPlans(files) {
   const pid = S.project.id, b = busy('Reading plans…'); let order = S.plans.length;
@@ -168,6 +180,8 @@ export async function zoneEditor(PV) {
     onZoneDragStart: z => { ZE.members = z.kind === 'unit' ? membersOf(z).map(m => ({ m, orig: m.poly.map(p => p.slice()) })) : null; },
     onVertexAdded: z => { toast('Corner added. Drag it to fit.', 1800); },
     onVertexSelect: i => { panel(); },
+    onMultiChange: ids => { panel(); },
+    onGroupMoved: ids => { ZE.dirty = true; if (ZE.pendingGroup && ids.length && ids.every(id => ZE.pendingGroup.includes(id))) { const g = ZE.pendingGroup; ZE.pendingGroup = null; groupDetails(g, true); } else panel(); },
     onZoneEdit: (z, kind, dx, dy) => { ZE.dirty = true; if (kind === 'z' && ZE.members) ZE.members.forEach(({ m, orig }) => m.poly = orig.map(p => [p[0] + dx, p[1] + dy])); },
   });
   panel();
@@ -181,12 +195,12 @@ function redo() { if (!ZE || !(ZE.redo || []).length) return; (ZE.undo = ZE.undo
 function zoneKeys(e) {
   if (ZE && (e.ctrlKey || e.metaKey) && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { if (e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; } if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) { e.preventDefault(); redo(); return; } }
   if (!ZE || $('modal').classList.contains('show') || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
-  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const PV = ZE.PV; if (PV.selVertex != null) { if (PV.deleteVertex()) { ZE.dirty = true; panel(); } } else if (PV.selZone) { snap(); const z = PV.selZone; ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); toast('Deleted ' + (z.kind === 'unit' ? 'Unit ' + z.unit + ' outline' : z.name || 'boundary') + '. Ctrl+Z to undo.', 3000); } }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const PV = ZE.PV; if (PV.multi && PV.multi.size) { snap(); ZE.zones = ZE.zones.filter(q => !PV.multi.has(q.id)); PV.setMulti([]); PV.setZones(ZE.zones); ZE.dirty = true; panel(); toast('Group deleted. Ctrl+Z to undo.'); return; } if (PV.selVertex != null) { if (PV.deleteVertex()) { ZE.dirty = true; panel(); } } else if (PV.selZone) { snap(); const z = PV.selZone; ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); toast('Deleted ' + (z.kind === 'unit' ? 'Unit ' + z.unit + ' outline' : z.name || 'boundary') + '. Ctrl+Z to undo.', 3000); } }
   if (e.key === 'Escape') { const PV = ZE.PV; if (PV.mode === 'draw') { PV.setMode('zones'); panel(); } else if (PV.selVertex != null) { PV.selVertex = null; PV._drawZones(); panel(); } }
 }
 function panel() {
   const el = $('zonePanel'), PV = ZE.PV, z = PV.selZone, drawing = PV.mode === 'draw';
-  const kindName = { unit: 'Unit outline', room: 'Room', area: 'Common area' };
+  const kindName = { unit: 'Unit outline', room: 'Room', area: 'Common area', item: 'Item (fixture or fitting)' };
   if (ZE.pendingPlan && ZE.pendingPlan !== ZE.plan.id) { ZE.pendingPlan = null; return zoneEditor(PV); }
   el.classList.toggle('collapsed', !!ZE.collapsed);
   el.innerHTML = `<div class="zhead"><h3>Room boundaries: ${esc(ZE.plan.name)}</h3><button id="zMin" title="${ZE.collapsed ? 'Expand' : 'Minimise'}">${ZE.collapsed ? '▴' : '▾'}</button><button id="zDone" class="go">Done</button></div><div class="zbody">
@@ -195,12 +209,16 @@ function panel() {
      <div class="zb">${ZE.rect ? '' : `<button id="zUndo">↶ Undo last point</button><button class="go" id="zFin" ${(PV.draft || []).length < 3 ? 'disabled' : ''}>Finish</button>`}<button id="zCan">Cancel</button></div></div>` : `
   <p class="hint">Draw each unit outline first, then the rooms inside it. Each boundary saves as soon as you name it, and drawing continues with the next one. To reshape: tap a shape, drag its corners, or tap on one of its edges to add a corner there. Use "Duplicate unit" to copy a finished unit, with all its rooms, to the next one and drag it into place.</p>
   <div class="zb"><label class="opt" style="margin-right:8px"><input type="checkbox" id="zRect" ${ZE.rect ? 'checked' : ''}> <span>Rectangles (two taps)</span></label></div>
-  <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button></div>
+  <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button><button id="zI">▣ Draw item (kitchen unit, WC, vanity…)</button></div>
+  <div class="zb"><button id="zMulti" class="${PV.marquee ? 'go' : ''}">${PV.marquee ? '✓ Selecting several (tap shapes or drag a box)' : '☐ Select several…'}</button></div>
+  ${(PV.multi && PV.multi.size) ? `<div class="zsel"><b>${PV.multi.size} shapes selected</b><p class="hint">Drag any selected shape to move the group; it snaps to neighbours and walls on drop. Tap a shape to add or remove it.</p>
+     <div class="zb"><button class="go" id="zgCopy">⧉ Copy group</button><button id="zgMirH">⇄ Mirror east-west</button><button id="zgMirV">⇅ Mirror north-south</button></div>
+     <div class="zb"><button id="zgUnit">Set unit number…</button><button class="warn" id="zgDel">🗑 Delete group</button><button id="zgClear">Clear selection</button></div></div>` : ''}
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
      <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? '<div class="zb"><button class="warn" id="zDelV">✂ Delete this corner</button></div>' : ''}
      <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
      ${z.kind === 'unit' ? '<button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
-  <div class="zb layers"><span class="muted small">Show:</span>${['unit', 'room', 'area'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas' }[k]}</span></label>`).join('')}</div>
+  <div class="zb layers"><span class="muted small">Show:</span>${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
   <p class="muted small">${ZE.zones.filter(q => q.kind === 'unit').length} units, ${ZE.zones.filter(q => q.kind === 'room').length} rooms, ${ZE.zones.filter(q => q.kind === 'area').length} common areas on this plan${ZE.dirty ? ' · <b>unsaved changes</b>' : ''}</p>
   <div class="zb"><button id="zUndo2" ${(ZE.undo || []).length ? '' : 'disabled'}>↶ Undo</button><button id="zRedo2" ${(ZE.redo || []).length ? '' : 'disabled'}>↷ Redo</button></div>
@@ -212,10 +230,20 @@ function panel() {
   if ($('zPick')) $('zPick').onchange = e => { const q = ZE.zones.find(x => x.id === e.target.value); if (q) { PV.setMode('zones'); PV.selectZone(q); panel(); } };
   on('zDone', async () => { if (ZE.dirty) await save(); close(); });
   if ($('zRect')) $('zRect').onchange = e => { ZE.rect = e.target.checked; S.local.zoneRect = ZE.rect; saveLocal(); };
-  on('zU', () => draw('unit')); on('zR', () => draw('room')); on('zA', () => draw('area'));
+  on('zU', () => draw('unit'));
+  on('zI', () => draw('item')); on('zR', () => draw('room')); on('zA', () => draw('area'));
   on('zUndo', () => { PV.undoPoint(); panel(); }); on('zFin', () => PV.finishDraw()); on('zCan', () => { PV.setMode('zones'); panel(); });
   on('zEd', () => zoneDetails(z, false)); on('zMv', () => { PV.moveZone = !PV.moveZone; panel(); });
   on('zUndo2', undo); on('zRedo2', redo);
+  on('zMulti', () => { PV.marquee = !PV.marquee; if (!PV.marquee) PV.setMulti([]); PV.setMode('zones'); PV.selectZone(null); panel(); if (PV.marquee) toast('Tap shapes to select them, or drag a box around them on empty plan. Tap again to deselect.', 4000); });
+  on('zgClear', () => { PV.setMulti([]); panel(); });
+  on('zgDel', async () => { if (!(await confirmBox(`Delete ${PV.multi.size} shapes?`, 'Delete'))) return; snap(); ZE.zones = ZE.zones.filter(q => !PV.multi.has(q.id)); PV.setMulti([]); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
+  on('zgCopy', () => { snap(); const ids = [...PV.multi], copies = []; ZE.zones.forEach(q => { if (ids.includes(q.id)) copies.push(copyZone(q, 0.015, 0.015, null)); });   // array order kept, so layers stay in order
+    copies.forEach(c => { c._srcUnit = c.unit; ZE.zones.push(c); }); ZE.pendingGroup = copies.map(c => c.id); PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel(); toast('Copy made. Drag it into place; when you drop it you will be asked for the unit number.', 5000); });
+  const mirror = axis => { snap(); const zs = ZE.zones.filter(q => PV.multi.has(q.id)); const xs = zs.flatMap(q => q.poly.map(p => p[0])), ys = zs.flatMap(q => q.poly.map(p => p[1])); const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    zs.forEach(q => { q.poly = q.poly.map(p => axis === 'h' ? [2 * cx - p[0], p[1]] : [p[0], 2 * cy - p[1]]).reverse(); }); PV.setZones(ZE.zones); PV.setMulti([...PV.multi]); ZE.dirty = true; };
+  on('zgMirH', () => mirror('h')); on('zgMirV', () => mirror('v'));
+  on('zgUnit', () => groupDetails([...PV.multi]));
   on('zDelV', () => { if (!PV.deleteVertex()) toast('A shape needs at least three corners'); else { ZE.dirty = true; panel(); } });
   on('zDel', async () => { if (!(await confirmBox('Delete this boundary?', 'Delete'))) return; snap(); ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
   on('zDup', () => { snap(); const c = copyZone(z, 0.02, 0.02, null); ZE.zones.push(c); after(c); });
@@ -225,14 +253,27 @@ function panel() {
   function after(c, move) { PV.setZones(ZE.zones); PV.selectZone(c); PV.moveZone = !!move; ZE.dirty = true; panel(); }
 }
 function draw(kind) { ZE.drawKind = kind; ZE.PV.selectZone(null); ZE.PV.startDraw('', ZE.rect); panel(); }
+// After a copied group is dropped (or on demand): set the unit number, block and level for every shape in the group.
+function groupDetails(ids, isDrop) {
+  const PV = ZE.PV, zs = ZE.zones.filter(q => ids.includes(q.id)); if (!zs.length) return;
+  const cur = zs.find(q => q.unit) || {}, guess = isDrop ? nextUnit(cur._srcUnit || cur.unit) : (cur.unit || '');
+  const names = [...new Set(zs.filter(q => q.kind !== 'unit').map(q => q.name).filter(Boolean))];
+  modal(`<h2>${isDrop ? 'Copy placed' : 'Group details'}</h2><p>${zs.length} shapes${names.length ? ': ' + esc(names.slice(0, 8).join(', ')) + (names.length > 8 ? '…' : '') : ''}. Room and item names are kept; set what applies to the whole group.</p>
+    <label class="f">Unit number<input id="gdU" value="${esc(guess)}" list="zdUl"></label>
+    <div class="row2"><label class="f">Block<input id="gdB" value="${esc(cur.block || '')}" list="blocks"></label><label class="f">Level<input id="gdL" value="${esc(cur.level || '')}" list="levels"></label></div>
+    <div class="act"><button id="gdX">${isDrop ? 'Leave as is' : 'Cancel'}</button><button class="go" id="gdOk">Apply to ${zs.length} shapes</button></div>`);
+  $('gdX').onclick = () => { closeModal(); zs.forEach(q => delete q._srcUnit); };
+  $('gdOk').onclick = () => { snap(); const u = $('gdU').value.trim(), b = $('gdB').value.trim(), l = $('gdL').value.trim(); zs.forEach(q => { if (u && (q.kind === 'unit' || q.unit || q.kind === 'room' || q.kind === 'item')) q.unit = u; if (b) q.block = b; if (l) q.level = l; delete q._srcUnit; }); closeModal(); PV.setZones(ZE.zones); PV.setMulti(ids); ZE.dirty = true; panel(); save(); };
+}
 function copyZone(z, dx, dy, unit) { const c = JSON.parse(JSON.stringify(z)); c.id = uid(); c.poly = c.poly.map(p => [p[0] + dx, p[1] + dy]); if (unit != null && (z.kind === 'unit' || z.unit)) c.unit = unit; return c; }
 function nextUnit(u) { const m = /^(.*?)(\d+)$/.exec(String(u || '')); if (!m) return (u || '') + '-copy'; const n = String(+m[2] + 1); return m[1] + (m[2].startsWith('0') ? n.padStart(m[2].length, '0') : n); }
 function zoneDetails(z, isNew) {
   if (isNew && z.kind !== 'unit' && z.poly && z.poly.length > 2) {   // a room drawn inside a unit outline belongs to that unit
     const c = centroid(z.poly), host = ZE.zones.filter(q => q.kind === 'unit' && q.poly && q.poly.length > 2 && pointInPoly(c[0], c[1], q.poly)).sort((a, b) => polyArea(a.poly) - polyArea(b.poly))[0];
     if (host) { if (!z.unit) z.unit = host.unit || ''; if (!z.block) z.block = host.block || ''; if (!z.level) z.level = host.level || ''; }
+    if (z.kind === 'item') { const room = ZE.zones.filter(q => (q.kind === 'room' || q.kind === 'area') && q.poly && q.poly.length > 2 && pointInPoly(c[0], c[1], q.poly)).sort((a, b) => polyArea(a.poly) - polyArea(b.poly))[0]; if (room) { z.room = room.name; if (!z.unit) z.unit = room.unit || ''; } }
   }
-  const kinds = { unit: 'Unit outline', room: 'Room', area: 'Common area' };
+  const kinds = { unit: 'Unit outline', room: 'Room', area: 'Common area', item: 'Item (fixture or fitting)' };
   modal(`<h2>${isNew ? 'New boundary' : 'Boundary details'}</h2>
   <div class="grid">
     <label class="f">Type<select id="zdK">${Object.entries(kinds).map(([k, l]) => `<option value="${k}" ${k === z.kind ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -251,7 +292,7 @@ function zoneDetails(z, isNew) {
     if (z.kind === 'unit' && !z.unit) return toast('Enter the unit number'); if (z.kind !== 'unit' && !z.name) return toast('Enter the room or area name');
     snap(); if (isNew) ZE.zones.push(z); ZE.dirty = true; closeModal(); ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z);
     if (isNew && z.kind === 'unit') { save().then(() => { modal(`<h2>Unit ${esc(z.unit || '')} outline saved</h2><p>Break it up into rooms now? Each room you draw inside it takes the unit number automatically.</p><div class="btnlist"><button id="zuRooms">⬠ Draw the rooms in this unit</button><button id="zuNext">⬚ Draw the next unit outline</button><button id="zuDup">⧉ Duplicate a finished unit onto this one</button><button id="zuStop">Stop drawing</button></div>`); $('zuRooms').onclick = () => { closeModal(); ZE.rect = true; S.local.zoneRect = true; saveLocal(); toast('Rectangles on: tap two opposite corners of each room. Untick Rectangles for an L-shape.', 4000); draw('room'); }; $('zuNext').onclick = () => { closeModal(); draw('unit'); }; $('zuDup').onclick = () => { closeModal(); ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel(); toast('Select a finished unit, tap Duplicate unit, then drag the copy over this outline.', 5000); }; $('zuStop').onclick = () => { closeModal(); ZE.PV.setMode('zones'); panel(); }; }); }
-    else if (isNew) { save().then(() => { const next = { room: 'room', area: 'common area' }[z.kind]; toast(`Saved. Draw the next ${next}, or tap Cancel to stop.`, 3500); draw(z.kind); }); } else panel(); };
+    else if (isNew) { save().then(() => { const next = { room: 'room', area: 'common area', item: 'item' }[z.kind]; toast(`Saved. Draw the next ${next}, or tap Cancel to stop.`, 3500); draw(z.kind); }); } else panel(); };
 }
 async function save() {
   const p = ZE.plan; p.zones = ZE.zones.map(z => ({ id: z.id, kind: z.kind, name: z.name || '', unit: z.unit || '', block: z.block || '', level: z.level || '', poly: z.poly.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)]) }));
@@ -262,7 +303,7 @@ async function close(fromBack) {
   if (ZE.dirty && !fromBack && !(await confirmBox('Close without saving your boundary changes?', 'Close without saving'))) return;
   if (ZE.dirty && fromBack) { await save(); }
   document.removeEventListener('keydown', zoneKeys);
-  const PV = ZE.PV; ['onDrawn', 'onZoneSelect', 'onDraftChange', 'onZoneDragStart', 'onZoneEdit', 'onVertexAdded', 'onVertexSelect'].forEach(k => delete PV.o[k]);
+  const PV = ZE.PV; ['onDrawn', 'onZoneSelect', 'onDraftChange', 'onZoneDragStart', 'onZoneEdit', 'onVertexAdded', 'onVertexSelect', 'onMultiChange', 'onGroupMoved', 'onEditStart'].forEach(k => delete PV.o[k]); PV.marquee = false; PV.setMulti([]);
   PV.selectZone(null); PV.setMode('view'); $('zonePanel').classList.remove('show'); ZE = null; if (!fromBack) Nav.closed('zones'); await X.reloadProject();
 }
 
