@@ -149,7 +149,8 @@ export async function linkElevation(ep) {
     const bandY = [Math.min(t1.y, t2.y) - 0.02, Math.max(t1.y, t2.y) + 0.02], bandX = [Math.min(t1.x, t2.x) - 0.03, Math.max(t1.x, t2.x) + 0.03];
     const eg = ep.grids.filter(g => g.x >= bandX[0] && g.x <= bandX[1] && g.y >= bandY[0] - 0.25 && g.y <= bandY[1]);   // bubbles sit above the drawing
     const pl = {}; fp.grids.forEach(g => { if (!pl[g.l] || Math.abs(g.y - f.y) < Math.abs(pl[g.l].y - f.y)) pl[g.l] = g; });
-    const pairs = eg.filter(g => pl[g.l]).sort((a, b) => a.x - b.x); const seen = new Set(); const uniq = pairs.filter(g => !seen.has(g.l) && seen.add(g.l));
+    let pairs = eg.filter(g => pl[g.l]).sort((a, b) => a.x - b.x); const alpha = pairs.filter(g => /[A-Z]/.test(g.l)); if (alpha.length >= 2) pairs = alpha;   // lettered grids beat stray dimension numbers
+    const seen = new Set(); const uniq = pairs.filter(g => !seen.has(g.l) && seen.add(g.l));
     if (uniq.length < 2) { toast('Could not find two shared grid bubbles in that band; link by tapping instead', 6000); return; }
     const L = uniq[0], R = uniq[uniq.length - 1], snapY = f.y;
     const link = { planId: fid, face, band: [bandY[0] + 0.02, bandY[1] - 0.02], bandX: [bandX[0] + 0.03, bandX[1] - 0.03], a: [pl[L.l].x, snapY], b: [pl[R.l].x, snapY], ea: L.x, eb: R.x, grids: [L.l, R.l] };
