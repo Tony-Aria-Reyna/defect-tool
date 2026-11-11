@@ -10,7 +10,7 @@ export const firebaseConfig = {
 
 export const APP = {
   name: 'Resero Defects',
-  version: '2.21.0',
+  version: '2.21.1',
   company: 'Resero Property',
 };
 
