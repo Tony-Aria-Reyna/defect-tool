@@ -157,7 +157,7 @@ export async function zoneEditor(PV) {
   if (!S.plans.length) { toast('Upload a plan first'); return plansDialog(); }
   X.setTab('plan');
   const plan = S.plans.find(p => p.id === S.curPlan) || S.plans[0]; if (plan.id !== S.curPlan) await X.showPlan(plan.id);
-  if (!ZE) Nav.open('zones', () => { if (ZE) close(true); });
+  if (!ZE) { Nav.open('zones', () => { if (ZE) close(true); }); document.addEventListener('keydown', zoneKeys); }
   ZE = { PV, plan, zones: JSON.parse(JSON.stringify(plan.zones || [])), dirty: false, members: null, collapsed: ZE ? ZE.collapsed : false, rect: ZE ? ZE.rect : !!S.local.zoneRect };
   PV.selectZone(null);
   PV.setZones(ZE.zones); PV.setMode('zones');
@@ -166,11 +166,17 @@ export async function zoneEditor(PV) {
     onZoneSelect: () => panel(), onDraftChange: () => panel(),
     onZoneDragStart: z => { ZE.members = z.kind === 'unit' ? membersOf(z).map(m => ({ m, orig: m.poly.map(p => p.slice()) })) : null; },
     onVertexAdded: z => { toast('Corner added. Drag it to fit.', 1800); },
+    onVertexSelect: i => { panel(); },
     onZoneEdit: (z, kind, dx, dy) => { ZE.dirty = true; if (kind === 'z' && ZE.members) ZE.members.forEach(({ m, orig }) => m.poly = orig.map(p => [p[0] + dx, p[1] + dy])); },
   });
   panel();
 }
 function membersOf(unitZone) { return ZE.zones.filter(z => z !== unitZone && z.kind !== 'unit' && pointInPoly(...centroid(z.poly), unitZone.poly)); }
+function zoneKeys(e) {
+  if (!ZE || $('modal').classList.contains('show') || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const PV = ZE.PV; if (PV.selVertex != null) { if (PV.deleteVertex()) { ZE.dirty = true; panel(); } } else if (PV.selZone) { const z = PV.selZone; ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); toast('Deleted ' + (z.kind === 'unit' ? 'Unit ' + z.unit + ' outline' : z.name || 'boundary') + '. Save to keep, or Close without saving to undo.', 4000); } }
+  if (e.key === 'Escape') { const PV = ZE.PV; if (PV.mode === 'draw') { PV.setMode('zones'); panel(); } else if (PV.selVertex != null) { PV.selVertex = null; PV._drawZones(); panel(); } }
+}
 function panel() {
   const el = $('zonePanel'), PV = ZE.PV, z = PV.selZone, drawing = PV.mode === 'draw';
   const kindName = { unit: 'Unit outline', room: 'Room', area: 'Common area' };
@@ -184,7 +190,7 @@ function panel() {
   <div class="zb"><label class="opt" style="margin-right:8px"><input type="checkbox" id="zRect" ${ZE.rect ? 'checked' : ''}> <span>Rectangles (two taps)</span></label></div>
   <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button></div>
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
-     <p class="hint">Drag a red dot to move that corner. Corners shared with neighbouring rooms move together.</p>
+     <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? '<div class="zb"><button class="warn" id="zDelV">✂ Delete this corner</button></div>' : ''}
      <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
      ${z.kind === 'unit' ? '<button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
   <div class="zb layers"><span class="muted small">Show:</span>${['unit', 'room', 'area'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas' }[k]}</span></label>`).join('')}</div>
@@ -201,6 +207,7 @@ function panel() {
   on('zU', () => draw('unit')); on('zR', () => draw('room')); on('zA', () => draw('area'));
   on('zUndo', () => { PV.undoPoint(); panel(); }); on('zFin', () => PV.finishDraw()); on('zCan', () => { PV.setMode('zones'); panel(); });
   on('zEd', () => zoneDetails(z, false)); on('zMv', () => { PV.moveZone = !PV.moveZone; panel(); });
+  on('zDelV', () => { if (!PV.deleteVertex()) toast('A shape needs at least three corners'); else { ZE.dirty = true; panel(); } });
   on('zDel', async () => { if (!(await confirmBox('Delete this boundary?', 'Delete'))) return; ZE.zones.splice(ZE.zones.indexOf(z), 1); PV.selectZone(null); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
   on('zDup', () => { const c = copyZone(z, 0.02, 0.02, null); ZE.zones.push(c); after(c); });
   on('zDupU', () => { const nu = nextUnit(z.unit); const dx = Math.min(0.05, (Math.max(...z.poly.map(p => p[0])) - Math.min(...z.poly.map(p => p[0]))) * 1.05); const mem = membersOf(z); const cu = copyZone(z, dx, 0, nu); ZE.zones.push(cu); mem.forEach(m => ZE.zones.push(copyZone(m, dx, 0, m.unit ? nu : null))); after(cu, true); toast(`Copied as Unit ${nu}. Drag it into place (Move is on).`, 4000); });
@@ -245,7 +252,8 @@ async function close(fromBack) {
   if (!ZE) return;
   if (ZE.dirty && !fromBack && !(await confirmBox('Close without saving your boundary changes?', 'Close without saving'))) return;
   if (ZE.dirty && fromBack) { await save(); }
-  const PV = ZE.PV; ['onDrawn', 'onZoneSelect', 'onDraftChange', 'onZoneDragStart', 'onZoneEdit'].forEach(k => delete PV.o[k]);
+  document.removeEventListener('keydown', zoneKeys);
+  const PV = ZE.PV; ['onDrawn', 'onZoneSelect', 'onDraftChange', 'onZoneDragStart', 'onZoneEdit', 'onVertexAdded', 'onVertexSelect'].forEach(k => delete PV.o[k]);
   PV.selectZone(null); PV.setMode('view'); $('zonePanel').classList.remove('show'); ZE = null; if (!fromBack) Nav.closed('zones'); await X.reloadProject();
 }
 

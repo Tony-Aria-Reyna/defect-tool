@@ -282,3 +282,5 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .card .pick{display:flex;align-items:center;padding:0 6px 0 2px}.card .pick input{width:22px;height:22px}.card.picked{outline:2px solid var(--teal)}#bSel.on{background:var(--teal);color:var(--navy)}
 
 #planPane{position:relative}.pinfab{position:absolute;right:16px;bottom:96px;z-index:7;background:var(--teal);color:var(--navy);border:0;border-radius:24px;padding:12px 18px;font-weight:700;font-size:15px;box-shadow:0 3px 10px rgba(0,0,0,.25)}.pinfab.on{background:#d64545;color:#fff}@media(max-width:899px){.pinfab{bottom:150px;right:14px}}
+
+.zsvg circle.zv.vsel{fill:#ffd400;stroke:#b08900}

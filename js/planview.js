@@ -43,25 +43,33 @@ export class PlanView {
       if (pts.size === 1) { const r = [...pts.values()][0]; st = { x: r.x, y: r.y, px: this.pv.x, py: this.pv.y, t: 0, target: null, tol: 12 }; moved = 99; drag = null; }
       if (pts.size === 0 && st) { if (moved <= st.tol && Date.now() - st.t < 1200) this._tap(e, st.target);
         else if (drag && drag.kind === 'v' && this.selZone) { const n = this._norm(e), sn = this._snap(n, this.selZone, drag.i); if (sn.snapped) { this.selZone.poly[drag.i] = [sn.x, sn.y]; drag.shared.forEach(([z, j]) => { z.poly[j] = [sn.x, sn.y]; }); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); } }
+        else if (drag && drag.kind === 'z' && this.selZone) { if (this._snapShape(this.selZone)) { this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'z', 0, 0); } }
         st = null; drag = null; } };
     vp.addEventListener('pointerup', up); vp.addEventListener('pointercancel', up);
     vp.addEventListener('wheel', e => { e.preventDefault(); const r = vp.getBoundingClientRect(); this.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
   }
   // Snap a plan-normalised point to an existing corner, or onto an existing boundary line (a new shared corner is added to that line).
-  _snap(n, skipZone, skipIdx) {
-    if (!this.plan) return n; const W = this.plan.w, H = this.plan.h, tol = 10 / this.pv.s; let best = null, bd = tol;
+  // Snap a whole shape after a move: the corner that lands closest to something snaps, and the shape shifts with it.
+  _snapShape(z) {
+    const W = this.plan.w, H = this.plan.h; let best = null;
+    z.poly.forEach(p => { const sn = this._snap({ x: p[0], y: p[1] }, z, -1, true); if (sn.snapped) { const d = Math.hypot((sn.x - p[0]) * W, (sn.y - p[1]) * H); if (!best || d < best.d) best = { d, dx: sn.x - p[0], dy: sn.y - p[1] }; } });
+    if (best) { z.poly = z.poly.map(p => [p[0] + best.dx, p[1] + best.dy]); return true; }
+    return false;
+  }
+  _snap(n, skipZone, skipIdx, dry) {
+    if (!this.plan) return n; const W = this.plan.w, H = this.plan.h, tol = 13 / this.pv.s; let best = null, bd = tol;
     this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === skipZone && j === skipIdx) return; const d = Math.hypot((q[0] - n.x) * W, (q[1] - n.y) * H); if (d < bd) { bd = d; best = { x: q[0], y: q[1], snapped: 'corner' }; } }); });
     if (best) return best;
     bd = tol;
     this.zones.forEach(z => { if (!z.poly || z === skipZone) return; const P = z.poly; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L; if (t <= 0.02 || t >= 0.98) continue; const sx = ax + t * (bx - ax), sy = ay + t * (by - ay); const d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'line', zone: z, after: i }; } } });
-    if (best && best.zone) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
+    if (best && best.zone && !dry) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
     if (best) return best;
     return this._snapDrawing(n) || n;
   }
   // Snap to the lines of the drawing itself (walls, grids extracted from the PDF): a crossing of two lines first, else the nearest line.
   _snapDrawing(n) {
     const L = this.plan && this.plan.lines; if (!L || L.length < 4) return null;
-    const W = this.plan.w, H = this.plan.h, tol = 9 / this.pv.s, px = n.x * W, py = n.y * H, near = [];
+    const W = this.plan.w, H = this.plan.h, tol = 12 / this.pv.s, px = n.x * W, py = n.y * H, near = [];
     for (let i = 0; i < L.length; i += 4) {
       const ax = L[i] * W, ay = L[i + 1] * H, bx = L[i + 2] * W, by = L[i + 3] * H, dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
       let t = ((px - ax) * dx + (py - ay) * dy) / l2; if (t < -0.02 || t > 1.02) continue; t = Math.max(0, Math.min(1, t));
@@ -86,6 +94,8 @@ export class PlanView {
     if (this.mode === 'draw') { if (!inside) return; const d = this.draft; if (d.length > 2) { const f = d[0], r = this.img.getBoundingClientRect(); if (Math.hypot((f[0] - n.x) * r.width, (f[1] - n.y) * r.height) < 14) return this.finishDraw(); } const sn = this._snap(n); d.push([sn.x, sn.y]); if (this.rect && d.length === 2) { const [a, b] = d; this.draft = [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]]; return this.finishDraw(); } this._drawZones(); this.o.onDraftChange && this.o.onDraftChange(d); return; }
     if (this.mode === 'place') { if (inside) this.o.onPlace && this.o.onPlace(n.x, n.y); return; }
     if (this.mode === 'zones') {
+      const vh = target && target.closest && target.closest('[data-v]');
+      if (vh && this.selZone) { const i = +vh.dataset.v; this.selVertex = this.selVertex === i ? null : i; this._drawZones(); this.o.onVertexSelect && this.o.onVertexSelect(this.selVertex); return; }
       // tapping on an edge of the selected shape adds a corner there, so it can be pulled out to fit
       if (this.selZone && this.selZone.poly && !(target && target.closest && target.closest('.zvh'))) { const W = this.plan.w, H = this.plan.h, P = this.selZone.poly, tol = 12 / this.pv.s; let best = null, bd = tol;
         for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1; const t = ((px - ax) * dx + (py - ay) * dy) / l2; if (t < 0.05 || t > 0.95) continue; const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy)); if (d < bd) { bd = d; best = { after: i, x: (ax + t * dx) / W, y: (ay + t * dy) / H }; } }
@@ -125,7 +135,7 @@ export class PlanView {
       h += `<polygon class="${cls}${sel ? ' zsel' : ''}" data-zid="${esc(z.id)}" points="${pts}" style="stroke-width:${2 * inv}px"/>`;
       const c = centroidOf(z.poly), lab = z.kind === 'unit' ? 'Unit ' + (z.unit || '') : (z.name || '');
       if (lab && (this.mode !== 'view' || this.pv.s > this._minS() * 1.6)) h += `<text x="${c[0] * W}" y="${c[1] * H}" class="zl ${cls}t" style="font-size:${(z.kind === 'unit' ? 15 : 12) * inv}px">${esc(lab)}</text>`;
-      if (sel && this.mode === 'zones') z.poly.forEach((p, i) => { h += `<circle data-v="${i}" class="zvh" cx="${p[0] * W}" cy="${p[1] * H}" r="${16 * inv}"/><circle data-v="${i}" class="zv" cx="${p[0] * W}" cy="${p[1] * H}" r="${8 * inv}" style="stroke-width:${2 * inv}px"/>`; });
+      if (sel && this.mode === 'zones') z.poly.forEach((p, i) => { h += `<circle data-v="${i}" class="zvh" cx="${p[0] * W}" cy="${p[1] * H}" r="${16 * inv}"/><circle data-v="${i}" class="zv ${this.selVertex === i ? 'vsel' : ''}" cx="${p[0] * W}" cy="${p[1] * H}" r="${8 * inv}" style="stroke-width:${2 * inv}px"/>`; });
     });
     if (this.mode === 'draw' && this.draft && this.draft.length) {
       h += `<polyline class="zdraft" points="${this.draft.map(p => `${p[0] * W},${p[1] * H}`).join(' ')}" style="stroke-width:${2.5 * inv}px"/>`;
@@ -134,7 +144,8 @@ export class PlanView {
     this.svg.innerHTML = h;
   }
   setZones(z) { this.zones = z; if (this.selZone && !z.find(x => x.id === this.selZone.id)) this.selZone = null; this._drawZones(); }
-  selectZone(z) { this.selZone = z; this._drawZones(); }
+  selectZone(z) { this.selZone = z; this.selVertex = null; this._drawZones(); }
+  deleteVertex() { const z = this.selZone, i = this.selVertex; if (!z || i == null || z.poly.length <= 3) return false; z.poly.splice(i, 1); this.selVertex = null; this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(z, 'v'); return true; }
   setMode(m, banner) { this.mode = m; this.vp.classList.toggle('placing', m === 'place' || m === 'draw'); if (m !== 'draw') this.draft = null; if (m !== 'zones') this.moveZone = false; this.banner(banner); this._drawZones(); }
   startDraw(banner, rect) { this.setMode('draw', banner); this.draft = []; this.rect = !!rect; }
   undoPoint() { if (this.draft) { this.draft.pop(); this._drawZones(); } }
