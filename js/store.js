@@ -1,3 +1,5 @@
+const flat = pts => (pts || []).flatMap(q => Array.isArray(q) ? [+q[0], +q[1]] : [q]);
+const unflat = a => Array.isArray(a) && a.length && !Array.isArray(a[0]) ? a.reduce((o, v, i) => (i % 2 ? o[o.length - 1].push(v) : o.push([v]), o), []) : a;
 // Data layer. Two implementations with the same API:
 //  - FirebaseStore: Google / email-link sign-in, Firestore (offline cache), Firebase Storage for plans and photos.
 //  - LocalStore:    ?demo mode. Everything in this browser's IndexedDB, one local admin user. Used for testing and training.
@@ -107,9 +109,9 @@ async function firebaseStore() {
       }
       return n;
     },
-    // Firestore does not allow arrays inside arrays, so boundary polygons are stored flat [x0,y0,x1,y1,...]
-    async listPlans(pid) { const s = await readDocs(C('projects', pid, 'plans')); return s.docs.map(d => { const p = { id: d.id, ...d.data() }; p.zones = (p.zones || []).map(z => ({ ...z, poly: Array.isArray(z.poly) && z.poly.length && !Array.isArray(z.poly[0]) ? z.poly.reduce((a, v, i) => (i % 2 ? a[a.length - 1].push(v) : a.push([v]), a), []) : (z.poly || []) })); return p; }).sort((a, b) => (a.order || 0) - (b.order || 0)); },
-    async savePlan(pid, plan) { const { id, ...rest } = plan; rest.zones = (rest.zones || []).map(z => ({ ...Object.fromEntries(Object.entries(z).filter(([k]) => !k.startsWith('_'))), poly: (z.poly || []).flatMap(q => Array.isArray(q) ? [+q[0], +q[1]] : [q]) })); await localWrite(F.setDoc(D('projects', pid, 'plans', id), JSON.parse(JSON.stringify(rest)))); },
+    // Firestore does not allow arrays inside arrays, so boundary polygons, face paths and grid maps are stored flat [x0,y0,x1,y1,...]
+    async listPlans(pid) { const s = await readDocs(C('projects', pid, 'plans')); return s.docs.map(d => { const p = { id: d.id, ...d.data() }; p.zones = (p.zones || []).map(z => ({ ...z, poly: unflat(z.poly) })); if (Array.isArray(p.links)) p.links = p.links.map(l => ({ ...l, path: l.path ? unflat(l.path) : l.path, gmap: l.gmap ? unflat(l.gmap) : l.gmap })); return p; }); },
+    async savePlan(pid, plan) { const { id, ...rest } = plan; rest.zones = (rest.zones || []).map(z => ({ ...Object.fromEntries(Object.entries(z).filter(([k]) => !k.startsWith('_'))), poly: flat(z.poly) })); if (Array.isArray(rest.links)) rest.links = rest.links.map(l => ({ ...l, path: l.path ? flat(l.path) : null, gmap: l.gmap ? flat(l.gmap) : null })); await localWrite(F.setDoc(D('projects', pid, 'plans', id), JSON.parse(JSON.stringify(rest)))); },
     async deletePlan(pid, id) { await F.deleteDoc(D('projects', pid, 'plans', id)); },
     async putFile(path, blob, patient) { if (!navigator.onLine && !patient) throw new Error('offline'); const r = S.ref(st, path); const up = S.uploadBytesResumable(r, blob, { contentType: blob.type || 'image/jpeg' }); const done = new Promise((res, rej) => up.on('state_changed', null, rej, res)); if (!patient) { const w = await Promise.race([done, delay(15000).then(() => 'slow')]); if (w === 'slow') { try { up.cancel(); } catch (e) {} throw new Error('slow'); } } else await done; return await S.getDownloadURL(r); },
     async deleteFile(path) { try { await S.deleteObject(S.ref(st, path)); } catch (e) {} },
