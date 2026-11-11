@@ -290,6 +290,7 @@ export async function importSheet(file) {
 }
 export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
+  if (j.type === 'renumber' && j.map) return importRenumber(j);
   if (j.project && Array.isArray(j.plans) && j.plans.length && j.plans[0].img) return importProjectPack(j);
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);
   const fmN = ['assets', 'tasks', 'systems'].reduce((a, k) => a + ((j[k] || []).length), 0);
@@ -355,6 +356,52 @@ export function aiSettings(msg) {
 
 /* ================================================================ one-drop project pack */
 // A project pack holds everything: settings and logo, plans with images and room boundaries, defects with photos, FM data.
+// One-off unit renumbering pack: { type:'renumber', id, title, map:{old:new}, project:{address…}, plans:[{key|code|name, img}] }
+export async function importRenumber(j) {
+  if (!S.project) return toast('Open the project first, then drop the renumbering file');
+  if (!can.admin()) return toast('Only a project admin can renumber units');
+  const done = (S.project.renumbered || []).includes(j.id);
+  const map = j.map, keys = Object.keys(map), changed = keys.filter(k => map[k] !== k);
+  const findPlan = p => S.plans.find(x => x.id === p.key || (p.key && (x.code || '').startsWith(p.key)) || x.code === p.code || x.name === p.name) || S.plans.find(x => p.key && ((p.key === 'AG' && /Block A/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'AF' && /Block A/i.test(x.name) && /First/i.test(x.name)) || (p.key === 'BG' && /Block B/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'BF' && /Block B/i.test(x.name) && /First/i.test(x.name))));
+  const plans = (j.plans || []).map(p => ({ p, target: findPlan(p) }));
+  const cnt = (list, f) => list.filter(f).length;
+  const nDef = cnt(S.defects, d => d.unit && map[d.unit] && map[d.unit] !== d.unit);
+  const nZone = S.plans.reduce((a, pl) => a + cnt(pl.zones || [], z => z.unit && map[z.unit] && map[z.unit] !== z.unit), 0);
+  modal(`<h2>${esc(j.title || 'Renumber units')}</h2>
+  ${done ? '<p class="note"><b>This renumbering has already been applied to this project.</b> Applying it again would swap the numbers back, so it is blocked.</p>' : ''}
+  <p>${changed.length} unit numbers change (${keys.length - changed.length} stay the same). ${j.note ? esc(j.note) : ''}</p>
+  <details><summary>Show the mapping</summary><table class="t"><tr><th>Was</th><th>Becomes</th></tr>${changed.sort((a, b) => +a - +b).map(k => `<tr><td>Unit ${esc(k)}</td><td>Unit ${esc(map[k])}</td></tr>`).join('')}</table></details>
+  <p>This will update: ${nZone} room boundaries, ${nDef} defects${plans.length ? `, ${plans.filter(x => x.target).length} of ${plans.length} plan images` : ''}, plus assets, tasks and documents that name a unit${j.project && j.project.address ? `, and the project address (${esc(j.project.address)})` : ''}. Each changed defect gets a history line and keeps its old number for reference.</p>
+  ${plans.filter(x => !x.target).length ? `<p class="note">Could not match plan(s): ${plans.filter(x => !x.target).map(x => esc(x.p.name || x.p.key)).join(', ')}. Their images will be skipped.</p>` : ''}
+  <p class="note" id="rnSt"></p><div class="act"><button id="rnX">Cancel</button>${done ? '' : '<button class="go" id="rnGo">Apply renumbering</button>'}</div>`);
+  $('rnX').onclick = closeModal;
+  if ($('rnGo')) $('rnGo').onclick = async () => {
+    $('rnGo').disabled = true; const st = t => $('rnSt').textContent = t; const pid = S.project.id, when = new Date().toISOString();
+    const hist = (o, n) => ({ t: when, who: S.user.name || S.user.email, txt: `Unit renumbered ${o} → ${n} (${j.title || 'renumbering'})` });
+    try {
+      // 1. plans: zones and images
+      for (const pl of S.plans) {
+        const z = (pl.zones || []).map(x => (x.unit && map[x.unit]) ? { ...x, unit: map[x.unit], unitOld: x.unit } : x);
+        const patch = { ...pl, zones: z }; const src = plans.find(x => x.target === pl);
+        if (src && src.p.img) { st(`Uploading new image for ${pl.name}…`); const path = `projects/${pid}/plans/${uid()}.jpg`; patch.img = await S.store.putFile(path, dataUrlToBlob(src.p.img)); patch.path = path; patch.imgOld = pl.img; }
+        st(`Saving ${pl.name}…`); await S.store.savePlan(pid, patch);
+      }
+      // 2. defects
+      let n = 0; const todo = S.defects.filter(d => d.unit && map[d.unit] && map[d.unit] !== d.unit);
+      for (const d of todo) { st(`Updating defects ${++n} of ${todo.length}…`); await S.store.updateDefect(pid, d.id, { unit: map[d.unit], unitOld: d.unit, updated: when }, [hist(d.unit, map[d.unit])]); }
+      // 3. FM collections
+      for (const coll of ['assets', 'tasks', 'docs', 'systems']) {
+        let off = null; const items = await new Promise(res => { off = S.store.watchColl(pid, coll, L => res(L), () => res([])); }); if (off) off();
+        const t2 = items.filter(x => x.unit && map[x.unit] && map[x.unit] !== x.unit); let m = 0;
+        for (const x of t2) { st(`Updating ${coll} ${++m} of ${t2.length}…`); await S.store.patchItem(pid, coll, x.id, { unit: map[x.unit], unitOld: x.unit }); }
+      }
+      // 4. project
+      const pp = { renumbered: [...(S.project.renumbered || []), j.id], renumberMap: map, ...(j.project || {}) };
+      await S.store.updateProject(pid, pp);
+      st('Done'); closeModal(); toast('Units renumbered', 5000); await X.reloadProject();
+    } catch (e) { console.error(e); st(''); toast('Stopped: ' + e.message + '. Drop the file again to continue; it will not double-apply what is already done.', 9000); $('rnGo').disabled = false; }
+  };
+}
 export async function importProjectPack(j) {
   if (!S.sup && !S.project) return toast('Only a system administrator can create a project from a pack');
   const pr = j.project; let existing = S.project && S.project.name === pr.name ? S.project : null;
