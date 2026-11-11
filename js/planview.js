@@ -78,7 +78,7 @@ export class PlanView {
     return { x: a.fx / W, y: a.fy / H, snapped: 'drawing line' };
   }
   _norm(e) { const r = this.img.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }; }
-  _zoneAt(e) { const n = this._norm(e); const hits = this.zones.filter(z => z.poly && z.poly.length > 2 && inPoly(n.x, n.y, z.poly)); hits.sort((a, b) => area(a.poly) - area(b.poly)); return hits[0] || null; }
+  _zoneAt(e) { const n = this._norm(e); const hide = this.hideKinds || new Set(); const hits = this.zones.filter(z => z.poly && z.poly.length > 2 && !hide.has(z.kind) && inPoly(n.x, n.y, z.poly)); hits.sort((a, b) => area(a.poly) - area(b.poly)); return hits[0] || null; }
   _tap(e, target) {
     if (!this.plan) return;
     const n = this._norm(e); const inside = n.x >= 0 && n.x <= 1 && n.y >= 0 && n.y <= 1;
@@ -117,8 +117,9 @@ export class PlanView {
     if (!this.plan) return; const W = this.plan.w, H = this.plan.h, inv = 1 / this.pv.s;
     const show = this.showZones || this.mode === 'zones' || this.mode === 'draw';
     let h = '';
-    if (show) this.zones.forEach(z => {
-      if (!z.poly || z.poly.length < 3) return; const sel = this.selZone && this.selZone.id === z.id;
+    const hide = this.hideKinds || new Set();
+    if (show) [...this.zones].sort((a, b) => ({ unit: 0, area: 1, room: 2 }[a.kind] || 0) - ({ unit: 0, area: 1, room: 2 }[b.kind] || 0)).forEach(z => {
+      if (!z.poly || z.poly.length < 3 || hide.has(z.kind)) return; const sel = this.selZone && this.selZone.id === z.id;
       const pts = z.poly.map(p => `${p[0] * W},${p[1] * H}`).join(' ');
       const cls = z.kind === 'unit' ? 'zu' : z.kind === 'area' ? 'za' : 'zr';
       h += `<polygon class="${cls}${sel ? ' zsel' : ''}" data-zid="${esc(z.id)}" points="${pts}" style="stroke-width:${2 * inv}px"/>`;
