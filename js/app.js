@@ -12,6 +12,7 @@ import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
 import { helpDialog, siteCheck } from './help.js';
 import * as Nav from './nav.js';
+import { installDialog, maybeNag, canInstall } from './install.js';
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
@@ -53,7 +54,7 @@ export async function showProjects() {
   $('plist').innerHTML = '<div class="empty">Loading projects…</div>';
   let list = [];
   try { list = await S.store.listProjects(); } catch (e) { $('plist').innerHTML = `<div class="empty">Could not load projects: ${esc(friendly(e))}</div>`; return; }
-  list.sort((a, b) => natural(a.name, b.name));
+  list.sort((a, b) => natural(a.name, b.name)); maybeNag();
   const cards = await Promise.all(list.map(async p => `<div class="pcard" data-id="${esc(p.id)}"><div class="cl">${p.clientLogo ? `<img src="${esc(await imgUrl(p.clientLogo))}" alt="">` : ''}<span>${esc(p.client || '')}</span></div><h3>${esc(p.name)}</h3><div class="muted small">${esc(p.address || '')}</div><div><span class="role">${esc(ROLES[(p.members || {})[S.user.uid]] || (S.sup ? 'System admin' : ''))}</span>${p.archived ? ' <span class="tag">Archived</span>' : ''}</div></div>`));
   $('plist').innerHTML = cards.join('') + (S.sup ? '<div class="pcard new" id="pNew">+ New project</div><div class="pcard new" id="pPack" style="border-color:var(--teal)">⬇ Set up from a project pack<small style="font-weight:400;color:var(--muted)">or drag the .json file onto this page</small></div><input type="file" id="fPack" accept=".json" hidden>' : '') + (!list.length && !S.sup ? `<div class="empty">You have not been added to any projects yet.<br>Ask the project administrator to invite <b>${esc(S.user.email)}</b>.<br><br><span class="small">Your user ID: <span class="codebox">${esc(S.user.uid)}</span></span></div>` : '');
   $('plist').querySelectorAll('.pcard[data-id]').forEach(c => c.onclick = () => openProject(c.dataset.id));
@@ -135,17 +136,16 @@ let placing = null;
 function renderPlanTabs() {
   const pt = $('plantabs');
   pt.innerHTML = S.plans.map(p => `<button data-p="${esc(p.id)}" class="${p.id === S.curPlan ? 'on' : ''}">${esc(p.name)}</button>`).join('') +
-    (S.plans.length ? '<span class="sp"></span><label><input type="checkbox" id="showZ"> Rooms</label>' + (can.edit() ? '<button class="act" id="bPin">📍 Add pin</button>' : '') : (can.admin() ? '<span class="muted small">No plans yet.</span><button class="act" id="bUpPlan">Upload plans</button>' : '<span class="muted small">No plans uploaded for this project yet.</span>'));
+    (S.plans.length ? '<span class="sp"></span>' + (can.edit() ? '<button class="act" id="bPin">📍 Add pin</button>' : '') : (can.admin() ? '<span class="muted small">No plans yet.</span><button class="act" id="bUpPlan">Upload plans</button>' : '<span class="muted small">No plans uploaded for this project yet.</span>'));
   pt.querySelectorAll('[data-p]').forEach(b => b.onclick = () => showPlan(b.dataset.p));
   if ($('bPin')) $('bPin').onclick = () => placing ? stopPlacing() : startPlacing({ mode: 'new' });
   if ($('bUpPlan')) $('bUpPlan').onclick = () => Admin.plansDialog();
-  if ($('showZ')) { $('showZ').checked = !!S.local.showZones; $('showZ').onchange = e => { S.local.showZones = e.target.checked; saveLocal(); PV.setZonesVisible(e.target.checked); }; }
 }
 export async function showPlan(id, focus) {
   if (Admin.zoneActive() && id !== S.curPlan) { if (!(await Admin.zoneSwitch(id))) return; }
   S.curPlan = id; const p = S.plans.find(x => x.id === id) || null;
   $('plantabs').querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === id));
-  await PV.setPlan(p, p ? await imgUrl(p.img) : ''); PV.setZonesVisible(!!S.local.showZones);
+  await PV.setPlan(p, p ? await imgUrl(p.img) : ''); PV.setZonesVisible(false);
   if (Admin.zoneActive()) { await Admin.zoneEditor(PV); }
   renderPins(); if (isMobile() && focus) setTab('plan');
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));
@@ -382,6 +382,7 @@ function openMenu() {
     ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
     ${can.edit() ? '<button id="mImp">⬆ Import register<small>Excel, CSV or a v1 backup file</small></button>' : ''}
     ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
+    ${canInstall() ? '<button id="mInst">📲 Install on this phone<small>Home screen app, stays signed in</small></button>' : ''}
     <button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>
     <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
     <button id="mProj">🗂 All projects<small>Switch project</small></button>
@@ -389,7 +390,7 @@ function openMenu() {
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
   on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
-  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
+  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
 
 /* ================================================================ wiring */
