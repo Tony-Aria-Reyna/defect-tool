@@ -23,7 +23,7 @@ export class PlanView {
       if (e.target.closest('.zoombar,.banner')) return;
       vp.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pts.size === 1) {
-        st = { x: e.clientX, y: e.clientY, px: this.pv.x, py: this.pv.y, t: Date.now(), target: e.target }; moved = 0; drag = null;
+        st = { x: e.clientX, y: e.clientY, px: this.pv.x, py: this.pv.y, t: Date.now(), target: e.target, tol: e.pointerType === 'touch' ? 12 : 4 }; moved = 0; drag = null;
         const v = e.target.closest && e.target.closest('[data-v]');
         if (this.mode === 'zones' && v && this.selZone) { const i = +v.dataset.v, p0 = this.selZone.poly[i], tol = 7 / this.pv.s; const shared = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === this.selZone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) shared.push([z, j]); }); }); drag = { kind: 'v', i, shared }; }
         else if (this.mode === 'zones' && this.moveZone && this.selZone && this._zoneAt(e)?.id === this.selZone.id) { drag = { kind: 'z', start: this._norm(e), orig: this.selZone.poly.map(p => p.slice()) }; this.o.onZoneDragStart && this.o.onZoneDragStart(this.selZone); }
@@ -34,13 +34,13 @@ export class PlanView {
       if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], r = vp.getBoundingClientRect(), ns = this._clamp(pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d), cx = pinch.cx - r.left, cy = pinch.cy - r.top; this.pv.x = cx - (cx - pinch.px) * ns / pinch.s; this.pv.y = cy - (cy - pinch.py) * ns / pinch.s; this.pv.s = ns; this.pv.user = 1; this._apply(); return; }
       if (pts.size !== 1 || !st) return;
       const dx = e.clientX - st.x, dy = e.clientY - st.y; moved = Math.max(moved, Math.hypot(dx, dy));
-      if (moved <= 4) return;
+      if (moved <= st.tol) return;
       if (drag && drag.kind === 'v') { const n = this._norm(e); this.selZone.poly[drag.i] = [n.x, n.y]; drag.shared.forEach(([z, j]) => { z.poly[j] = [n.x, n.y]; }); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); }
       else if (drag && drag.kind === 'z') { const n = this._norm(e), ddx = n.x - drag.start.x, ddy = n.y - drag.start.y; this.selZone.poly = drag.orig.map(p => [p[0] + ddx, p[1] + ddy]); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'z', ddx, ddy); this._drawZones(); }
       else { this.pv.x = st.px + dx; this.pv.y = st.py + dy; this.pv.user = 1; this._apply(); }
     });
     const up = e => { if (!pts.has(e.pointerId)) return; pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
-      if (pts.size === 0 && st) { if (moved <= 4 && Date.now() - st.t < 700) this._tap(e, st.target);
+      if (pts.size === 0 && st) { if (moved <= st.tol && Date.now() - st.t < 1200) this._tap(e, st.target);
         else if (drag && drag.kind === 'v' && this.selZone) { const n = this._norm(e), sn = this._snap(n, this.selZone, drag.i); if (sn.snapped) { this.selZone.poly[drag.i] = [sn.x, sn.y]; drag.shared.forEach(([z, j]) => { z.poly[j] = [sn.x, sn.y]; }); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); } }
         st = null; drag = null; } };
     vp.addEventListener('pointerup', up); vp.addEventListener('pointercancel', up);

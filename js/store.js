@@ -23,6 +23,15 @@ async function firebaseStore() {
   const D = (...p) => F.doc(db, ...p), C = (...p) => F.collection(db, ...p);
   let user = null, superCache = null;
   const me = () => ({ uid: user.uid, email: lower(user.email), name: user.displayName || (user.email || '').split('@')[0] });
+  // Offline-first helpers. Firestore applies writes to the local cache at once but only resolves the promise when the
+  // server acknowledges; in poor coverage that can take minutes. We treat "written locally" as saved and report any
+  // later rejection (for example a permission problem) as a sync warning.
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+  const syncWarn = e => { console.warn('sync', e); try { dispatchEvent(new CustomEvent('rd-sync-error', { detail: e })); } catch (x) {} };
+  const localWrite = async p => { p.catch(syncWarn); await Promise.race([p, delay(navigator.onLine ? 2500 : 50)]); };
+  // Reads: server if it answers quickly, else the local cache (and the cache straight away when offline).
+  const readDoc = async ref => { if (!navigator.onLine) { try { return await F.getDocFromCache(ref); } catch (e) { return await F.getDoc(ref); } } const r = await Promise.race([F.getDoc(ref), delay(4000).then(() => 'slow')]); if (r !== 'slow') return r; try { return await F.getDocFromCache(ref); } catch (e) { return await F.getDoc(ref); } };
+  const readDocs = async q => { if (!navigator.onLine) { try { const s = await F.getDocsFromCache(q); if (s.size) return s; } catch (e) {} return await F.getDocs(q); } const r = await Promise.race([F.getDocs(q), delay(4000).then(() => 'slow')]); if (r !== 'slow') return r; try { const s = await F.getDocsFromCache(q); if (s.size) return s; } catch (e) {} return await F.getDocs(q); };
 
   const api = {
     mode: 'firebase',
@@ -53,24 +62,24 @@ async function firebaseStore() {
     async signOut() { await U.signOut(auth); },
     async isSuper() {
       if (superCache !== null) return superCache;
-      try { const s = await F.getDoc(D('system', 'admins')); superCache = !!(s.exists() && (s.data().uids || []).includes(user.uid)); }
+      try { const s = await readDoc(D('system', 'admins')); superCache = !!(s.exists() && (s.data().uids || []).includes(user.uid)); }
       catch (e) { superCache = false; }
       return superCache;
     },
     async listProjects() {
       const sup = await api.isSuper();
       const q = sup ? C('projects') : F.query(C('projects'), F.where('memberUids', 'array-contains', user.uid));
-      const s = await F.getDocs(q);
+      const s = await readDocs(q);
       return s.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => !p.archived || sup);
     },
-    async getProject(pid) { const s = await F.getDoc(D('projects', pid)); return s.exists() ? { id: s.id, ...s.data() } : null; },
+    async getProject(pid) { const s = await readDoc(D('projects', pid)); return s.exists() ? { id: s.id, ...s.data() } : null; },
     async createProject(data) {
       const ref = F.doc(C('projects'));
       const m = me();
       await F.setDoc(ref, { ...data, seq: 0, members: { [m.uid]: 'admin' }, memberUids: [m.uid], memberInfo: { [m.uid]: { name: m.name, email: m.email } }, created: new Date().toISOString(), createdBy: m.email });
       return ref.id;
     },
-    async updateProject(pid, patch) { await F.updateDoc(D('projects', pid), patch); },
+    async updateProject(pid, patch) { await localWrite(F.updateDoc(D('projects', pid), patch)); },
     async setMember(pid, uid, role) {
       const p = await api.getProject(pid);
       const members = { ...(p.members || {}) }, info = { ...(p.memberInfo || {}) };
@@ -83,7 +92,7 @@ async function firebaseStore() {
     async cancelInvite(pid, email) { await F.deleteDoc(D('invites', pid + '_' + emailKey(email))); },
     // A signed-in user accepts every invitation addressed to their verified email address.
     async claimInvites() {
-      if (!user.email || !user.emailVerified) return 0;
+      if (!user.email || !user.emailVerified || !navigator.onLine) return 0;
       const m = me();
       const s = await F.getDocs(F.query(C('invites'), F.where('email', '==', m.email)));
       let n = 0;
@@ -97,37 +106,39 @@ async function firebaseStore() {
       return n;
     },
     // Firestore does not allow arrays inside arrays, so boundary polygons are stored flat [x0,y0,x1,y1,...]
-    async listPlans(pid) { const s = await F.getDocs(C('projects', pid, 'plans')); return s.docs.map(d => { const p = { id: d.id, ...d.data() }; p.zones = (p.zones || []).map(z => ({ ...z, poly: Array.isArray(z.poly) && z.poly.length && !Array.isArray(z.poly[0]) ? z.poly.reduce((a, v, i) => (i % 2 ? a[a.length - 1].push(v) : a.push([v]), a), []) : (z.poly || []) })); return p; }).sort((a, b) => (a.order || 0) - (b.order || 0)); },
-    async savePlan(pid, plan) { const { id, ...rest } = plan; rest.zones = (rest.zones || []).map(z => ({ ...z, poly: (z.poly || []).flatMap(q => Array.isArray(q) ? [+q[0], +q[1]] : [q]) })); await F.setDoc(D('projects', pid, 'plans', id), JSON.parse(JSON.stringify(rest))); },
+    async listPlans(pid) { const s = await readDocs(C('projects', pid, 'plans')); return s.docs.map(d => { const p = { id: d.id, ...d.data() }; p.zones = (p.zones || []).map(z => ({ ...z, poly: Array.isArray(z.poly) && z.poly.length && !Array.isArray(z.poly[0]) ? z.poly.reduce((a, v, i) => (i % 2 ? a[a.length - 1].push(v) : a.push([v]), a), []) : (z.poly || []) })); return p; }).sort((a, b) => (a.order || 0) - (b.order || 0)); },
+    async savePlan(pid, plan) { const { id, ...rest } = plan; rest.zones = (rest.zones || []).map(z => ({ ...z, poly: (z.poly || []).flatMap(q => Array.isArray(q) ? [+q[0], +q[1]] : [q]) })); await localWrite(F.setDoc(D('projects', pid, 'plans', id), JSON.parse(JSON.stringify(rest)))); },
     async deletePlan(pid, id) { await F.deleteDoc(D('projects', pid, 'plans', id)); },
-    async putFile(path, blob) { const r = S.ref(st, path); await S.uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' }); return await S.getDownloadURL(r); },
+    async putFile(path, blob, patient) { if (!navigator.onLine && !patient) throw new Error('offline'); const r = S.ref(st, path); const up = S.uploadBytesResumable(r, blob, { contentType: blob.type || 'image/jpeg' }); const done = new Promise((res, rej) => up.on('state_changed', null, rej, res)); if (!patient) { const w = await Promise.race([done, delay(15000).then(() => 'slow')]); if (w === 'slow') { try { up.cancel(); } catch (e) {} throw new Error('slow'); } } else await done; return await S.getDownloadURL(r); },
     async deleteFile(path) { try { await S.deleteObject(S.ref(st, path)); } catch (e) {} },
     async resolveUrl(u) { return u; },
     watchDefects(pid, cb, onErr) {
       return F.onSnapshot(C('projects', pid, 'defects'), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id })), s.metadata), e => onErr && onErr(e));
     },
-    async createDefect(pid, d) { const { id, ...rest } = d; await F.setDoc(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest))); },
+    async createDefect(pid, d) { const { id, ...rest } = d; await localWrite(F.setDoc(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest)))); },
     // Only the changed fields are written, and history entries are appended, so two people editing
     // the same item do not overwrite each other's comments.
     async updateDefect(pid, id, patch, newHistory) {
       const p = { ...patch }; delete p.id; delete p.history;
       if (newHistory && newHistory.length) p.history = F.arrayUnion(...newHistory);
-      await F.updateDoc(D('projects', pid, 'defects', id), p);
+      await localWrite(F.updateDoc(D('projects', pid, 'defects', id), p));
     },
-    async deleteDefect(pid, id) { await F.deleteDoc(D('projects', pid, 'defects', id)); },
-    async nextRef(pid, prefix) {
+    async deleteDefect(pid, id) { await localWrite(F.deleteDoc(D('projects', pid, 'defects', id))); },
+    async nextRef(pid, prefix, localNext) {
+      const offline = async () => { const n = localNext ? localNext() : 0; if (n) { localWrite(F.updateDoc(D('projects', pid), { seq: F.increment(1) })); return (prefix || 'D') + '-' + String(n).padStart(3, '0'); } return (prefix || 'D') + '-' + Date.now().toString(36).slice(-5).toUpperCase(); };
+      if (!navigator.onLine) return offline();
       try {
-        const n = await F.runTransaction(db, async t => { const s = await t.get(D('projects', pid)); const v = (s.data().seq || 0) + 1; t.update(D('projects', pid), { seq: v }); return v; });
-        return (prefix || 'D') + '-' + String(n).padStart(3, '0');
-      } catch (e) { return (prefix || 'D') + '-' + Date.now().toString(36).slice(-5).toUpperCase(); } // offline: unique temporary reference
+        const n = await Promise.race([F.runTransaction(db, async t => { const s = await t.get(D('projects', pid)); const v = (s.data().seq || 0) + 1; t.update(D('projects', pid), { seq: v }); return v; }), delay(5000).then(() => 0)]);
+        return n ? (prefix || 'D') + '-' + String(n).padStart(3, '0') : offline();
+      } catch (e) { return offline(); }
     },
-    async getPrivate(pid) { try { const s = await F.getDoc(D('projects', pid, 'private', 'ai')); return s.exists() ? s.data() : {}; } catch (e) { return {}; } },
+    async getPrivate(pid) { try { const s = await readDoc(D('projects', pid, 'private', 'ai')); return s.exists() ? s.data() : {}; } catch (e) { return {}; } },
     async setPrivate(pid, data) { await F.setDoc(D('projects', pid, 'private', 'ai'), data, { merge: true }); },
     // generic project collections used by the FM modules (assets, docs, tasks, systems)
     watchColl(pid, coll, cb, onErr) { return F.onSnapshot(C('projects', pid, coll), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => onErr && onErr(e)); },
-    async saveItem(pid, coll, o) { const { id, ...rest } = o; await F.setDoc(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest))); },
-    async patchItem(pid, coll, id, patch, newHistory) { const p = { ...patch }; delete p.id; if (newHistory && newHistory.length) p.history = F.arrayUnion(...newHistory); await F.updateDoc(D('projects', pid, coll, id), p); },
-    async deleteItem(pid, coll, id) { await F.deleteDoc(D('projects', pid, coll, id)); },
+    async saveItem(pid, coll, o) { const { id, ...rest } = o; await localWrite(F.setDoc(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest)))); },
+    async patchItem(pid, coll, id, patch, newHistory) { const p = { ...patch }; delete p.id; if (newHistory && newHistory.length) p.history = F.arrayUnion(...newHistory); await localWrite(F.updateDoc(D('projects', pid, coll, id), p)); },
+    async deleteItem(pid, coll, id) { await localWrite(F.deleteDoc(D('projects', pid, coll, id))); },
     async bulkSave(pid, coll, list, onProgress) { for (let i = 0; i < list.length; i += 400) { const b = F.writeBatch(db); list.slice(i, i + 400).forEach(o => { const { id, ...rest } = o; b.set(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest))); }); await b.commit(); onProgress && onProgress(Math.min(i + 400, list.length)); } },
     async bulkCreate(pid, list, onProgress) {
       for (let i = 0; i < list.length; i += 400) {

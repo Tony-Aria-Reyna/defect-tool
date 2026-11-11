@@ -48,6 +48,7 @@ async function boot() {
     if (last && (await openProject(last, true))) return;
     showProjects();
   });
+  let syncT = 0; addEventListener('rd-sync-error', e => { if (Date.now() - syncT < 10000) return; syncT = Date.now(); const m = (e.detail && e.detail.message) || ''; toast('A change could not sync to the cloud: ' + (/(permission|insufficient)/i.test(m) ? 'you do not have permission for that item' : m.slice(0, 120)), 7000); });
   addEventListener('online', () => { netbar(); flushOutbox().then(processPendingAI); }); addEventListener('offline', netbar); setInterval(() => processPendingAI(), 45000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   wire();
@@ -276,13 +277,15 @@ async function renderPhotos() {
 }
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }
+// Next reference number from what this device knows (used when the server cannot be reached in time).
+function localNextRef() { const pre = (S.project.idPrefix || 'D') + '-'; let m = S.project.seq || 0; S.defects.forEach(d => { if (d.id.startsWith(pre)) { const n = parseInt(d.id.slice(pre.length), 10); if (n > m) m = n; } }); return m + 1; }
 async function saveEditor() {
   const d = collect(); const who = S.user.name, t = new Date().toISOString(), pid = S.project.id, newH = [];
   if (!d.title && !d.desc) { toast('Add a title or description first'); return; }
   if (!d.title) d.title = d.desc.split(/[.,;]/)[0].slice(0, 70);
-  const b = busy('Saving…');
+  const b = busy(navigator.onLine ? 'Saving…' : 'Saving on this phone…');
   try {
-    if (ED.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix); }
+    if (ED.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
     d.photos = await uploadPhotos(pid, d.id, d.photos || []);
     (ED.removed || []).forEach(p => S.store.deleteFile(p));
     const cm = $('cmt') ? $('cmt').value.trim() : '';
@@ -305,7 +308,7 @@ async function saveEditor() {
       patch.updated = t; patch.updatedBy = S.user.email;
       await S.store.updateDefect(pid, d.id, patch, newH);
     }
-    S.sel = d.id; b.done(); closeEditor(); toast(d.id + ' saved'); netbar();
+    S.sel = d.id; b.done(); closeEditor(); toast(d.id + (navigator.onLine ? ' saved' : ' saved on this phone, will sync when back in coverage')); netbar();
   } catch (e) { b.done(); console.error(e); toast('Could not save: ' + friendly(e), 6000); }
 }
 async function deleteDefect() {
@@ -385,7 +388,7 @@ async function createFromAI(extra, base, why, review) {
     const d = await newDefect(); Object.entries(AIMAP).forEach(([k, f]) => { if (x[k]) d[f] = String(x[k]).replace(/—/g, ', '); });
     ['unit', 'room', 'block', 'level'].forEach(k => { if (!x[k]) d[k] = base[k]; }); d.source = base.source; d.dateRaised = base.dateRaised;
     const z = findZone(d.unit, d.room); if (z) applyZone(d, z.x, z.y, z.plan.id); else if (base.plan) { d.plan = base.plan; d.x = base.x; d.y = base.y; }
-    d.id = await S.store.nextRef(S.project.id, S.project.idPrefix); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(S.project.id, S.project.idPrefix); d.transcript = base.transcript; delete d.isNew; delete d.zoneHit;
+    d.id = await S.store.nextRef(S.project.id, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(S.project.id, S.project.idPrefix, localNextRef); d.transcript = base.transcript; delete d.isNew; delete d.zoneHit;
     d.created = d.updated = t; d.createdBy = d.updatedBy = S.user.email; if (review) d.aiReview = true; d.history = [{ t, who: S.user.name, txt: 'Raised (' + d.source + '). ' + why }];
     await S.store.createDefect(S.project.id, d); made.push(d.id);
   }

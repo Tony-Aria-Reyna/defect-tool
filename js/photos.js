@@ -37,7 +37,7 @@ export async function flushOutbox() {
   try {
     for (const it of await obAll()) {
       try {
-        const url = await S.store.putFile(it.path, dataUrlToBlob(it.dataUrl));
+        const url = await S.store.putFile(it.path, dataUrlToBlob(it.dataUrl), true);
         const d = S.project && S.project.id === it.pid ? S.defects.find(x => x.id === it.defectId) : null;
         if (d) { const photos = (d.photos || []).map(p => p.id === it.photoId ? { id: p.id, path: p.path, t: p.t, by: p.by, url } : p); await S.store.updateDefect(it.pid, it.defectId, { photos, updated: new Date().toISOString() }); await obDel(it.key); }
         else if (!S.project || S.project.id !== it.pid) { /* keep until that project is open */ }
