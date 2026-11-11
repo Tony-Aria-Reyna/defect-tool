@@ -133,7 +133,9 @@ export function readElevationSheet(ep) {
   const out = [];
   for (const t of titles) {
     // the grid row for this drawing: nearest row above the title (bubbles sit above elevations)
-    const row = rows.filter(r => r.pos < t.y).sort((a, b) => b.pos - a.pos)[0]; if (!row) continue;
+    // the grid row for this drawing: nearest row above the title that spans the title's position across the sheet
+    const spans = r => { const xs = r.items.map(g => g.x); return t.x >= Math.min(...xs) - 0.12 && t.x <= Math.max(...xs) + 0.12; };
+    const above = rows.filter(r => r.pos < t.y).sort((a, b) => b.pos - a.pos), row = above.find(spans) || above[0]; if (!row) continue;
     const xs = row.items.map(g => g.x); const x0 = Math.min(...xs) - 0.04, x1 = Math.max(...xs) + 0.04;
     const y0 = row.pos, y1 = t.y;
     // level markers inside the drawing: reduced levels like 34,600 / RL 34.600 / FFL, or floor names
@@ -149,9 +151,19 @@ export function readElevationSheet(ep) {
 // Storey bands for a drawing: from level markers when there are enough, else equal bands between the grid row and the title.
 export function storeyBands(dr, nStoreys) {
   const top = dr.y0 + 0.02, bottom = dr.titleY - 0.015;
-  const ys = dr.levels.map(l => l.y).filter(y => y > top && y < bottom).sort((a, b) => a - b);
-  // markers mark floor levels (and usually the roof or ceiling above the top floor): bands run from one marker down to the next
-  if (ys.length >= nStoreys + 1) { const use = ys.slice(-(nStoreys + 1)); return use.slice(0, -1).map((y, i) => [y, use[i + 1] + (i === nStoreys - 1 ? 0.03 : 0)]).reverse(); }
-  if (ys.length === nStoreys && nStoreys > 1) { const bands = ys.slice(0, -1).map((y, i) => [y, ys[i + 1] + (i === nStoreys - 2 ? 0.03 : 0)]); bands.unshift([top, ys[0]]); return bands.reverse(); }
+  let marks = dr.levels.filter(l => l.y > top && l.y < bottom);
+  // reduced levels: floor levels sit at a regular storey height (2.4 to 4.5 m), so keep the longest evenly spaced chain and drop
+  // roof, parapet, retaining and split-level marks
+  const rl = marks.map(l => ({ y: l.y, v: parseFloat(String(l.name).replace(/^(RL|FFL|FL)\s*/i, '').replace(/,/g, '')) })).filter(m => !isNaN(m.v));
+  if (rl.length >= 2) {
+    const vals = [...new Set(rl.map(m => m.v))].sort((a, b) => a - b); let best = [];
+    for (let i = 0; i < vals.length; i++) for (let j = i + 1; j < vals.length; j++) { const d = vals[j] - vals[i]; if (d < 2.4 || d > 4.5) { if (d < 2400 || d > 4500) continue; } const chain = [vals[i], vals[j]]; let cur = vals[j]; for (;;) { const nx = vals.find(v => v > cur && Math.abs(v - cur - d) <= Math.max(0.15, d * 0.05)); if (nx == null) break; chain.push(nx); cur = nx; } if (chain.length > best.length || (chain.length === best.length && chain[0] < best[0])) best = chain; }
+    if (best.length >= 2) { const keep = new Set(best); marks = rl.filter(m => keep.has(m.v)).map(m => ({ y: m.y })); }
+  }
+  const ys = [...new Set(marks.map(l => +l.y.toFixed(3)))].sort((a, b) => a - b);
+  // markers mark floor levels (and usually the roof or ceiling above the top floor): bands run from one marker down to the next;
+  // the ground band runs to the bottom of the drawing so a lower split level still counts as ground
+  if (ys.length >= nStoreys + 1) { const use = ys.slice(-(nStoreys + 1)); return use.slice(0, -1).map((y, i) => [y, i === nStoreys - 1 ? bottom : use[i + 1]]).reverse(); }
+  if (ys.length === nStoreys && nStoreys > 1) { const bands = ys.slice(0, -1).map((y, i) => [y, i === nStoreys - 2 ? bottom : ys[i + 1]]); bands.unshift([top, ys[0]]); return bands.reverse(); }
   const h = (bottom - top) / nStoreys; return Array.from({ length: nStoreys }, (_, i) => [bottom - (i + 1) * h, bottom - i * h]);   // ground first
 }

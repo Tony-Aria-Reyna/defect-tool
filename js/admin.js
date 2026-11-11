@@ -238,14 +238,17 @@ export async function autoLinkElevation(ep, opt = {}) {
     const groups = {}; dr.row.items.filter(g => /[A-Z]/.test(g.l)).forEach(g => { const k = g.l.length >= 2 ? g.l[0] : '_'; (groups[k] = groups[k] || []).push(g); });
     for (const [k, items] of Object.entries(groups)) {
       if (items.length < 2) continue;
+      if (items.length < 3 && !dr.block) { notes.push(`${dr.title}: only grids ${items.map(g => g.l).join(', ')} are shown and the title names no block, so this face is left for tracing by tapping`); continue; }
       const xs = items.map(g => g.x), bandX = [Math.min(...xs) - 0.04, Math.max(...xs) + 0.04];
       // floor plans whose grids carry these labels, grouped by block
       const labs = new Set(items.map(g => g.l));
-      let cands = floors.filter(fp => gridsOf(fp).filter(g => labs.has(g.l)).length >= 2);
-      if (dr.block && cands.some(fp => (fp.block || '').toUpperCase() === dr.block.toUpperCase())) cands = cands.filter(fp => (fp.block || '').toUpperCase() === dr.block.toUpperCase());
-      if (!cands.length) { notes.push(`${dr.title}: no floor plan carries grids ${[...labs].slice(0, 4).join(', ')}`); continue; }
-      const byBlock = {}; cands.forEach(fp => { (byBlock[fp.block || ''] = byBlock[fp.block || ''] || []).push(fp); });
-      const blk = Object.keys(byBlock).sort((a, b) => byBlock[b].length - byBlock[a].length)[0], storeys = byBlock[blk].sort((a, b) => levelRank(a.level) - levelRank(b.level) || (a.order || 0) - (b.order || 0));
+      // the block is the one whose floor plans carry most of these grid labels (a stray label from a locality plan does not count);
+      // the title's block letter only breaks ties
+      const hits = fp => new Set(gridsOf(fp).filter(g => labs.has(g.l)).map(g => g.l)).size;
+      const byBlock = {}; floors.forEach(fp => { const h = hits(fp); if (h >= 2) (byBlock[fp.block || ''] = byBlock[fp.block || ''] || []).push({ fp, h }); });
+      const blocks = Object.keys(byBlock).map(b => ({ b, best: Math.max(...byBlock[b].map(x => x.h)), n: byBlock[b].length })).sort((x, y) => y.best - x.best || ((dr.block || '').toUpperCase() === y.b.toUpperCase()) - ((dr.block || '').toUpperCase() === x.b.toUpperCase()) || y.n - x.n);
+      if (!blocks.length) { notes.push(`${dr.title}: no floor plan carries grids ${[...labs].slice(0, 4).join(', ')}`); continue; }
+      const blk = blocks[0].b, storeys = byBlock[blk].map(x => x.fp).sort((a, b) => levelRank(a.level) - levelRank(b.level) || (a.order || 0) - (b.order || 0));
       const bands = Faces.storeyBands(dr, storeys.length);
       storeys.forEach((fp, i) => {
         const f = Faces.faceFromGrids({ ...ep, grids: ep.grids }, { ...fp, grids: gridsOf(fp) }, items, bands[i], bandX);
@@ -270,8 +273,8 @@ export async function facePreview(ep, notes) {
   const byPlan = {}; links.forEach(l => { (byPlan[l.planId] = byPlan[l.planId] || []).push(l); });
   const cols = ['#e11', '#06c', '#190', '#d60', '#909', '#088'];
   const imgs = await Promise.all(Object.entries(byPlan).map(async ([pid, ls]) => { const fp = S.plans.find(q => q.id === pid); if (!fp) return ''; const im = await loadImage(await S.store.resolveUrl(fp.img)); const c = document.createElement('canvas'); const sc = Math.min(1, 1400 / im.width); c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc); const x = c.getContext('2d'); x.drawImage(im, 0, 0, c.width, c.height);
-    ls.forEach((l, i) => { x.strokeStyle = cols[(links.indexOf(l)) % cols.length]; x.lineWidth = 5; x.lineJoin = 'round'; const pts = l.path && l.path.length > 1 ? l.path : [l.a, l.b]; x.beginPath(); pts.forEach((p, j) => x[j ? 'lineTo' : 'moveTo'](p[0] * c.width, p[1] * c.height)); x.stroke(); x.fillStyle = x.strokeStyle; x.font = 'bold 22px sans-serif'; const m = pts[Math.floor(pts.length / 2)]; x.fillText(l.face || '', m[0] * c.width + 8, m[1] * c.height - 8); });
-    return `<p><b>${esc(fp.name)}</b>: ${ls.map(l => `<span style="color:${cols[links.indexOf(l) % cols.length]}">■ ${esc(l.face)}</span>`).join(' ')}</p><img src="${c.toDataURL('image/jpeg', 0.8)}" style="max-width:100%;border:1px solid #ccc">`; }));
+    ls.forEach((l, i) => { x.strokeStyle = cols[i % cols.length]; x.lineWidth = 5; x.lineJoin = 'round'; const pts = l.path && l.path.length > 1 ? l.path : [l.a, l.b]; x.beginPath(); pts.forEach((p, j) => x[j ? 'lineTo' : 'moveTo'](p[0] * c.width, p[1] * c.height)); x.stroke(); x.fillStyle = x.strokeStyle; x.font = 'bold 22px sans-serif'; const m = pts[Math.floor(pts.length / 2)]; x.fillText(l.face || '', m[0] * c.width + 8, m[1] * c.height - 8); });
+    return `<p><b>${esc(fp.name)}</b>: ${ls.map((l, i) => `<span style="color:${cols[i % cols.length]}">■ ${esc(l.face)}</span>`).join(' ')}</p><img src="${c.toDataURL('image/jpeg', 0.8)}" style="max-width:100%;border:1px solid #ccc">`; }));
   modal(`<h2>Faces linked: ${esc(ep.name)}</h2><p>Each coloured line is where that part of the elevation sits on the floor plan, following the steps in the building. Pins dropped on the elevation land on these lines, just inside the wall. If a line follows the wrong wall, re-link that face by tapping (Plans › Link another face).</p>${imgs.join('')}${notes && notes.length ? '<p class="note">' + notes.map(esc).join('<br>') + '</p>' : ''}<div class="act"><button class="go" id="fpOk">Done</button></div>`, true);
   $('fpOk').onclick = closeModal;
 }
@@ -302,7 +305,10 @@ export async function uploadPlans(files) {
         const id = uid(), path = `projects/${pid}/plans/${id}.jpg`; b.set('Uploading ' + base + pg.suffix + '…');
         const img = await S.store.putFile(path, dataUrlToBlob(pg.data));
         const isElev = looksLikeElevation(pg.labels, base + pg.suffix);
-        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: guessBlock, level: isElev ? '' : guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [], lines: pg.lines || [], grids: pg.grids || [], labels: pg.labels || [], ...(isElev ? { kind: 'elevation', links: [] } : {}) });
+        // an elevation sheet showing more than one block carries no block of its own
+        const titleBlocks = [...new Set((pg.labels || []).filter(l => Faces.isElevTitle(l.t)).flatMap(l => (l.t.match(/block\s*[A-Z0-9](\s*\/\s*[A-Z0-9])*/gi) || []).flatMap(m => m.replace(/block\s*/i, '').split(/\s*\/\s*/))).map(b => b.toUpperCase()))];
+        const blockOf = isElev ? (titleBlocks.length === 1 ? titleBlocks[0] : (titleBlocks.length > 1 ? '' : guessBlock)) : guessBlock;
+        await S.store.savePlan(pid, { id, name: (base + pg.suffix).slice(0, 60), code, block: blockOf, level: isElev ? '' : guessLevel, w: pg.w, h: pg.h, img, path, order: order++, zones: [], lines: pg.lines || [], grids: pg.grids || [], labels: pg.labels || [], ...(isElev ? { kind: 'elevation', links: [] } : {}) });
         if (isElev) newElevs.push(id);
       }
     }
