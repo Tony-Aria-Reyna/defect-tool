@@ -274,3 +274,8 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 #viewAsBar{display:none;position:fixed;top:0;left:0;right:0;z-index:60;background:#6b4f00;color:#fff;text-align:center;padding:4px;font-size:13px}#viewAsBar.show{display:block}#viewAsBar a{color:#fff}
 .locwin .lochead{display:flex;align-items:center;gap:10px}.locwin .lochead .x{margin-left:auto;font-size:20px;background:none;border:0;cursor:pointer}.locwin .locbody{background:#eee;border-radius:8px;overflow:hidden}.locwin canvas{display:block;width:100%}
 .tag.loc{cursor:pointer}
+
+.mkask{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:5}.mkask>div{background:#fff;border-radius:10px;padding:16px;min-width:280px}.mkask input{width:100%;font-size:18px;padding:10px;margin:10px 0}
+
+#bulkbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:45;background:var(--navy);color:#fff;padding:10px;gap:8px;align-items:center;flex-wrap:wrap;padding-bottom:max(10px,env(safe-area-inset-bottom))}#bulkbar.show{display:flex}#bulkbar button{padding:8px 12px;border-radius:8px;border:0;background:#fff;color:var(--navy);font-weight:600}#bulkbar button:disabled{opacity:.5}#bulkbar #bulkX{background:transparent;color:#fff;border:1px solid #fff;margin-left:auto}
+.card .pick{display:flex;align-items:center;padding:0 6px 0 2px}.card .pick input{width:22px;height:22px}.card.picked{outline:2px solid var(--teal)}#bSel.on{background:var(--teal);color:var(--navy)}

@@ -69,6 +69,33 @@ export async function reloadApp() {
   try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('resero-defects') && k !== 'resero-defects-img').map(k => caches.delete(k))); } catch (e) {}
   location.reload();
 }
+/* ---- bulk actions: pick several items, then accept, reopen, set status or responsible with one comment ---- */
+function bulkBar() { const b = $('bulkbar'); if (!S.bulk) { b.classList.remove('show'); return; } b.classList.add('show'); $('bulkN').textContent = S.bulk.size + ' selected'; b.querySelectorAll('[data-b]').forEach(x => x.disabled = !S.bulk.size); }
+function bulkToggle() { S.bulk = S.bulk ? null : new Set(); $('bSel').classList.toggle('on', !!S.bulk); filtersDirty = true; render(); bulkBar(); }
+async function bulkAction(kind) {
+  const ids = [...S.bulk]; if (!ids.length) return;
+  const title = { close: 'Accept and close', reopen: 'Reopen and send back', status: 'Set status', resp: 'Set responsible' }[kind];
+  modal(`<h2>${title} · ${ids.length} item${ids.length > 1 ? 's' : ''}</h2>
+    ${kind === 'status' ? `<label class="f">Status<select id="bkV">${opts(S.project.statuses, '')}</select></label>` : ''}
+    ${kind === 'resp' ? `<label class="f">Responsible<select id="bkV">${opts(S.project.responsible || [], '')}</select></label>` : ''}
+    <label class="f">Comment${kind === 'reopen' ? ' (required: what still needs doing)' : ''}<textarea id="bkC" style="min-height:60px"></textarea></label>
+    ${can.edit() ? `<label class="f small">On behalf of<select id="bkFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}
+    <p class="note" id="bkSt"></p><div class="act"><button id="bkX">Cancel</button><button class="go" id="bkGo">${title}</button></div>`);
+  $('bkX').onclick = closeModal;
+  $('bkGo').onclick = async () => {
+    const c = $('bkC').value.trim(), v = $('bkV') ? $('bkV').value : ''; if (kind === 'reopen' && !c) { toast('Add a comment first'); return; } if ((kind === 'status' || kind === 'resp') && !v) { toast('Choose a value'); return; }
+    $('bkGo').disabled = true; const who = ($('bkFor') && $('bkFor').value) ? S.user.name + ' on behalf of ' + $('bkFor').value : S.user.name; let n = 0;
+    try {
+      for (const id of ids) { const d = S.defects.find(x => x.id === id); if (!d) continue; $('bkSt').textContent = `Updating ${++n} of ${ids.length}…`; const t = new Date().toISOString(), patch = { updated: t, updatedBy: S.user.email }; let txt = '';
+        if (kind === 'close') { patch.status = 'Closed'; txt = 'Accepted and closed' + (c ? ': ' + c : '.'); }
+        if (kind === 'reopen') { patch.status = 'Open'; txt = 'Reopened and sent back: ' + c; }
+        if (kind === 'status') { patch.status = v; txt = 'Status set to ' + v + (c ? ': ' + c : '.'); }
+        if (kind === 'resp') { patch.responsible = v; txt = 'Responsible set to ' + v + (c ? ': ' + c : '.'); }
+        await S.store.updateDefect(S.project.id, id, patch, [{ t, who, txt }]); }
+      closeModal(); toast(ids.length + ' items updated'); S.bulk = new Set(); bulkBar();
+    } catch (e) { $('bkSt').textContent = ''; toast('Stopped: ' + e.message, 6000); $('bkGo').disabled = false; }
+  };
+}
 function viewAsBar() { let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } if (S.viewAs) { b.innerHTML = `👁 Viewing as <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · <a href="#" id="vaStop">stop</a>`; b.classList.add('show'); $('vaStop').onclick = e => { e.preventDefault(); S.viewAs = null; viewAsBar(); filtersDirty = true; $('bNew').style.display = can.edit() ? '' : 'none'; $('fab').style.display = can.edit() ? '' : 'none'; render(); if (ED) closeEditor(); }; } else b.classList.remove('show'); }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; if (/wrong-password|invalid-credential|invalid-login/.test(c)) return 'Wrong email or password. If you have not set a password yet, tap "Create a password".'; if (/user-not-found/.test(c)) return 'No password set for this email yet. Tap "Create a password".'; if (/weak-password/.test(c)) return 'Choose a stronger password (at least 8 characters).'; if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes or use "Forgot password".'; if (/network-request-failed/.test(c)) return 'No connection. Sign-in needs data the first time; once signed in the app works offline.'; return (e && e.message) || String(e); }
 async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
@@ -147,9 +174,10 @@ export async function render() {
   const L = filtered();
   $('lmeta').textContent = L.length + ' of ' + D.length + ' shown';
   $('list').innerHTML = L.length ? L.map(d => { const sev = /^Major/.test(d.severity || '') ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
-    return `<div class="card ${S.sel === d.id ? 'sel' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? `<span class="tag loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</span>` : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? `<span class="tag loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</span>` : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
   $('list').querySelectorAll('.tag.loc').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
-  $('list').querySelectorAll('.card').forEach(el => el.onclick = () => { const d = S.defects.find(x => x.id === el.dataset.id); S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); });
+  $('list').querySelectorAll('[data-pick]').forEach(cb => { cb.onclick = e => e.stopPropagation(); cb.onchange = () => { cb.checked ? S.bulk.add(cb.dataset.pick) : S.bulk.delete(cb.dataset.pick); cb.closest('.card').classList.toggle('picked', cb.checked); bulkBar(); }; });
+  $('list').querySelectorAll('.card').forEach(el => el.onclick = () => { if (S.bulk) { const cb = el.querySelector('[data-pick]'); if (cb) { cb.checked = !cb.checked; cb.onchange(); } return; } const d = S.defects.find(x => x.id === el.dataset.id); S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); });
   // thumbnails load lazily
   $('list').querySelectorAll('img[data-ph]').forEach(async im => { const d = S.defects.find(x => x.id === im.dataset.ph); if (d && d.photos[0]) im.src = await photoSrc(d.photos[0]); });
   renderPins();
@@ -504,6 +532,7 @@ function wire() {
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
+  $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
