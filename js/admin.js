@@ -220,7 +220,7 @@ export async function editFace(ep, idx, stage, back) {
     await X.showPlan(fp.id); X.setTab('plan'); await zoneEditor(PV); if (!ZE) return;
     const path = (FE.path || (L.path && L.path.length > 1 ? L.path : [L.a, L.b])).map(p => [p[0], p[1]]);
     const fz = { id: '__face', kind: 'face', name: (L.face || 'Face') + ' (' + ep.name + ')', poly: path };
-    ZE.faceEdit = FE; PV.guides = (PV.guides || []).filter(g => g !== L.path && JSON.stringify(g) !== JSON.stringify(L.path)); ZE.zones.push(fz); PV.setZones(ZE.zones); PV.selectZone(fz); PV.hideKinds = new Set(['item']);
+    ZE.faceEdit = FE; PV.guides = (PV.guides || []).filter(g => JSON.stringify(g.path || g) !== JSON.stringify(L.path)); ZE.zones.push(fz); PV.setZones(ZE.zones); PV.selectZone(fz); PV.hideKinds = new Set(['item']);
     const xs = path.map(p => p[0]), ys = path.map(p => p[1]); PV.zoomTo(Math.min(...xs) - 0.03, Math.min(...ys) - 0.06, Math.max(...xs) + 0.03, Math.max(...ys) + 0.06);
   }
   panel();
@@ -479,7 +479,7 @@ export async function zoneEditor(PV) {
   if (!ZE) { Nav.open('zones', () => { if (ZE) close(true); }); document.addEventListener('keydown', zoneKeys); }
   $('planPane').classList.add('zeditor');
   // the elevation face lines that sit on this plan show as red dashed guides and corners snap to them
-  PV.guides = S.plans.filter(q => q.kind === 'elevation').flatMap(q => (q.links || []).filter(l => l.planId === plan.id && l.path && l.path.length > 1).map(l => l.path));
+  ZE0guides(PV, plan);
   ZE = { PV, plan, zones: JSON.parse(JSON.stringify(plan.zones || [])), dirty: false, members: null, collapsed: ZE ? ZE.collapsed : false, rect: ZE ? ZE.rect : !!S.local.zoneRect };
   PV.selectZone(null);
   PV.setZones(ZE.zones); PV.setMode('zones');
@@ -525,6 +525,17 @@ function squareUp(z) { const W = ZE.plan.w, H = ZE.plan.h, P = z.poly, n = P.len
   for (let pass = 0; pass < 3; pass++) for (let i = 0; i < n - (open ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % n], dx = Math.abs(a[0] - b[0]) * W, dy = Math.abs(a[1] - b[1]) * H; if (dx < 0.18 * dy) { const x = (a[0] + b[0]) / 2; a[0] = b[0] = x; } else if (dy < 0.18 * dx) { const y = (a[1] + b[1]) / 2; a[1] = b[1] = y; } } }
 const facesOnPlan = () => !ZE || ZE.faceEdit ? [] : S.plans.filter(q => q.kind === 'elevation').flatMap(ep => ((ep.links || []).map((l, idx) => ({ ep, l, idx }))).filter(x => x.l.planId === ZE.plan.id));
 const unitAround = z => ZE.zones.find(u => u.kind === 'unit' && u !== z && pointInPoly(...centroid(z.poly), u.poly));
+// The elevation lines drawn on a floor plan: only the faces linked to this plan, and only those whose storey matches it, so the
+// lines from the floor above or below do not show through.
+const LEVEL_WORDS = ['ground', 'first', 'second', 'third', 'fourth', 'lower', 'upper', 'basement'];
+function faceGuides(plan) {
+  const lvl = String(plan.level || '').toLowerCase(), has = t => LEVEL_WORDS.find(w => String(t || '').toLowerCase().includes(w));
+  const mine = has(lvl);
+  return S.plans.filter(q => q.kind === 'elevation').flatMap(q => (q.links || []).filter(l => l.planId === plan.id && l.path && l.path.length > 1)
+    .filter(l => { const theirs = has(l.face); return !(mine && theirs && mine !== theirs); })
+    .map(l => ({ path: l.path, label: l.face || 'face' })));
+}
+function ZE0guides(PV, plan) { PV.guides = (ZE && ZE.showGuides === false) ? [] : faceGuides(plan); }
 function snap() { if (!ZE) return; ZE.undo = ZE.undo || []; ZE.undo.push(JSON.stringify(ZE.zones)); if (ZE.undo.length > 60) ZE.undo.shift(); ZE.redo = []; }
 function restore(json) { const PV = ZE.PV, selId = PV.selZone && PV.selZone.id; ZE.zones = JSON.parse(json); PV.setZones(ZE.zones); PV.selectZone(ZE.zones.find(z => z.id === selId) || null); ZE.dirty = true; panel(); }
 function undo() { if (!ZE || !(ZE.undo || []).length) { toast('Nothing to undo'); return; } (ZE.redo = ZE.redo || []).push(JSON.stringify(ZE.zones)); restore(ZE.undo.pop()); }
@@ -547,6 +558,20 @@ const ICON = {
 };
 const ico = (n, col) => `<svg class="zic" viewBox="0 0 24 24" fill="none" stroke="${col || 'currentColor'}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
 const COL = { unit: '#0057ff', room: '#0f9d8c', area: '#8a5cd1', item: '#e07b2a', elev: '#d64545' };
+// The elevation lines are laid out the way they sit on the sheet: the face along the top of the drawing sits at the top, the one
+// down the left at the left, and so on, with a compass in the middle pointing the way north runs on this sheet.
+function compassTiles(fg) {
+  const cell = { top: [], bottom: [], left: [], right: [], none: [] };
+  fg.forEach((f, i) => (cell[f.l.side] || cell.none).push({ f, i }));
+  const btn = ({ f, i }) => `<button class="ztile te" data-fe2="${i}" title="${esc(f.ep.name)}">${ico('elev', COL.elev)}<span>${esc(f.l.face || 'face')}</span></button>`;
+  const north = fg.find(f => /north/i.test(f.l.face || '')), deg = { top: 0, right: 90, bottom: 180, left: 270 }[north && north.l.side] ?? null;
+  const rose = `<div class="zrose" title="${deg == null ? 'Which way north runs is not known on this sheet' : 'North on this sheet'}"><span style="transform:rotate(${deg || 0}deg)">${deg == null ? '?' : '↑'}</span><b>${deg == null ? '' : 'N'}</b></div>`;
+  return `<div class="zcompass">
+    <div class="cc ct">${cell.top.map(btn).join('')}</div>
+    <div class="cc cl">${cell.left.map(btn).join('')}</div><div class="cc cm">${rose}</div><div class="cc cr">${cell.right.map(btn).join('')}</div>
+    <div class="cc cb">${cell.bottom.map(btn).join('')}</div>
+  </div>${cell.none.length ? `<div class="ztiles">${cell.none.map(btn).join('')}</div>` : ''}`;
+}
 function panel() {
   const el = $('zonePanel'), PV = ZE.PV, z = PV.selZone, drawing = PV.mode === 'draw';
   if (ZE.faceEdit) return facePanel();
@@ -562,7 +587,8 @@ function panel() {
   <div class="zlab">Draw</div>
   <div class="ztiles"><button class="ztile tu" id="zU">${ico('unit', COL.unit)}<span>Unit outline</span></button><button class="ztile tr" id="zR">${ico('room', COL.room)}<span>Room</span></button><button class="ztile ta" id="zA">${ico('area', COL.area)}<span>Common area</span></button><button class="ztile ti" id="zI">${ico('item', COL.item)}<span>Item</span><small>kitchen, WC, vanity</small></button></div>
   <div class="ztiles one"><button class="ztile ts ${PV.marquee ? 'on' : ''}" id="zMulti">${ico('select')}<span>${PV.marquee ? 'Selecting several: tap shapes or drag a box' : 'Select several…'}</span></button></div>
-  ${(PV.multi && PV.multi.size) ? `<div class="zsel"><b>${PV.multi.size} shapes selected</b><p class="hint">Drag any selected shape to move the group; it snaps to neighbours and walls on drop. Tap a shape to add or remove it.</p>
+  ${(PV.multi && PV.multi.size) ? `<div class="zsel"><b>${PV.multi.size} shapes selected</b><p class="hint">Drag any selected shape to move the group, or drag a blue handle on the box around it to stretch the whole set, walls and rooms together. On drop it joins onto what is around it.</p>
+     <div class="zb"><button class="go" id="zgFit" title="Stretch the selection so its outline sits exactly on the unit outline underneath it">⤢ Stretch onto the unit underneath</button></div>
      <div class="zb"><button id="zgWeld" title="Move every corner of the selection that is close to a neighbouring boundary onto it, so no slivers are left">🔗 Connect to neighbours</button><button class="go" id="zgCopy">⧉ Copy group</button><button id="zgClip">📋 Copy to another plan</button><button id="zgMirH">⇄ Mirror east-west</button><button id="zgMirV">⇅ Mirror north-south</button></div>
      <div class="zb"><button id="zgUnit">✎ Rename: unit number, block, level…</button><button class="warn" id="zgDel">🗑 Delete group</button><button id="zgClear">Clear selection</button></div></div>` : ''}
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
@@ -570,9 +596,9 @@ function panel() {
      <div class="zb">${z.kind === 'unit' ? '<button class="go" id="zFit">⤢ Fit rooms to this outline</button>' : (z.kind !== 'area' ? '<button id="zFit1">⤢ Fit to its unit</button>' : '')}<button id="zSq">∟ Square up corners</button></div>
      <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
      ${z.kind === 'unit' ? '<button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
-  <div class="zlab">Show</div><div class="zb layers">${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}</div>
+  <div class="zlab">Show</div><div class="zb layers">${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}${faceGuides(ZE.plan).length ? `<label class="opt" title="The red dashed lines showing where the elevations sit on this plan"><input type="checkbox" id="zShowG" ${ZE.showGuides === false ? '' : 'checked'}> <span>Elevation lines</span></label>` : ''}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
-  ${facesOnPlan().length ? `<div class="zlab">Elevation lines on this plan</div><div class="ztiles">${facesOnPlan().map((f, i) => `<button class="ztile te" data-fe2="${i}" title="${esc(f.ep.name)}">${ico('elev', COL.elev)}<span>${esc(f.l.face || 'face')}</span></button>`).join('')}</div>` : ''}
+  ${facesOnPlan().length ? `<div class="zlab">Elevation lines on this plan</div>${compassTiles(facesOnPlan())}` : ''}
   ${CLIP && CLIP.n ? `<div class="zb"><button class="go" id="zPaste">📋 Paste ${CLIP.n} shapes from ${esc(CLIP.from)}</button><button id="zPasteX">Forget copy</button></div>` : ''}
   <p class="muted small">${ZE.zones.filter(q => q.kind === 'unit').length} units, ${ZE.zones.filter(q => q.kind === 'room').length} rooms, ${ZE.zones.filter(q => q.kind === 'area').length} common areas on this plan${ZE.dirty ? ' · <b>unsaved changes</b>' : ''}</p>
   <div class="zb"><button id="zUndo2" ${(ZE.undo || []).length ? '' : 'disabled'}>↶ Undo</button><button id="zRedo2" ${(ZE.redo || []).length ? '' : 'disabled'}>↷ Redo</button></div>
@@ -584,6 +610,7 @@ function panel() {
   if ($('zPick')) $('zPick').onchange = e => { const q = ZE.zones.find(x => x.id === e.target.value); if (q) { PV.setMode('zones'); PV.selectZone(q); panel(); } };
   on('zDone', async () => { if (ZE.dirty) await save(); close(); });
   if ($('zRect')) $('zRect').onchange = e => { ZE.rect = e.target.checked; S.local.zoneRect = ZE.rect; saveLocal(); };
+  if ($('zShowG')) $('zShowG').onchange = e => { ZE.showGuides = e.target.checked; ZE0guides(PV, ZE.plan); PV._drawZones(); };
   if ($('zJoin')) $('zJoin').onchange = e => { ZE.join = e.target.checked; PV.join = ZE.join; S.local.zoneJoin = ZE.join; saveLocal(); };
   if (ZE.join == null) ZE.join = S.local.zoneJoin !== false; PV.join = ZE.join; if ($('zJoin')) $('zJoin').checked = ZE.join;
   if ($('zOrtho')) $('zOrtho').onchange = e => { ZE.ortho = e.target.checked; PV.ortho = ZE.ortho; S.local.zoneOrtho = ZE.ortho; saveLocal(); };
@@ -604,6 +631,22 @@ function panel() {
   on('zgDel', async () => { if (!(await confirmBox(`Delete ${PV.multi.size} shapes?`, 'Delete'))) return; snap(); ZE.zones = ZE.zones.filter(q => !PV.multi.has(q.id)); PV.setMulti([]); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
   on('zgCopy', () => { snap(); const ids = [...PV.multi], copies = []; ZE.zones.forEach(q => { if (ids.includes(q.id)) copies.push(copyZone(q, 0.015, 0.015, null)); });   // array order kept, so layers stay in order
     copies.forEach(c => { c._srcUnit = c.unit; ZE.zones.push(c); }); ZE.pendingGroup = copies.map(c => c.id); PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel(); toast('Copy made. Drag it into place; when you drop it you will be asked for the unit number.', 5000); });
+  on('zgFit', () => {
+    const sel = ZE.zones.filter(q => PV.multi.has(q.id)); const bb = PV.groupBox(); if (!bb) return;
+    const c = [(bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2];
+    // the unit outline under the middle of the selection, excluding the ones being moved
+    const target = ZE.zones.filter(q => q.kind === 'unit' && !PV.multi.has(q.id) && q.poly && q.poly.length > 2 && pointInPoly(c[0], c[1], q.poly)).sort((a, b) => polyArea(a.poly) - polyArea(b.poly))[0];
+    if (!target) return toast('Drop the group over the unit outline you want it to fit, then press this again', 5000);
+    const xs = target.poly.map(p => p[0]), ys = target.poly.map(p => p[1]), t = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+    snap();
+    const sx = (t.x1 - t.x0) / ((bb.x1 - bb.x0) || 1), sy = (t.y1 - t.y0) / ((bb.y1 - bb.y0) || 1);
+    sel.forEach(z => { z.poly = z.poly.map(p => [t.x0 + (p[0] - bb.x0) * sx, t.y0 + (p[1] - bb.y0) * sy]); z.unit = target.unit || z.unit; z.block = target.block || z.block; z.level = target.level || z.level; });
+    // the copied outline now sits exactly on the existing one, so the old one is no longer needed
+    const dupe = sel.find(z => z.kind === 'unit');
+    if (dupe) ZE.zones = ZE.zones.filter(z => z !== target);
+    PV.setZones(ZE.zones); PV.setMulti(sel.map(z => z.id)); if (ZE.join !== false) PV.weldGroup(18); ZE.dirty = true; panel();
+    toast(`Stretched onto Unit ${target.unit || ''}${dupe ? ' and replaced its outline' : ''}. Check the rooms, then Save boundaries.`, 6000);
+  });
   on('zgWeld', () => { snap(); const n = PV.weldGroup(34); if (!n) return toast('Nothing close enough to join to. Move the group nearer first.', 4000); ZE.dirty = true; panel(); toast(`${n} corner${n === 1 ? '' : 's'} joined to the shapes around it`, 3500); });
   on('zgClip', () => { const ids = [...PV.multi]; const zs = ZE.zones.filter(q => ids.includes(q.id)); if (!zs.length) return; CLIP = { n: zs.length, from: ZE.plan.name, w: ZE.plan.w, h: ZE.plan.h, zones: JSON.parse(JSON.stringify(zs)) }; toast(`${zs.length} shapes copied. Switch to the other plan (Plan list above) and press Paste.`, 5000); panel(); });
   on('zPaste', () => { if (!CLIP) return; snap(); const sx = (CLIP.w / CLIP.h) / (ZE.plan.w / ZE.plan.h); const copies = CLIP.zones.map(z => { const c = copyZone(z, 0, 0, null); if (Math.abs(sx - 1) > 0.01) c.poly = c.poly.map(p => [p[0], p[1]]); c.block = ZE.plan.block || c.block; c.level = ZE.plan.level || c.level; c._srcUnit = c.unit; return c; });

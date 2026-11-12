@@ -31,7 +31,9 @@ export class PlanView {
           if (e.pointerType === 'touch') { clearTimeout(this._hold); this._hold = setTimeout(() => { if (st && moved <= st.tol && pts.size === 1) { drag = { kind: 'p', id: pinEl.dataset.id, el: pinEl }; pinEl.classList.add('dragging'); try { navigator.vibrate && navigator.vibrate(30); } catch (x) {} } }, 420); }
           else drag = { kind: 'p', id: pinEl.dataset.id, el: pinEl, pending: true };
         }
-        if (this.mode === 'zones' && v && this.selZone) { const i = +v.dataset.v, p0 = this.selZone.poly[i], tol = 7 / this.pv.s; const shared = this.join === false ? [] : (() => { const out = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === this.selZone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) out.push([z, j]); }); }); return out; })(); drag = { kind: 'v', i, shared }; this.o.onEditStart && this.o.onEditStart(); }
+        const gh = e.target.closest && e.target.closest('[data-gh]');
+        if (this.mode === 'zones' && gh && this.multi.size) { const bb = this.groupBox(); drag = { kind: 'gs', h: +gh.dataset.gh, box: bb, origs: new Map([...this.multi].map(id => { const z = this.zones.find(q => q.id === id); return [id, z ? z.poly.map(p => p.slice()) : null]; })) }; this.o.onEditStart && this.o.onEditStart(); }
+        else if (this.mode === 'zones' && v && this.selZone) { const i = +v.dataset.v, p0 = this.selZone.poly[i], tol = 7 / this.pv.s; const shared = this.join === false ? [] : (() => { const out = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === this.selZone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) out.push([z, j]); }); }); return out; })(); drag = { kind: 'v', i, shared }; this.o.onEditStart && this.o.onEditStart(); }
         else if (this.mode === 'zones' && this.multi && this.multi.size && !v && (() => { const n0 = this._norm(e); return this.zones.some(z => this.multi.has(z.id) && z.poly && z.poly.length > 2 && inPoly(n0.x, n0.y, z.poly)); })()) { drag = { kind: 'g', start: this._norm(e), origs: new Map([...this.multi].map(id => { const z = this.zones.find(q => q.id === id); return [id, z ? z.poly.map(p => p.slice()) : null]; })) }; this.o.onEditStart && this.o.onEditStart(); }
         else if (this.mode === 'zones' && this.marquee && !v && !this._zoneAt(e)) { drag = { kind: 'm', start: this._norm(e), cur: null }; }
         else if (this.mode === 'zones' && this.moveZone && this.selZone && this._zoneAt(e)?.id === this.selZone.id) { drag = { kind: 'z', start: this._norm(e), orig: this.selZone.poly.map(p => p.slice()) }; this.o.onEditStart && this.o.onEditStart(); this.o.onZoneDragStart && this.o.onZoneDragStart(this.selZone); }
@@ -50,6 +52,7 @@ export class PlanView {
       if (moved <= st.tol) return;
       if (this._hold) { clearTimeout(this._hold); this._hold = null; }
       if (drag && drag.kind === 'p' && drag.pending && e.pointerType === 'touch') drag = null;
+      if (drag && drag.kind === 'gs') { this._scaleGroup(drag, this._norm(e)); this._drawZones(); return; }
       if (drag && drag.kind === 'e') { if (drag.pending) { drag.pending = false; this.o.onEditStart && this.o.onEditStart(); } this._slideEdge(drag, this._norm(e)); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); return; }
       if (drag && drag.kind === 'p') { if (drag.pending) { drag.pending = false; drag.el.classList.add('dragging'); } const n = this._norm(e); drag.cur = n; drag.el.style.left = (n.x * this.plan.w) + 'px'; drag.el.style.top = (n.y * this.plan.h) + 'px'; }
       else if (drag && drag.kind === 'v') { const n = this._norm(e); const al = this._align(this.selZone, drag.i, [n.x, n.y]); n.x = al[0]; n.y = al[1]; const old = this.selZone.poly[drag.i]; this.selZone.poly[drag.i] = [n.x, n.y]; if (this.selZone.kind === 'band' && this.selZone.poly.length === 4) this._rect(this.selZone.poly, drag.i, old); drag.shared.forEach(([z, j]) => { z.poly[j] = [n.x, n.y]; }); this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); }
@@ -67,6 +70,7 @@ export class PlanView {
         else if (drag && drag.kind === 'e' && !drag.pending) { this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'v'); }
         else if (drag && drag.kind === 'z' && this.selZone) { if (this._snapShape(this.selZone)) { this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(this.selZone, 'z', 0, 0); } }
         else if (drag && drag.kind === 'g') { this._snapGroup(); this._drawZones(); this.o.onGroupMoved && this.o.onGroupMoved([...this.multi]); }
+        else if (drag && drag.kind === 'gs') { this._drawZones(); this.o.onGroupMoved && this.o.onGroupMoved([...this.multi]); }
         else if (drag && drag.kind === 'm') { if (drag.cur) { const x0 = Math.min(drag.start.x, drag.cur.x), x1 = Math.max(drag.start.x, drag.cur.x), y0 = Math.min(drag.start.y, drag.cur.y), y1 = Math.max(drag.start.y, drag.cur.y); const hide = this.hideKinds || new Set(); this.zones.forEach(z => { if (!z.poly || hide.has(z.kind)) return; const inside = z.poly.every(p => p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1); if (inside) this.multi.add(z.id); }); } this._drawZones(); this.o.onMultiChange && this.o.onMultiChange([...this.multi]); }
         st = null; drag = null; } };
     vp.addEventListener('pointerup', up); vp.addEventListener('pointercancel', up);
@@ -93,6 +97,19 @@ export class PlanView {
         n++; }); });
     if (n) this._drawZones();
     return n;
+  }
+  groupBox() { let x0 = 9, y0 = 9, x1 = -9, y1 = -9, any = false;
+    this.multi.forEach(id => { const z = this.zones.find(q => q.id === id); if (!z || !z.poly) return; any = true; z.poly.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }); });
+    return any ? { x0, y0, x1, y1 } : null; }
+  // scale everything in the selection; the handle opposite the one being dragged stays put
+  _scaleGroup(d, n) {
+    const b = d.box, h = d.h, W = this.plan.w, H = this.plan.h, min = 12 / W;
+    const left = [0, 6, 7].includes(h), right = [2, 3, 4].includes(h), top = [0, 1, 2].includes(h), bottom = [4, 5, 6].includes(h);
+    let nx0 = b.x0, nx1 = b.x1, ny0 = b.y0, ny1 = b.y1;
+    if (left) nx0 = Math.min(n.x, b.x1 - min); if (right) nx1 = Math.max(n.x, b.x0 + min);
+    if (top) ny0 = Math.min(n.y, b.y1 - min * H / W); if (bottom) ny1 = Math.max(n.y, b.y0 + min * H / W);
+    const sx = (nx1 - nx0) / ((b.x1 - b.x0) || 1), sy = (ny1 - ny0) / ((b.y1 - b.y0) || 1);
+    d.origs.forEach((orig, id) => { const z = this.zones.find(q => q.id === id); if (!z || !orig) return; z.poly = orig.map(p => [nx0 + (p[0] - b.x0) * sx, ny0 + (p[1] - b.y0) * sy]); });
   }
   _snapGroup() {
     const W = this.plan.w, H = this.plan.h, ids = this.multi; let best = null;
@@ -124,7 +141,7 @@ export class PlanView {
     if (best && best.zone && !dry && this.join !== false) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
     if (best) return best;
     // guide lines (the elevation face lines on this plan): corners first, then the line itself
-    const G = this.guides || []; bd = tol * 1.4;
+    const G = (this.guides || []).map(g => g.path || g); bd = tol * 1.4;
     G.forEach(g => g.forEach(q => { const d = Math.hypot((q[0] - n.x) * W, (q[1] - n.y) * H); if (d < bd) { bd = d; best = { x: q[0], y: q[1], snapped: 'corner' }; } }));
     if (best) return best; bd = tol * 1.4;
     G.forEach(g => { for (let i = 0; i + 1 < g.length; i++) { const ax = g[i][0] * W, ay = g[i][1] * H, bx = g[i + 1][0] * W, by = g[i + 1][1] * H, px = n.x * W, py = n.y * H, L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L)), sx = ax + t * (bx - ax), sy = ay + t * (by - ay), d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'guide' }; } } });
@@ -202,7 +219,9 @@ export class PlanView {
     const show = this.showZones || this.mode === 'zones' || this.mode === 'draw';
     let h = '', hh = '';   // hh: corner handles of the selected shape, drawn last so nothing covers them
     const hide = this.hideKinds || new Set();
-    if ((this.mode === 'zones' || this.mode === 'draw') && this.guides) this.guides.forEach(g => { h += `<polyline class="zguide" points="${g.map(p => `${p[0] * W},${p[1] * H}`).join(' ')}" style="stroke-width:${2.5 * inv}px;stroke-dasharray:${8 * inv} ${5 * inv}"/>`; });
+    if ((this.mode === 'zones' || this.mode === 'draw') && this.guides) this.guides.forEach(g => { const pts = g.path || g; if (!pts || pts.length < 2) return;
+      h += `<polyline class="zguide" points="${pts.map(p => `${p[0] * W},${p[1] * H}`).join(' ')}" style="stroke-width:${2.5 * inv}px;stroke-dasharray:${8 * inv} ${5 * inv}"/>`;
+      if (g.label) { const m = pts[Math.floor(pts.length / 2)]; h += `<text class="zgt" x="${m[0] * W}" y="${m[1] * H - 6 * inv}" style="font-size:${13 * inv}px">${esc(g.label)}</text>`; } });
     if (show) [...this.zones].sort((a, b) => ({ unit: 0, area: 1, room: 2, item: 3 }[a.kind] || 0) - ({ unit: 0, area: 1, room: 2, item: 3 }[b.kind] || 0)).forEach(z => {
       const face = z.kind === 'face';
       if (!z.poly || z.poly.length < (face ? 2 : 3) || hide.has(z.kind)) return; const sel = this.selZone && this.selZone.id === z.id, msel = this.multi.has(z.id);
@@ -217,6 +236,15 @@ export class PlanView {
     if (this.mode === 'draw' && this.draft && this.draft.length) {
       h += `<polyline class="zdraft" points="${this.draft.map(p => `${p[0] * W},${p[1] * H}`).join(' ')}" style="stroke-width:${2.5 * inv}px"/>`;
       this.draft.forEach((p, i) => h += `<circle class="zdv${i === 0 ? ' first' : ''}" cx="${p[0] * W}" cy="${p[1] * H}" r="${(i === 0 ? 9 : 6) * inv}" style="stroke-width:${2 * inv}px"/>`);
+    }
+    // a group gets a sizing box: drag a handle and everything inside scales, so a copied unit can be stretched to fit the next one
+    if (this.mode === 'zones' && this.multi.size && !(this.o && this.o.noGroupBox)) {
+      const bb = this.groupBox();
+      if (bb) { const x0 = bb.x0 * W, y0 = bb.y0 * H, x1 = bb.x1 * W, y1 = bb.y1 * H;
+        hh += `<rect class="gbox" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" style="stroke-width:${1.5 * inv}px;stroke-dasharray:${7 * inv} ${5 * inv}"/>`;
+        const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, pts = [[x0, y0], [mx, y0], [x1, y0], [x1, my], [x1, y1], [mx, y1], [x0, y1], [x0, my]];
+        pts.forEach((q, i) => { hh += `<rect data-gh="${i}" class="ghh" x="${q[0] - 17 * inv}" y="${q[1] - 17 * inv}" width="${34 * inv}" height="${34 * inv}"/><rect data-gh="${i}" class="gh" x="${q[0] - 6 * inv}" y="${q[1] - 6 * inv}" width="${12 * inv}" height="${12 * inv}" style="stroke-width:${2 * inv}px"/>`; });
+      }
     }
     h += hh;
     if (marq && marq.cur) { const x0 = Math.min(marq.start.x, marq.cur.x) * W, y0 = Math.min(marq.start.y, marq.cur.y) * H, x1 = Math.max(marq.start.x, marq.cur.x) * W, y1 = Math.max(marq.start.y, marq.cur.y) * H; h += `<rect class="marq" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" style="stroke-width:${1.5 * inv}px;stroke-dasharray:${6 * inv} ${4 * inv}"/>`; }

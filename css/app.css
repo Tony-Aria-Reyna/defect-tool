@@ -331,7 +331,7 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .zeditor .viewbar,.zeditor .vbtoggle,.zeditor .pinfab{display:none!important}
 .pin.dragging{opacity:.75;filter:drop-shadow(0 6px 6px rgba(0,0,0,.4));z-index:9}
 .psheets{display:block}.pf span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.zsvg polyline.zguide{fill:none;stroke:#e11;opacity:.8;pointer-events:none}
+.zsvg polyline.zguide{fill:none;stroke:#e11;opacity:.75;pointer-events:none}.zsvg text.zgt{fill:#c81e1e;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px;pointer-events:none}
 
 /* a tap always shows itself, and a window that was opened from another can go back to it */
 button,.btn,.chip,label.opt{transition:transform .08s ease,filter .08s ease,background .12s ease}
@@ -361,3 +361,13 @@ button,.btn,.chip,label.opt{transition:transform .08s ease,filter .08s ease,back
 .zpanel .ztile.on{background:var(--navy);color:#fff;border-color:var(--navy)}.zpanel .ztile.on .zic{stroke:#fff}
 .zpanel .zb.opts{display:flex;flex-wrap:wrap;gap:10px}
 .zpanel .zb.layers{display:flex;flex-wrap:wrap;gap:10px}
+.zsvg rect.gbox{fill:none;stroke:#0057ff;opacity:.8;pointer-events:none}.zsvg rect.gh{fill:#fff;stroke:#0057ff;pointer-events:none}.zsvg rect.ghh{fill:transparent;cursor:nwse-resize}
+
+/* elevation lines laid out as they sit on the sheet, with a compass in the middle */
+.zpanel .zcompass{display:grid;grid-template-columns:1fr auto 1fr;grid-template-areas:'t t t' 'l m r' 'b b b';gap:6px;align-items:center;justify-items:stretch}
+.zpanel .zcompass .ct{grid-area:t}.zpanel .zcompass .cl{grid-area:l}.zpanel .zcompass .cm{grid-area:m}.zpanel .zcompass .cr{grid-area:r}.zpanel .zcompass .cb{grid-area:b}
+.zpanel .zcompass .cc{display:grid;gap:6px}
+.zpanel .zcompass .ztile{flex-direction:row;align-items:center;gap:7px;padding:8px 9px}
+.zpanel .zcompass .ztile .zic{margin:0;width:18px;height:18px;flex:none}
+.zpanel .zrose{width:50px;height:50px;border-radius:50%;border:1.5px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--navy);background:#fff}
+.zpanel .zrose span{font-size:19px;line-height:1;display:block}.zpanel .zrose b{font-size:10px;letter-spacing:.04em}
