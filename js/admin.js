@@ -957,21 +957,39 @@ export async function importJson(file) {
     if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
     const pre = String(j.prefix || 'EXT').toUpperCase(), have = new Set(S.defects.map(d => d.extRef).filter(Boolean)), items = j.items.filter(it => !have.has(it.ref)), dup = j.items.length - items.length;
     const by = {}; items.forEach(it => { const k = it.pin === 'ask' || it.pin === 'none' ? 'For you to pin' : it.pin === 'unit' ? 'Centre of the unit' : it.pin === 'elev' ? 'Elevation, middle of the unit face' : it.pin === 'item' ? 'On the fixture' : 'Centre of the room or area'; by[k] = (by[k] || 0) + 1; });
-    modal(`<h2>${esc(j.title || 'Incoming defects')}</h2><p>${esc(j.note || '')}</p><p><b>${items.length}</b> new items will be added as ${esc(pre)}-001 onwards.${dup ? ` ${dup} are already in this project and are skipped.` : ''}</p><table class="t"><tr><th>Where the pin goes</th><th>Items</th></tr>${Object.entries(by).map(([k, n]) => `<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join('')}</table>${j.map ? `<label class="chk"><input type="checkbox" id="inOld" ${j.numbering === 'old' ? 'checked' : ''}> ${esc(j.mapLabel || 'Unit numbers in this list are the old numbers: convert them to the current numbers')}</label>` : ''}<p class="note">Items whose room or fixture has no boundary drawn fall back to the centre of the unit, or join the "to pin" list if the unit is not found. After the import you can go through the "to pin" list one at a time.</p><div class="act"><button id="inX">Cancel</button><button class="go" id="inGo">Import and pin</button></div>`, true);
+    modal(`<h2>${esc(j.title || 'Incoming defects')}</h2><p>${esc(j.note || '')}</p><p><b>${items.length}</b> new items will be added as ${esc(pre)}-001 onwards.${dup ? ` ${dup} are already in this project and are skipped.` : ''}</p><table class="t"><tr><th>Where the pin goes</th><th>Items</th></tr>${Object.entries(by).map(([k, n]) => `<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join('')}</table>${j.map ? `<label class="chk"><input type="checkbox" id="inOld" ${j.numbering === 'old' ? 'checked' : ''}> ${esc(j.mapLabel || 'Unit numbers in this list are the old numbers: convert them to the current numbers')}</label>` : ''}<p class="note">Items whose room or fixture has no boundary drawn fall back to the centre of the unit, or join the "to pin" list if the unit is not found. After the import you can go through the "to pin" list one at a time.</p><p class="note" id="inSt"></p>${dup ? `<p class="note"><b>${dup} of these are already in this project.</b> If their unit numbers were loaded the wrong way, set the tick box above the way it should be and press "Correct the unit numbers". Each affected item moves to the right unit and is re-pinned; nothing is duplicated.</p>` : ''}<div class="act"><button id="inX">Cancel</button>${dup ? '<button id="inFix">Correct the unit numbers</button>' : ''}${items.length ? '<button class="go" id="inGo">Import and pin</button>' : ''}</div>`, true);
+    // put one incoming item on the plans by its rule; returns true when it was pinned
+    const place = (d, it, unit) => {
+      let patch = null;
+      if (it.pin === 'item' || it.pin === 'room') patch = X.pinPatch(d, null, null, null, it.room, it.item);
+      else if (it.pin === 'unit') patch = X.pinPatch(d, null, null, null, '', '');
+      else if (it.pin === 'elev') { const sp = unit ? X.elevSpot(unit) : null; if (sp) { patch = X.pinPatch(d, sp.plan.id, sp.x, sp.y); if (patch) patch.zoneHit = 'General location: ' + (sp.face ? sp.face + ' of ' : 'exterior of ') + 'Unit ' + unit + (patch.zoneHit ? ' (' + patch.zoneHit + ')' : ''); } else patch = X.pinPatch(d, null, null, null, 'Deck / patio', ''); }
+      else if (it.pin === 'area') patch = X.pinPatch(d, null, null, null, it.room, '', { block: it.block, level: it.level, strict: true });
+      if (patch) { Object.assign(d, patch); if (it.surface) d.surface = it.surface; if (it.general) { d.ext['Location note'] = it.general; if (it.pin !== 'elev') d.zoneHit = it.general; } if (it.pin === 'unit') { d.room = ''; d.item = ''; d.zoneHit = 'Whole unit (pinned at the centre of Unit ' + unit + ')'; } d.needsPin = false; } else d.needsPin = true;
+      return !d.needsPin;
+    };
     $('inX').onclick = closeModal;
-    $('inGo').onclick = async () => {
+    if ($('inFix')) $('inFix').onclick = async () => {
+      const conv = $('inOld') && $('inOld').checked, t = new Date().toISOString(); $('inFix').disabled = true; let n = 0, same = 0;
+      try {
+        const ex = j.items.filter(it => have.has(it.ref) && it.unit);
+        for (const it of ex) { const d0 = S.defects.find(q => q.extRef === it.ref); if (!d0) continue; const unit = String(conv && j.map && j.map[it.unit] ? j.map[it.unit] : it.unit); if (String(d0.unit) === unit) { same++; continue; }
+          const d = JSON.parse(JSON.stringify(d0)); Object.assign(d, { unit, plan: '', x: null, y: null, plan2: null, x2: null, y2: null, room: '', item: '', block: it.block || '', level: it.level || '', zoneHit: '', autoLoc: null, surface: '' }); d.ext = { ...(d.ext || {}), 'Listed under': it.area + (conv && j.map && j.map[it.unit] ? ' (old number; now Unit ' + unit + ')' : '') }; delete d.ext['Location note'];
+          place(d, it, unit); $('inSt').textContent = `Correcting ${++n}…`;
+          const patch = {}; ['unit', 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'room', 'item', 'block', 'level', 'zoneHit', 'autoLoc', 'surface', 'ext', 'needsPin'].forEach(k => { patch[k] = d[k] === undefined ? null : d[k]; });
+          await S.store.updateDefect(S.project.id, d0.id, patch, [{ t, who: S.user.name, txt: `Unit corrected from ${d0.unit || '-'} to ${unit} (the list was ${conv ? 'in the old numbers' : 'already in the current unit numbers'}); pin moved to match.` }]); Object.assign(d0, patch); }
+        closeModal(); await X.reloadProject(); X.render();
+        modal(`<h2>Unit numbers corrected</h2><p><b>${n}</b> item${n === 1 ? '' : 's'} moved to the right unit and re-pinned. ${same} were already on the right unit and were not touched.</p><div class="act"><button class="go" id="inOk2">Done</button></div>`); $('inOk2').onclick = closeModal;
+      } catch (e) { $('inSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('inFix').disabled = false; }
+    };
+    if ($('inGo')) $('inGo').onclick = async () => {
       const conv = $('inOld') && $('inOld').checked, t = new Date().toISOString(), p = S.project, out = []; let n = S.defects.reduce((m, d) => d.id.startsWith(pre + '-') ? Math.max(m, parseInt(d.id.slice(pre.length + 1), 10) || 0) : m, 0), pinned = 0;
       const resp = p.responsible.find(r => /miles/i.test(r)) || (p.contractor && p.responsible.includes(p.contractor) ? p.contractor : p.responsible[0]);
       items.forEach(it => {
         const unit = it.unit ? String(conv && j.map[it.unit] ? j.map[it.unit] : it.unit) : '';
         const d = { id: pre + '-' + String(++n).padStart(3, '0'), extRef: it.ref, source: j.source || 'Import', dateRaised: j.date || todayISO(), title: it.desc.length > 70 ? it.desc.slice(0, 67).replace(/\s+\S*$/, '') + '…' : it.desc, desc: it.desc, action: '', element: '', unit, room: it.pin === 'ask' || it.pin === 'area' ? (it.room || '') : '', block: it.block || '', level: it.level || '', type: p.types[0], severity: sevMatch(p, j.category) || sevDefault(p), trade: guessTrade(it.desc), responsible: resp, subcontractor: it.sub || '', targetDate: '', status: 'Open', plan: '', x: null, y: null, photos: [],
           ext: { 'Listed under': it.area + (conv && it.unit && j.map[it.unit] ? ' (old number; now Unit ' + unit + ')' : ''), 'Interior / exterior': it.ie || '', 'Subcontractor': it.sub || '', 'Register row': String(it.row || '') }, history: [{ t, who: S.user.name, txt: `Imported from ${j.title || file.name}.` }], created: t, updated: t, createdBy: S.user.email, updatedBy: S.user.email };
-        let patch = null;
-        if (it.pin === 'item' || it.pin === 'room') patch = X.pinPatch(d, null, null, null, it.room, it.item);
-        else if (it.pin === 'unit') patch = X.pinPatch(d, null, null, null, '', '');
-        else if (it.pin === 'elev') { const sp = unit ? X.elevSpot(unit) : null; if (sp) { patch = X.pinPatch(d, sp.plan.id, sp.x, sp.y); if (patch) patch.zoneHit = 'General location: ' + (sp.face ? sp.face + ' of ' : 'exterior of ') + 'Unit ' + unit + (patch.zoneHit ? ' (' + patch.zoneHit + ')' : ''); } else patch = X.pinPatch(d, null, null, null, 'Deck / patio', ''); }
-        else if (it.pin === 'area') patch = X.pinPatch(d, null, null, null, it.room, '', { block: it.block, level: it.level, strict: true });
-        if (patch) { Object.assign(d, patch); pinned++; if (it.surface) d.surface = it.surface; if (it.general) { d.ext['Location note'] = it.general; if (it.pin !== 'elev') d.zoneHit = it.general; } if (it.pin === 'unit') { d.room = ''; d.item = ''; d.zoneHit = 'Whole unit (pinned at the centre of Unit ' + unit + ')'; } } else d.needsPin = true;
+        if (place(d, it, unit)) pinned++;
         out.push(JSON.parse(JSON.stringify(d)));
       });
       await saveImported(out); await X.reloadProject(); X.render(); const left = out.length - pinned;
