@@ -956,7 +956,7 @@ export async function importJson(file) {
   if (j.type === 'incoming' && Array.isArray(j.items)) {
     if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
     const pre = String(j.prefix || 'EXT').toUpperCase(), have = new Set(S.defects.map(d => d.extRef).filter(Boolean)), items = j.items.filter(it => !have.has(it.ref)), dup = j.items.length - items.length;
-    const by = {}; items.forEach(it => { const k = it.pin === 'ask' || it.pin === 'none' ? 'For you to pin' : it.pin === 'unit' ? 'Centre of the unit' : it.pin === 'item' ? 'On the fixture' : 'Centre of the room or area'; by[k] = (by[k] || 0) + 1; });
+    const by = {}; items.forEach(it => { const k = it.pin === 'ask' || it.pin === 'none' ? 'For you to pin' : it.pin === 'unit' ? 'Centre of the unit' : it.pin === 'elev' ? 'Elevation, middle of the unit face' : it.pin === 'item' ? 'On the fixture' : 'Centre of the room or area'; by[k] = (by[k] || 0) + 1; });
     modal(`<h2>${esc(j.title || 'Incoming defects')}</h2><p>${esc(j.note || '')}</p><p><b>${items.length}</b> new items will be added as ${esc(pre)}-001 onwards.${dup ? ` ${dup} are already in this project and are skipped.` : ''}</p><table class="t"><tr><th>Where the pin goes</th><th>Items</th></tr>${Object.entries(by).map(([k, n]) => `<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join('')}</table>${j.map ? `<label class="chk"><input type="checkbox" id="inOld" ${j.numbering === 'old' ? 'checked' : ''}> ${esc(j.mapLabel || 'Unit numbers in this list are the old numbers: convert them to the current numbers')}</label>` : ''}<p class="note">Items whose room or fixture has no boundary drawn fall back to the centre of the unit, or join the "to pin" list if the unit is not found. After the import you can go through the "to pin" list one at a time.</p><div class="act"><button id="inX">Cancel</button><button class="go" id="inGo">Import and pin</button></div>`, true);
     $('inX').onclick = closeModal;
     $('inGo').onclick = async () => {
@@ -969,8 +969,9 @@ export async function importJson(file) {
         let patch = null;
         if (it.pin === 'item' || it.pin === 'room') patch = X.pinPatch(d, null, null, null, it.room, it.item);
         else if (it.pin === 'unit') patch = X.pinPatch(d, null, null, null, '', '');
+        else if (it.pin === 'elev') { const sp = unit ? X.elevSpot(unit) : null; if (sp) { patch = X.pinPatch(d, sp.plan.id, sp.x, sp.y); if (patch) patch.zoneHit = 'General location: ' + (sp.face ? sp.face + ' of ' : 'exterior of ') + 'Unit ' + unit + (patch.zoneHit ? ' (' + patch.zoneHit + ')' : ''); } else patch = X.pinPatch(d, null, null, null, 'Deck / patio', ''); }
         else if (it.pin === 'area') patch = X.pinPatch(d, null, null, null, it.room, '', { block: it.block, level: it.level, strict: true });
-        if (patch) { Object.assign(d, patch); pinned++; if (it.pin === 'unit') { d.room = ''; d.item = ''; d.zoneHit = 'Whole unit (pinned at the centre of Unit ' + unit + ')'; } } else d.needsPin = true;
+        if (patch) { Object.assign(d, patch); pinned++; if (it.surface) d.surface = it.surface; if (it.general) { d.ext['Location note'] = it.general; if (it.pin !== 'elev') d.zoneHit = it.general; } if (it.pin === 'unit') { d.room = ''; d.item = ''; d.zoneHit = 'Whole unit (pinned at the centre of Unit ' + unit + ')'; } } else d.needsPin = true;
         out.push(JSON.parse(JSON.stringify(d)));
       });
       await saveImported(out); await X.reloadProject(); X.render(); const left = out.length - pinned;

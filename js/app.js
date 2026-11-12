@@ -349,6 +349,17 @@ async function onPlace(x, y) {
   if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); ED.focusDesc = true; const el = $('edBody').querySelector('[name=title]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
   else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
 }
+// Where a unit shows on the elevations: the middle of the stretch of elevation that lands in that unit, preferring its deck or patio face.
+export function elevSpot(unit) {
+  let best = null;
+  for (const ep of S.plans) { if (ep.kind !== 'elevation') continue; const links = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []);
+    for (const L of links) { if (!L.band) continue; const bx = L.bandX || [0, 1], ey = (L.band[0] + L.band[1]) / 2, N = 160, all = [], deck = [];
+      for (let i = 0; i <= N; i++) { const ex = bx[0] + (bx[1] - bx[0]) * i / N; let m = null; try { m = elevToFloor(ep, ex, ey); } catch (e) {} if (!m || m.planId !== L.planId || !m.hit || String(m.hit.unit) !== String(unit)) continue; all.push(ex); if (/deck|patio/i.test(m.hit.room || '')) deck.push(ex); }
+      const use = deck.length >= 3 ? deck : all; if (use.length < 3) continue; const score = deck.length * 1000 + all.length;
+      if (!best || score > best.score) best = { score, plan: ep, x: (use[0] + use[use.length - 1]) / 2, y: ey, face: L.face || ep.name };
+    } }
+  return best;
+}
 // Items waiting for a pin: walk through them one at a time. Each opens the plan for its unit (zoomed to the unit when it has an outline);
 // tap where it is, or switch to another plan or elevation first. Skip leaves it for later, Stop ends the run.
 export const unpinned = () => S.defects.filter(d => d.status !== 'Closed' && (!d.plan || d.x == null)).sort((a, b) => natural(String(a.unit || 'zz'), String(b.unit || 'zz')) || natural(a.id, b.id));
@@ -688,7 +699,7 @@ function openMenu() {
 /* ================================================================ wiring */
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, onPinMoved: movePin });
-  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned });
+  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned, elevSpot });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
