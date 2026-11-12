@@ -85,7 +85,9 @@ export async function usersDialog() {
   <p class="note" id="uHelp"></p>
   <div class="act" style="justify-content:flex-start"><button class="go" id="uInv">Send invitation</button></div>
   <p class="note">They sign in at <b>${esc(appUrl())}</b> with Google, or with an email link, <b>using this same email address</b>. They are added to the project automatically when they first sign in.</p>
+  <details class="ext"><summary>Invitation not working? Add them by user ID</summary><p class="note">If someone has signed in and still sees "You have not been added to any projects yet", ask them to send you the user ID shown on that screen (copied, not retyped), paste it here and choose their role.</p><div class="grid"><label class="f">User ID<input id="uUid" placeholder="paste the user ID"></label><label class="f">Their email (for your records)<input id="uUidE" type="email"></label></div><div class="act" style="justify-content:flex-start"><button id="uUidGo">Add this person</button></div></details>
   <div class="act"><button id="uX">Close</button></div>`, true);
+  $('uUidGo').onclick = async () => { const u = $('uUid').value.trim(); if (!/^[A-Za-z0-9]{20,40}$/.test(u)) return toast('That does not look like a user ID. Ask them to copy it from their screen.'); try { await S.store.setMember(p.id, u, $('uRole').value, { name: ($('uUidE').value.split('@')[0] || ''), email: $('uUidE').value.trim().toLowerCase() }); toast('Added as ' + ROLES[$('uRole').value] + '. Ask them to reload the app.', 6000); usersDialog(); } catch (e) { toast('Could not add: ' + e.message, 6000); } };
   const help = () => $('uHelp').textContent = ROLE_HELP[$('uRole').value]; $('uRole').onchange = help; help();
   $('uX').onclick = closeModal;
   document.querySelectorAll('[data-u]').forEach(s => s.onchange = async () => { try { await S.store.setMember(p.id, s.dataset.u, s.value); toast('Role updated'); } catch (e) { toast(e.message); } });

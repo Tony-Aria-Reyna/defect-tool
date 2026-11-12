@@ -84,16 +84,26 @@ async function firebaseStore() {
       return ref.id;
     },
     async updateProject(pid, patch) { await localWrite(F.updateDoc(D('projects', pid), patch)); },
-    async setMember(pid, uid, role) {
+    async setMember(pid, uid, role, who) {
       const p = await api.getProject(pid);
       const members = { ...(p.members || {}) }, info = { ...(p.memberInfo || {}) };
-      if (role) members[uid] = role; else { delete members[uid]; delete info[uid]; }
+      if (role) { members[uid] = role; if (who && !info[uid]) info[uid] = who; } else { delete members[uid]; delete info[uid]; }
       await F.updateDoc(D('projects', pid), { members, memberInfo: info, memberUids: Object.keys(members) });
     },
     // Invitations live in a top-level collection, id = <projectId>_<email>, so a new user can find theirs.
     async listInvites(pid) { const s = await F.getDocs(F.query(C('invites'), F.where('pid', '==', pid))); return s.docs.map(d => ({ id: d.id, ...d.data() })); },
     async invite(pid, email, role, projectName) { const e = emailKey(email); await F.setDoc(D('invites', pid + '_' + e), { pid, email: e, role, projectName: projectName || '', by: me().email, at: new Date().toISOString() }); },
     async cancelInvite(pid, email) { await F.deleteDoc(D('invites', pid + '_' + emailKey(email))); },
+    // The same as claimInvites, but says what it found so a person stuck on "not added yet" can see why.
+    async claimReport() {
+      const m = me(); if (!navigator.onLine) return { msg: 'No internet connection. Connect and try again.' };
+      if (!user.emailVerified) return { msg: 'This sign-in has not confirmed the email address ' + m.email + '. Sign out and sign in with Google, or with the email sign-in link.' };
+      let s; try { s = await F.getDocs(F.query(C('invites'), F.where('email', '==', m.email))); } catch (e) { return { msg: 'Could not look for invitations: ' + (e.code || e.message) }; }
+      if (!s.docs.length) return { msg: 'There is no invitation waiting for ' + m.email + '. Ask the project administrator to check the address and send the invitation again from the live project (not test mode).' };
+      let n = 0; const errs = [];
+      for (const d of s.docs) { const { pid, role } = d.data(); try { await F.updateDoc(D('projects', pid), { [`members.${m.uid}`]: role, memberUids: F.arrayUnion(m.uid), [`memberInfo.${m.uid}`]: { name: m.name, email: m.email } }); await F.deleteDoc(d.ref); n++; } catch (e) { errs.push(e.code || e.message); } }
+      return { n, msg: n ? '' : 'An invitation was found but joining failed (' + errs.join(', ') + '). Send this message and your user ID to the project administrator.' };
+    },
     // A signed-in user accepts every invitation addressed to their verified email address.
     async claimInvites() {
       if (!user.email || !user.emailVerified || !navigator.onLine) return 0;
@@ -192,6 +202,7 @@ async function localStore(dbName, asUser) {
     async invite(pid, email, role, projectName) { const e = emailKey(email); await put(`projects/${pid}/invites/${e}`, { email: e, role, projectName, by: user.email, at: new Date().toISOString() }); },
     async cancelInvite(pid, email) { await del(`projects/${pid}/invites/${emailKey(email)}`); },
     async claimInvites() { return 0; },
+    async claimReport() { return { msg: 'Demo mode has no invitations.' }; },
     async listPlans(pid) { return (await list(`projects/${pid}/plans/`)).sort((a, b) => (a.order || 0) - (b.order || 0)); },
     async savePlan(pid, plan) { const { id, ...rest } = plan; await put(`projects/${pid}/plans/${id}`, rest); },
     async deletePlan(pid, id) { await del(`projects/${pid}/plans/${id}`); },
