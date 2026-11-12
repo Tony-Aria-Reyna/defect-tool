@@ -7,7 +7,7 @@ export const locText = d => { const a = []; if (d.block) a.push(/^(site|external
 // Pin label: a letter for who raised it, then the number. Items raised in this app carry the project's own ID prefix and show R (Resero);
 // imported consultant items show the first letter of their prefix (MM-308 shows M308).
 let OWN_PREFIX = 'D', PRJ = {}; export const setProjectCtx = p => { PRJ = p || {}; OWN_PREFIX = String(PRJ.idPrefix || 'D').toUpperCase(); };
-export const pinLabel = d => { const m = /^([A-Za-z]+)-0*(.*)$/.exec(String(d.id)); if (!m) return String(d.id); return (m[1].toUpperCase() === OWN_PREFIX ? 'R' : m[1][0].toUpperCase()) + (m[2] || '0'); };
+export const pinLabel = d => { const m = /^([A-Za-z]+)-0*(.*)$/.exec(String(d.id)); if (!m) return String(d.id); const pre = m[1].toUpperCase(); return (pre === OWN_PREFIX ? 'R' : pre === 'MM' ? 'M' : pre.slice(0, 2)) + (m[2] || '0'); };
 
 function clean(s) { return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/—/g, ', ').replace(/→/g, '->').replace(/[^\n\x20-\x7e\xa0-\xff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–˜™š›œžŸ]/g, ''); }
 const hex = h => { const n = parseInt(h.slice(1), 16); return PDFLib.rgb((n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255); };
@@ -122,7 +122,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
 
-export const COLS = [['ID', 'id'], ['Title', 'title'], ['Description', 'desc'], ['Action required', 'action'], ['Block', 'block'], ['Level', 'level'], ['Unit', 'unit'], ['Room / area', 'room'], ['Surface', 'surface'], ['Item', 'item'], ['Element', 'element'], ['Type', 'type'], ['Severity', 'severity'], ['Trade', 'trade'], ['Responsible', 'responsible'], ['Status', 'status'], ['Target date', 'targetDate'], ['Date raised', 'dateRaised'], ['Source', 'source'], ['External ref', 'extRef'], ['Plan', 'plan'], ['Photos', d => (d.photos || []).length], ['Last comment', d => { const h = (d.history || []).slice(-1)[0]; return h ? nzDate(h.t) + ' ' + h.who + ': ' + h.txt : ''; }], ['Last updated', d => d.updated ? nzDate(d.updated) : '']];
+export const COLS = [['ID', 'id'], ['Title', 'title'], ['Description', 'desc'], ['Action required', 'action'], ['Block', 'block'], ['Level', 'level'], ['Unit', 'unit'], ['Room / area', 'room'], ['Surface', 'surface'], ['Item', 'item'], ['Element', 'element'], ['Type', 'type'], ['Severity', 'severity'], ['Trade', 'trade'], ['Responsible', 'responsible'], ['Subcontractor', 'subcontractor'], ['Status', 'status'], ['Target date', 'targetDate'], ['Date raised', 'dateRaised'], ['Source', 'source'], ['External ref', 'extRef'], ['Plan', 'plan'], ['Photos', d => (d.photos || []).length], ['Last comment', d => { const h = (d.history || []).slice(-1)[0]; return h ? nzDate(h.t) + ' ' + h.who + ': ' + h.txt : ''; }], ['Last updated', d => d.updated ? nzDate(d.updated) : '']];
 export async function buildXlsx(L, ctx) {
   if (!window.XLSX) await loadScript(LIB.xlsx);
   const val = (d, f) => typeof f === 'function' ? f(d) : f === 'plan' ? ((ctx.plans.find(p => p.id === d.plan) || {}).name || '') : (d[f] == null ? '' : d[f]);

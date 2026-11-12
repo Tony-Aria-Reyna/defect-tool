@@ -168,12 +168,12 @@ function initFilters() {
   fillSel('fBlock', 'All blocks', blocks, F.block); fillSel('fLevel', 'All levels', levels, F.level);
   $('fUnit').innerHTML = '<option value="">All units</option><option value="-">Common / no unit</option>' + units.map(u => `<option ${u === F.unit ? 'selected' : ''}>${esc(u)}</option>`).join('');
   setProjectCtx(p); const sl = sevLabel(p); fillSel('fSev', sl === 'Severity' ? 'All severities' : 'All ' + sl.toLowerCase().replace(/y$/, 'ie') + 's', p.severities, F.sev); const so = document.querySelector('#sort option[value=sev]'); if (so) so.textContent = 'Sort: ' + sl.toLowerCase(); fillSel('fTrade', 'All trades', p.trades, F.trade);
-  fillSel('fResp', 'All responsible', [...new Set([...p.responsible, ...D.map(d => d.responsible).filter(Boolean)])], F.resp);
+  { const subs = [...new Set(D.map(d => d.subcontractor).filter(Boolean))].sort((a, b) => a.localeCompare(b)); fillSel('fSub', 'All subcontractors', subs, F.sub); $('fSub').style.display = subs.length ? '' : 'none'; } fillSel('fResp', 'All responsible', [...new Set([...p.responsible, ...D.map(d => d.responsible).filter(Boolean)])], F.resp);
 }
 let filtersDirty = true;
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!q || [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible].join(' ').toLowerCase().includes(q)));
+  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!F.sub || d.subcontractor === F.sub) && (!q || [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor].join(' ').toLowerCase().includes(q)));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -192,7 +192,7 @@ export async function render() {
   const L = filtered();
   $('lmeta').textContent = L.length + ' of ' + D.length + ' shown';
   $('list').innerHTML = L.length ? L.map(d => { const sev = isMajor(d) ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
-    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? `<span class="tag loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</span>` : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.subcontractor ? `<span class="tag">${esc(d.subcontractor)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? `<span class="tag loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</span>` : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
   $('list').querySelectorAll('.tag.loc').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
   $('list').querySelectorAll('[data-pick]').forEach(cb => { cb.onclick = e => e.stopPropagation(); cb.onchange = () => { cb.checked ? S.bulk.add(cb.dataset.pick) : S.bulk.delete(cb.dataset.pick); cb.closest('.card').classList.toggle('picked', cb.checked); bulkBar(); }; });
   $('list').querySelectorAll('.card').forEach(el => el.onclick = () => { if (S.bulk) { const cb = el.querySelector('[data-pick]'); if (cb) { cb.checked = !cb.checked; cb.onchange(); } return; } const d = S.defects.find(x => x.id === el.dataset.id); S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); });
@@ -245,7 +245,8 @@ export async function showPlan(id, focus) {
   if (focus && focus.x != null) requestAnimationFrame(() => PV.focus(focus.x, focus.y));
 }
 function startPlacing(pl) {
-  placing = pl; PV.setMode('place', (pl.mode === 'pick' ? esc(pl.banner || 'Tap the point') : pl.mode === 'new' ? 'Tap the plan where the defect is' : 'Tap the plan to set the location of ' + esc(pl.draft.id)) + '<button id="bnC">Cancel</button>');
+  placing = pl;
+  if (pl.mode === 'queue') { PV.setMode('place', pl.html + '<button id="bnSkip">Skip</button><button id="bnStop">Stop</button>'); $('bnSkip').onclick = () => { stopPlacing(); pl.resolve('skip'); }; $('bnStop').onclick = () => { stopPlacing(); pl.resolve('stop'); }; return; } PV.setMode('place', (pl.mode === 'pick' ? esc(pl.banner || 'Tap the point') : pl.mode === 'new' ? 'Tap the plan where the defect is' : 'Tap the plan to set the location of ' + esc(pl.draft.id)) + '<button id="bnC">Cancel</button>');
   $('bnC').onclick = () => { const p = placing; stopPlacing(); if (p && p.mode === 'pick') p.resolve(null); else if (p && p.draft) openEditor(p.draft, p.isNew, true); };
   if ($('bPin')) { $('bPin').classList.add('on'); $('bPin').textContent = '✕ Cancel pin'; }
 }
@@ -333,8 +334,8 @@ function applyZone(d, x, y, planId) {
 }
 // Pins handed in from a file (for example a consultant's plan markups located on the drawings). Uses the same rules as dropping a pin by hand:
 // an elevation pin also lands on the floor plan, unit and room are filled where empty, and hand-typed location text is kept.
-export function pinPatch(d, planId, x, y, room) {
-  let spot = null; if (x == null) { const z = findZone(d.unit, room || d.room); if (!z) return null; spot = z; planId = z.plan.id; x = z.x; y = z.y; }
+export function pinPatch(d, planId, x, y, room, item, where) {
+  let spot = null; if (x == null) { const z = findZone(d.unit, room == null ? d.room : room, item, where); if (!z) return null; spot = z; planId = z.plan.id; x = z.x; y = z.y; }
   const w = JSON.parse(JSON.stringify(d)), auto = d.autoLoc || {}; w.item = ''; applyZone(w, x, y, planId);
   const patch = { plan: planId, x, y, plan2: w.plan2 || null, x2: w.x2 ?? null, y2: w.y2 ?? null, autoLoc: w.autoLoc || null, surface: w.surface || d.surface || '', zoneHit: w.zoneHit || '' };
   if (!d.unit || String(d.unit) === String(auto.unit || '')) patch.unit = w.unit || ''; if (!d.room || d.room === (auto.room || '')) patch.room = w.room || '';
@@ -344,20 +345,42 @@ export function pinPatch(d, planId, x, y, room) {
 async function onPlace(x, y) {
   const pl = placing; stopPlacing();
   if (pl.mode === 'pick') { toast('✓ Point recorded', 1200); pl.resolve({ x, y }); return; }
+  if (pl.mode === 'queue') { pl.resolve({ x, y, plan: S.curPlan }); return; }
   if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); ED.focusDesc = true; const el = $('edBody').querySelector('[name=title]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
   else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
+}
+// Items waiting for a pin: walk through them one at a time. Each opens the plan for its unit (zoomed to the unit when it has an outline);
+// tap where it is, or switch to another plan or elevation first. Skip leaves it for later, Stop ends the run.
+export const unpinned = () => S.defects.filter(d => d.status !== 'Closed' && (!d.plan || d.x == null)).sort((a, b) => natural(String(a.unit || 'zz'), String(b.unit || 'zz')) || natural(a.id, b.id));
+export async function pinQueue() {
+  const L = unpinned(); if (!L.length) return toast('Every open item has a pin'); if (!can.edit()) return toast('Your role cannot place pins');
+  closeModal(); let done = 0, skipped = 0;
+  for (let i = 0; i < L.length; i++) {
+    const d = L[i]; setTab('plan');
+    const z = d.unit ? findZone(d.unit, '') : null, bp = !z && d.block ? S.plans.find(p => p.kind !== 'elevation' && String(p.block || '').toUpperCase() === String(d.block).toUpperCase()) : null;
+    const pid = z ? z.plan.id : bp ? bp.id : (S.curPlan || (S.plans[0] || {}).id); if (!pid) break; await showPlan(pid);
+    if (z && z.zone && z.zone.poly) { const xs = z.zone.poly.map(q => q[0]), ys = z.zone.poly.map(q => q[1]); requestAnimationFrame(() => PV.zoomTo(Math.min(...xs) - 0.02, Math.min(...ys) - 0.02, Math.max(...xs) + 0.02, Math.max(...ys) + 0.02)); }
+    const where = [d.unit && 'Unit ' + d.unit, d.room, d.ext && d.ext['Interior / exterior']].filter(Boolean).join(' · ');
+    const ans = await new Promise(resolve => startPlacing({ mode: 'queue', resolve, html: `<span class="pq"><b>${i + 1} of ${L.length} · ${esc(d.id)}</b>${where ? ' · ' + esc(where) : ''}<br>${esc(String(d.desc || d.title || '').slice(0, 110))}<br><small>Tap where it is. You can change plan first.</small></span>` }));
+    if (ans === 'stop') break; if (ans === 'skip') { skipped++; continue; }
+    const patch = pinPatch(d, ans.plan, ans.x, ans.y); try { await S.store.updateDefect(S.project.id, d.id, { ...patch, needsPin: false }); Object.assign(d, patch, { needsPin: false }); done++; renderPins(); } catch (e) { toast('Could not save the pin: ' + friendly(e)); break; }
+  }
+  render(); const left = unpinned().length; modal(`<h2>Pinning</h2><p><b>${done}</b> pinned this run${skipped ? `, ${skipped} skipped` : ''}. <b>${left}</b> open item${left === 1 ? '' : 's'} still without a pin.</p><div class="act">${left ? '<button id="pqMore">Carry on</button>' : ''}<button class="go" id="pqOk">Done</button></div>`); $('pqOk').onclick = closeModal; if ($('pqMore')) $('pqMore').onclick = pinQueue;
 }
 // Ask the user to tap one point on a plan (used when linking an elevation to a floor plan).
 export function pickPoint(planId, banner) { return new Promise(resolve => { setTab('plan'); showPlan(planId).then(() => startPlacing({ mode: 'pick', resolve, banner })); }); }
 export function setTab(t) { if (t === 'plan' && isMobile() && !Nav.isOpen('plantab')) Nav.open('plantab', () => setTab('list')); if (t === 'list') Nav.closed('plantab'); $('main').className = 'tab-' + t; document.querySelectorAll('#mtabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); if (t === 'plan') requestAnimationFrame(() => { if (!PV.pv.user) PV.fit(); }); }
 // find a room boundary from a unit + room name (used after dictation, so the pin can be dropped automatically)
-function findZone(unit, room) {
-  const r = String(room || '').toLowerCase().replace(/\s+\d+$/, '');
-  for (const p of S.plans) for (const z of (p.zones || [])) {
+function findZone(unit, room, item, where) {
+  const r = String(room || '').toLowerCase().replace(/\s+\d+$/, ''), it = String(item || '').toLowerCase(), W = where || {};
+  const plans = S.plans.filter(p => p.kind !== 'elevation' && (!W.block || String(p.block || '').toUpperCase() === String(W.block).toUpperCase()) && (!W.level || String(p.level || '').toLowerCase().startsWith(String(W.level).toLowerCase())));
+  if (it && unit) for (const p of plans) for (const z of (p.zones || [])) { if (z.kind !== 'item' || !z.poly || !String(z.name || '').toLowerCase().startsWith(it)) continue; const c = centroid(z.poly), hit = locate(p.zones.filter(q => q.kind !== 'item'), c[0], c[1]) || {}; if (String(hit.unit) === String(unit) || String(z.unit) === String(unit)) return { plan: p, zone: z, x: c[0], y: c[1] }; }
+  for (const p of plans) for (const z of (p.zones || [])) {
     if (!z.poly || z.kind === 'unit') continue; const c = centroid(z.poly); const hit = locate(p.zones, c[0], c[1]) || {};
     if (unit && String(hit.unit) !== String(unit)) continue; if (!unit && hit.unit) continue;
     if (r && String(z.name || '').toLowerCase().startsWith(r)) return { plan: p, zone: z, x: c[0], y: c[1] };
   }
+  if (unit && W.strict) return null;
   if (unit) for (const p of S.plans) for (const z of (p.zones || [])) if (z.kind === 'unit' && String(z.unit) === String(unit)) { const c = centroid(z.poly); return { plan: p, zone: z, x: c[0], y: c[1], unitOnly: true }; }
   return null;
 }
@@ -371,7 +394,7 @@ function unitInfo(u) { for (const p of S.plans) for (const z of (p.zones || []))
 
 /* ================================================================ editor */
 let ED = null;
-const FIELDS = ['source', 'dateRaised', 'block', 'level', 'unit', 'room', 'surface', 'item', 'element', 'title', 'desc', 'type', 'severity', 'trade', 'responsible', 'action', 'targetDate', 'status'];
+const FIELDS = ['subcontractor', 'source', 'dateRaised', 'block', 'level', 'unit', 'room', 'surface', 'item', 'element', 'title', 'desc', 'type', 'severity', 'trade', 'responsible', 'action', 'targetDate', 'status'];
 async function newDefect() {
   const p = S.project;
   return { id: '', isNew: true, source: S.local.source || p.sources[0], dateRaised: todayISO(), raisedBy: S.user.name, block: '', level: '', unit: '', room: '', element: '', title: '', desc: '', type: p.types[0], severity: sevDefault(p), trade: p.trades[0], responsible: p.responsible[0], action: '', targetDate: '', status: 'Open', plan: '', x: null, y: null, photos: [], history: [], transcript: '' };
@@ -418,6 +441,7 @@ export function openEditor(d, isNew, isDraft) {
     <label class="f">Type<select name="type" ${dis}>${opts(p.types, w.type)}</select></label>
     <label class="f">Trade<select name="trade" ${dis}>${opts(p.trades, w.trade)}</select></label>
     <label class="f">Responsible<select name="responsible" ${dis}>${opts(p.responsible, w.responsible)}</select></label>
+    <label class="f">Subcontractor<input name="subcontractor" list="subL" value="${esc(w.subcontractor || '')}" ${dis} placeholder="optional"><datalist id="subL">${[...new Set(S.defects.map(x => x.subcontractor).filter(Boolean))].sort().map(x => `<option>${esc(x)}</option>`).join('')}</datalist></label>
     <label class="f">Target date<input type="date" name="targetDate" value="${esc(w.targetDate)}" ${dis}></label>
     <label class="f">Source<select name="source" ${dis}>${opts(p.sources, w.source)}</select></label>
     <label class="f">Date raised<input type="date" name="dateRaised" value="${esc(w.dateRaised)}" ${dis}></label>
@@ -644,6 +668,7 @@ function openMenu() {
   modal(`<h2>${esc(S.project.name)}</h2><p class="note">You are ${esc(ROLES[S.role] || '')}${S.sup ? ' and a system administrator' : ''} on this project.</p>
   <div class="btnlist">
     ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
+    ${can.edit() && unpinned().length ? `<button id="mPinQ">📍 Items to pin (${unpinned().length})<small>Go through open items that have no pin, one at a time</small></button>` : ''}
     ${can.edit() ? '<button id="mImp">⬆ Import register<small>Excel, CSV or a v1 backup file</small></button>' : ''}
     ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
     ${canInstall() ? `<button id="mInst">📲 Install ${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'on this phone' : 'as a desktop app'}<small>${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'Home screen app, stays signed in' : 'Opens in its own window from the Start menu or Dock'}</small></button>` : ''}
@@ -655,7 +680,7 @@ function openMenu() {
     <button id="mOut">⎋ Sign out<small>${esc(S.user.email)}</small></button>
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
-  on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
+  on('mPinQ', pinQueue); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
   on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp);
   on('mViewAs', () => { modal(`<h2>Test mode</h2><p>Try the app as another role on a <b>throwaway copy</b> of this project. Press every button you like: nothing is saved to the cloud, and leaving test mode throws the copy away.</p><div class="btnlist">${['admin', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${S.viewAs === r ? 'go' : ''}">${esc(ROLES[r] || r)}</button>`).join('')}${S.testMode ? '<button data-va="">Leave test mode</button>' : ''}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { closeModal(); b.dataset.va ? enterTestMode(b.dataset.va) : leaveTestMode(); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
@@ -663,11 +688,11 @@ function openMenu() {
 /* ================================================================ wiring */
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, onPinMoved: movePin });
-  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch });
+  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned });
   FM.init({ render, getBytes });
-  [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
+  [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
-  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
+  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = newDefectChooser;

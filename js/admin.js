@@ -953,6 +953,31 @@ export async function importJson(file) {
     };
     return;
   }
+  if (j.type === 'incoming' && Array.isArray(j.items)) {
+    if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
+    const pre = String(j.prefix || 'EXT').toUpperCase(), have = new Set(S.defects.map(d => d.extRef).filter(Boolean)), items = j.items.filter(it => !have.has(it.ref)), dup = j.items.length - items.length;
+    const by = {}; items.forEach(it => { const k = it.pin === 'ask' || it.pin === 'none' ? 'For you to pin' : it.pin === 'unit' ? 'Centre of the unit' : it.pin === 'item' ? 'On the fixture' : 'Centre of the room or area'; by[k] = (by[k] || 0) + 1; });
+    modal(`<h2>${esc(j.title || 'Incoming defects')}</h2><p>${esc(j.note || '')}</p><p><b>${items.length}</b> new items will be added as ${esc(pre)}-001 onwards.${dup ? ` ${dup} are already in this project and are skipped.` : ''}</p><table class="t"><tr><th>Where the pin goes</th><th>Items</th></tr>${Object.entries(by).map(([k, n]) => `<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join('')}</table>${j.map ? `<label class="chk"><input type="checkbox" id="inOld" ${j.numbering === 'old' ? 'checked' : ''}> ${esc(j.mapLabel || 'Unit numbers in this list are the old numbers: convert them to the current numbers')}</label>` : ''}<p class="note">Items whose room or fixture has no boundary drawn fall back to the centre of the unit, or join the "to pin" list if the unit is not found. After the import you can go through the "to pin" list one at a time.</p><div class="act"><button id="inX">Cancel</button><button class="go" id="inGo">Import and pin</button></div>`, true);
+    $('inX').onclick = closeModal;
+    $('inGo').onclick = async () => {
+      const conv = $('inOld') && $('inOld').checked, t = new Date().toISOString(), p = S.project, out = []; let n = S.defects.reduce((m, d) => d.id.startsWith(pre + '-') ? Math.max(m, parseInt(d.id.slice(pre.length + 1), 10) || 0) : m, 0), pinned = 0;
+      const resp = p.responsible.find(r => /miles/i.test(r)) || (p.contractor && p.responsible.includes(p.contractor) ? p.contractor : p.responsible[0]);
+      items.forEach(it => {
+        const unit = it.unit ? String(conv && j.map[it.unit] ? j.map[it.unit] : it.unit) : '';
+        const d = { id: pre + '-' + String(++n).padStart(3, '0'), extRef: it.ref, source: j.source || 'Import', dateRaised: j.date || todayISO(), title: it.desc.length > 70 ? it.desc.slice(0, 67).replace(/\s+\S*$/, '') + '…' : it.desc, desc: it.desc, action: '', element: '', unit, room: it.pin === 'ask' || it.pin === 'area' ? (it.room || '') : '', block: it.block || '', level: it.level || '', type: p.types[0], severity: sevMatch(p, j.category) || sevDefault(p), trade: guessTrade(it.desc), responsible: resp, subcontractor: it.sub || '', targetDate: '', status: 'Open', plan: '', x: null, y: null, photos: [],
+          ext: { 'Listed under': it.area + (conv && it.unit && j.map[it.unit] ? ' (old number; now Unit ' + unit + ')' : ''), 'Interior / exterior': it.ie || '', 'Subcontractor': it.sub || '', 'Register row': String(it.row || '') }, history: [{ t, who: S.user.name, txt: `Imported from ${j.title || file.name}.` }], created: t, updated: t, createdBy: S.user.email, updatedBy: S.user.email };
+        let patch = null;
+        if (it.pin === 'item' || it.pin === 'room') patch = X.pinPatch(d, null, null, null, it.room, it.item);
+        else if (it.pin === 'unit') patch = X.pinPatch(d, null, null, null, '', '');
+        else if (it.pin === 'area') patch = X.pinPatch(d, null, null, null, it.room, '', { block: it.block, level: it.level, strict: true });
+        if (patch) { Object.assign(d, patch); pinned++; if (it.pin === 'unit') { d.room = ''; d.item = ''; d.zoneHit = 'Whole unit (pinned at the centre of Unit ' + unit + ')'; } } else d.needsPin = true;
+        out.push(JSON.parse(JSON.stringify(d)));
+      });
+      await saveImported(out); await X.reloadProject(); X.render(); const left = out.length - pinned;
+      modal(`<h2>${out.length} items imported</h2><p><b>${pinned}</b> pinned from their description. <b>${left}</b> need you to place them.</p><p class="note">The "to pin" list shows each one in turn on the plan for its unit. Tap where it is, Skip to leave it, Stop to finish. You can come back to it any time from the menu: Items to pin.</p><div class="act"><button id="inLater">Later</button>${left ? '<button class="go" id="inPin">Pin them now</button>' : ''}</div>`); $('inLater').onclick = closeModal; if ($('inPin')) $('inPin').onclick = () => X.pinQueue();
+    };
+    return;
+  }
   if (j.type === 'pins' && Array.isArray(j.items)) {
     if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
     const planFor = c => S.plans.find(p => String(p.code || '').replace(/\D/g, '').startsWith(String(c))) || S.plans.find(p => String(p.name || '').replace(/[\s-]/g, '').includes(String(c)));
