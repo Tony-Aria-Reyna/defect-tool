@@ -560,6 +560,39 @@ const ico = (n, col) => `<svg class="zic" viewBox="0 0 24 24" fill="none" stroke
 const COL = { unit: '#0057ff', room: '#0f9d8c', area: '#8a5cd1', item: '#e07b2a', elev: '#d64545' };
 // The elevation lines sit where they do on a compass: north at the top, east to the right, south at the bottom, west to the left.
 // The rose in the middle shows which way north runs on this sheet, which is not always up.
+// Copy one finished unit's rooms and items into other unit outlines on this plan: pick the source, tick the units to fill, done.
+// No dragging: each target outline is the frame, and the rooms are scaled into it and given that unit's number.
+function copyUnitInto(src) {
+  const PV = ZE.PV, members = membersOf(src); if (!members.length) return toast('Draw the rooms in this unit first, then copy them into the others', 5000);
+  const box = poly => ({ x0: Math.min(...poly.map(p => p[0])), x1: Math.max(...poly.map(p => p[0])), y0: Math.min(...poly.map(p => p[1])), y1: Math.max(...poly.map(p => p[1])) });
+  const targets = ZE.zones.filter(q => q.kind === 'unit' && q !== src).map(q => ({ z: q, n: membersOf(q).length })).sort((a, b) => String(a.z.unit).localeCompare(String(b.z.unit), undefined, { numeric: true }));
+  if (!targets.length) return toast('Draw the other unit outlines first, then copy into them', 5000);
+  const empty = targets.filter(t => !t.n).length;
+  modal(`<h2>Copy Unit ${esc(src.unit || '')} into other units</h2>
+    <p>${members.length} rooms and items are copied into each unit you tick. Each one is stretched to fit that unit's own outline and takes its number, so nothing has to be dragged.</p>
+    <div class="cuList">${targets.map((t, i) => `<label class="opt cuRow"><input type="checkbox" data-cu="${i}" ${t.n ? '' : 'checked'}> <span><b>Unit ${esc(t.z.unit || '?')}</b> ${t.n ? `<span class="muted small">has ${t.n} rooms already, they will be replaced</span>` : '<span class="muted small">empty</span>'}</span></label>`).join('')}</div>
+    <label class="opt" style="margin-top:8px"><input type="checkbox" id="cuMir"> <span>Mirror left to right (for the units that face the other way)</span></label>
+    <div class="act"><button id="cuX">Cancel</button><button id="cuEmpty">Tick the ${empty} empty ones</button><button class="go" id="cuGo">Copy</button></div>`, false);
+  $('cuX').onclick = closeModal;
+  $('cuEmpty').onclick = () => document.querySelectorAll('[data-cu]').forEach((c, i) => c.checked = !targets[i].n);
+  $('cuGo').onclick = async () => {
+    const pick = [...document.querySelectorAll('[data-cu]')].filter(c => c.checked).map(c => targets[+c.dataset.cu]); if (!pick.length) return toast('Tick at least one unit');
+    const mir = $('cuMir').checked; closeModal(); snap();
+    const sb = box(src.poly); let made = 0;
+    pick.forEach(({ z: tgt }) => {
+      ZE.zones = ZE.zones.filter(q => !(q.kind !== 'unit' && pointInPoly(...centroid(q.poly), tgt.poly)));   // clear what was in there
+      const tb = box(tgt.poly), sx = (tb.x1 - tb.x0) / ((sb.x1 - sb.x0) || 1), sy = (tb.y1 - tb.y0) / ((sb.y1 - sb.y0) || 1);
+      members.forEach(m => { const c = copyZone(m, 0, 0, null);
+        c.poly = c.poly.map(p => { const x = mir ? tb.x1 - (p[0] - sb.x0) * sx : tb.x0 + (p[0] - sb.x0) * sx; return [x, tb.y0 + (p[1] - sb.y0) * sy]; });
+        if (mir) c.poly.reverse();
+        c.unit = tgt.unit || ''; c.block = tgt.block || ZE.plan.block || ''; c.level = tgt.level || ZE.plan.level || ''; delete c._srcUnit;
+        ZE.zones.push(c); });
+      made++;
+    });
+    PV.setZones(ZE.zones); PV.setMulti([]); PV.marquee = false; PV.selectZone(null); ZE.dirty = true; panel();
+    await save(); toast(`${members.length} rooms copied into ${made} unit${made === 1 ? '' : 's'}. Check them on the plan; Undo puts it all back.`, 7000);
+  };
+}
 function compassTiles(fg) {
   const cell = { top: [], bottom: [], left: [], right: [], none: [] };
   const ring = ['top', 'right', 'bottom', 'left'], order = { north: 0, east: 1, south: 2, west: 3 };
@@ -596,12 +629,13 @@ function panel() {
   ${(PV.multi && PV.multi.size) ? `<div class="zsel"><b>${PV.multi.size} shapes selected</b><p class="hint">Drag any selected shape to move the group, or drag a blue handle on the box around it to stretch the whole set, walls and rooms together. On drop it joins onto what is around it.</p>
      <div class="zb"><button class="go" id="zgFit" title="Stretch the selection so its outline sits exactly on the unit outline underneath it">⤢ Stretch onto the unit underneath</button></div>
      <div class="zb"><button id="zgWeld" title="Move every corner of the selection that is close to a neighbouring boundary onto it, so no slivers are left">🔗 Connect to neighbours</button><button class="go" id="zgCopy">⧉ Copy group</button><button id="zgClip">📋 Copy to another plan</button><button id="zgMirH">⇄ Mirror east-west</button><button id="zgMirV">⇅ Mirror north-south</button></div>
-     <div class="zb"><button id="zgUnit">✎ Rename: unit number, block, level…</button><button class="warn" id="zgDel">🗑 Delete group</button><button id="zgClear">Clear selection</button></div></div>` : ''}
+     <div class="zb"><button id="zgUnit">✎ Rename: unit number, block, level…</button><button class="warn" id="zgDel">🗑 Delete group</button><button class="go" id="zgClear">✓ Done selecting (back to editing)</button></div></div>` : ''}
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
      <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? '<div class="zb"><button class="warn" id="zDelV">✂ Delete this corner</button><button id="zFreeV" title="Stop this corner being tied to the shapes around it">🔓 Disconnect this corner</button></div>' : ''}
      <div class="zb">${z.kind === 'unit' ? '<button class="go" id="zFit">⤢ Fit rooms to this outline</button>' : (z.kind !== 'area' ? '<button id="zFit1">⤢ Fit to its unit</button>' : '')}<button id="zSq">∟ Square up corners</button></div>
      <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
-     ${z.kind === 'unit' ? '<button class="go" id="zCopyU">⧉ Copy this unit to the next one…</button><button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
+     ${z.kind === 'unit' ? '<button class="go" id="zCopyU">⧉ Copy these rooms into other units…</button><button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zCopyDrag">⧉ Copy and drag it myself</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
+  ${(PV.hideKinds && PV.hideKinds.size) ? `<div class="zwarn">${[...PV.hideKinds].map(k => ({ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' })[k]).join(', ')} are hidden, so they cannot be tapped. <button id="zShowAll">Show everything</button></div>` : ''}
   <div class="zlab">Show</div><div class="zb layers">${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}${faceGuides(ZE.plan).length ? `<label class="opt" title="The red dashed lines showing where the elevations sit on this plan"><input type="checkbox" id="zShowG" ${ZE.showGuides === false ? '' : 'checked'}> <span>Elevation lines</span></label>` : ''}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
   ${facesOnPlan().length ? `<div class="zlab">Elevation lines on this plan</div>${compassTiles(facesOnPlan())}` : ''}
@@ -626,7 +660,8 @@ function panel() {
     try { await S.store.updateProject(S.project.id, { north: next }); } catch (e) {}
     toast(`North points ${{ top: 'up', right: 'right', bottom: 'down', left: 'left' }[next]} on this project's drawings`, 3000); });
   document.querySelectorAll('[data-fe2]').forEach(bt => bt.onclick = async () => { const f = facesOnPlan()[+bt.dataset.fe2]; if (ZE.dirty) await save(); await editFace(f.ep, f.idx, 'line', 'plan'); });
-  on('zCopyU', () => { const u = PV.selZone; if (!u || u.kind !== 'unit') return; snap();
+  on('zCopyU', () => { const u = PV.selZone; if (u && u.kind === 'unit') copyUnitInto(u); });
+  on('zCopyDrag', () => { const u = PV.selZone; if (!u || u.kind !== 'unit') return; snap();
     const group = [u, ...membersOf(u)], copies = []; ZE.zones.forEach(q => { if (group.includes(q)) copies.push(copyZone(q, 0.015, 0.015, null)); });
     copies.forEach(c => { c._srcUnit = c.unit; ZE.zones.push(c); }); ZE.pendingGroup = copies.map(c => c.id);
     PV.selectZone(null); PV.marquee = false; PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel();
@@ -642,7 +677,8 @@ function panel() {
   on('zEd', () => zoneDetails(z, false)); on('zMv', () => { PV.moveZone = !PV.moveZone; panel(); });
   on('zUndo2', undo); on('zRedo2', redo);
   on('zMulti', () => { PV.marquee = !PV.marquee; if (!PV.marquee) PV.setMulti([]); PV.setMode('zones'); PV.selectZone(null); panel(); if (PV.marquee) toast('Tap shapes to select them, or drag a box around them on empty plan. Tap again to deselect.', 4000); });
-  on('zgClear', () => { PV.setMulti([]); panel(); });
+  on('zShowAll', () => { PV.hideKinds = new Set(); PV._drawZones(); panel(); });
+  on('zgClear', () => { PV.setMulti([]); PV.marquee = false; panel(); toast('Back to editing: tap any shape to move its corners', 3000); });
   on('zgDel', async () => { if (!(await confirmBox(`Delete ${PV.multi.size} shapes?`, 'Delete'))) return; snap(); ZE.zones = ZE.zones.filter(q => !PV.multi.has(q.id)); PV.setMulti([]); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
   on('zgCopy', () => { snap(); const ids = [...PV.multi], copies = []; ZE.zones.forEach(q => { if (ids.includes(q.id)) copies.push(copyZone(q, 0.015, 0.015, null)); });   // array order kept, so layers stay in order
     copies.forEach(c => { c._srcUnit = c.unit; ZE.zones.push(c); }); ZE.pendingGroup = copies.map(c => c.id); PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel(); toast('Copy made. Drag it into place; when you drop it you will be asked for the unit number.', 5000); });
