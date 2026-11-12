@@ -558,14 +558,15 @@ const ICON = {
 };
 const ico = (n, col) => `<svg class="zic" viewBox="0 0 24 24" fill="none" stroke="${col || 'currentColor'}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
 const COL = { unit: '#0057ff', room: '#0f9d8c', area: '#8a5cd1', item: '#e07b2a', elev: '#d64545' };
-// The elevation lines are laid out the way they sit on the sheet: the face along the top of the drawing sits at the top, the one
-// down the left at the left, and so on, with a compass in the middle pointing the way north runs on this sheet.
+// The elevation lines sit where they do on a compass: north at the top, east to the right, south at the bottom, west to the left.
+// The rose in the middle shows which way north runs on this sheet, which is not always up.
 function compassTiles(fg) {
   const cell = { top: [], bottom: [], left: [], right: [], none: [] };
-  fg.forEach((f, i) => (cell[f.l.side] || cell.none).push({ f, i }));
+  const byName = { north: 'top', east: 'right', south: 'bottom', west: 'left' };
+  fg.forEach((f, i) => { const d = (/(north|south|east|west)/i.exec(f.l.face || '') || [])[1]; cell[(d && byName[d.toLowerCase()]) || (d ? null : f.l.side) || 'none'].push({ f, i }); });
   const btn = ({ f, i }) => `<button class="ztile te" data-fe2="${i}" title="${esc(f.ep.name)}">${ico('elev', COL.elev)}<span>${esc(f.l.face || 'face')}</span></button>`;
   const north = fg.find(f => /north/i.test(f.l.face || '')), deg = { top: 0, right: 90, bottom: 180, left: 270 }[north && north.l.side] ?? null;
-  const rose = `<div class="zrose" title="${deg == null ? 'Which way north runs is not known on this sheet' : 'North on this sheet'}"><span style="transform:rotate(${deg || 0}deg)">${deg == null ? '?' : '↑'}</span><b>${deg == null ? '' : 'N'}</b></div>`;
+  const rose = `<div class="zrose" title="${deg == null ? 'Which way north runs on this sheet is not known' : 'North points this way on the drawing'}"><span style="transform:rotate(${deg || 0}deg)">${deg == null ? '?' : '↑'}</span><b>N</b></div>`;
   return `<div class="zcompass">
     <div class="cc ct">${cell.top.map(btn).join('')}</div>
     <div class="cc cl">${cell.left.map(btn).join('')}</div><div class="cc cm">${rose}</div><div class="cc cr">${cell.right.map(btn).join('')}</div>
