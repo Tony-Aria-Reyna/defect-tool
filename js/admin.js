@@ -908,6 +908,7 @@ export async function importJson(file) {
     $('hiGo').onclick = async () => { $('hiGo').disabled = true; let n = 0; try { for (const x of have) { $('hiSt').textContent = `Updating ${++n} of ${have.length}…`; const d = S.defects.find(q => q.id === x.id); const old = JSON.stringify((d.history || []).map(h => [h.t, h.who, h.txt])); const add = x.history.filter(h => !old.includes(JSON.stringify([h.t, h.who, h.txt]))); if (add.length) await S.store.updateDefect(S.project.id, x.id, { historyImported: j.id }, add); } await S.store.updateProject(S.project.id, { historyPacks: [...(S.project.historyPacks || []), j.id] }); S.project.historyPacks = [...(S.project.historyPacks || []), j.id]; closeModal(); toast('History added to ' + have.length + ' defects', 5000); } catch (e) { $('hiSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('hiGo').disabled = false; } };
     return;
   }
+  if (j.type === 'zones-export' && Array.isArray(j.plans)) { j = { ...j, type: 'zones', numbering: 'new', title: 'Boundaries backup' + (j.exported ? ' from ' + String(j.exported).slice(0, 10) : ''), note: 'This is a boundaries export. Restoring it puts the boundaries on each plan back to how they were when it was exported.', plans: j.plans.filter(p => p.kind !== 'elevation' && (p.zones || []).length).map(p => ({ key: p.id, name: p.name, zones: p.zones })) }; }
   if (j.type === 'zones' && Array.isArray(j.plans)) {
     if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change boundaries');
     const findPlan = p => S.plans.find(x => x.id === p.key) || S.plans.find(x => p.key && ((p.key === 'AG' && /Block A/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'AF' && /Block A/i.test(x.name) && /First/i.test(x.name)) || (p.key === 'BG' && /Block B/i.test(x.name) && /Ground/i.test(x.name)) || (p.key === 'BF' && /Block B/i.test(x.name) && /First/i.test(x.name)))) || S.plans.find(x => x.name === p.name || x.code === p.code);
@@ -942,7 +943,7 @@ export async function importJson(file) {
   if (j.project && Array.isArray(j.plans) && j.plans.length && j.plans[0].img) return importProjectPack(j);
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);
   const fmN = ['assets', 'tasks', 'systems'].reduce((a, k) => a + ((j[k] || []).length), 0);
-  if (!list.length && !fmN && !j.zones) return toast('Nothing to import in that file');
+  if (!list.length && !fmN && !j.zones) return toast(`Nothing to import in that file (${file.name}${j.type ? ', type "' + j.type + '"' : ', no type'}). This app is on v${APP.version}; reload it and try again.`, 9000);
   const planIds = [...new Set(list.map(d => d.plan).filter(Boolean))];
   const guess = id => { const code = (j.plans || {})[id] || id; const p = S.plans.find(p => (p.name + ' ' + (p.code || '')).toLowerCase().includes(String(code).toLowerCase().replace(/ rev.*$/, ''))); return p ? p.id : ''; };
   modal(`<h2>Import${list.length ? ' ' + list.length + ' defects' : ''}${fmN ? ' and facility data' : ''}</h2>
