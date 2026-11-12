@@ -588,6 +588,7 @@ function panel() {
   <div class="zlab">Draw</div>
   <div class="ztiles"><button class="ztile tu" id="zU">${ico('unit', COL.unit)}<span>Unit outline</span></button><button class="ztile tr" id="zR">${ico('room', COL.room)}<span>Room</span></button><button class="ztile ta" id="zA">${ico('area', COL.area)}<span>Common area</span></button><button class="ztile ti" id="zI">${ico('item', COL.item)}<span>Item</span><small>kitchen, WC, vanity</small></button></div>
   <div class="ztiles one"><button class="ztile ts ${PV.marquee ? 'on' : ''}" id="zMulti">${ico('select')}<span>${PV.marquee ? 'Selecting several: tap shapes or drag a box' : 'Select several…'}</span></button></div>
+  ${ZE.pendingGroup && PV.multi && PV.multi.size ? `<div class="zsteps"><b>Placing a copy</b><ol><li>Drag the orange copy over the next apartment.</li><li>Drop it on that unit's outline: it stretches into it and joins up.</li><li>Check the unit number in the window that opens, then Apply.</li></ol></div>` : ''}
   ${(PV.multi && PV.multi.size) ? `<div class="zsel"><b>${PV.multi.size} shapes selected</b><p class="hint">Drag any selected shape to move the group, or drag a blue handle on the box around it to stretch the whole set, walls and rooms together. On drop it joins onto what is around it.</p>
      <div class="zb"><button class="go" id="zgFit" title="Stretch the selection so its outline sits exactly on the unit outline underneath it">⤢ Stretch onto the unit underneath</button></div>
      <div class="zb"><button id="zgWeld" title="Move every corner of the selection that is close to a neighbouring boundary onto it, so no slivers are left">🔗 Connect to neighbours</button><button class="go" id="zgCopy">⧉ Copy group</button><button id="zgClip">📋 Copy to another plan</button><button id="zgMirH">⇄ Mirror east-west</button><button id="zgMirV">⇅ Mirror north-south</button></div>
@@ -596,7 +597,7 @@ function panel() {
      <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? '<div class="zb"><button class="warn" id="zDelV">✂ Delete this corner</button><button id="zFreeV" title="Stop this corner being tied to the shapes around it">🔓 Disconnect this corner</button></div>' : ''}
      <div class="zb">${z.kind === 'unit' ? '<button class="go" id="zFit">⤢ Fit rooms to this outline</button>' : (z.kind !== 'area' ? '<button id="zFit1">⤢ Fit to its unit</button>' : '')}<button id="zSq">∟ Square up corners</button></div>
      <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
-     ${z.kind === 'unit' ? '<button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
+     ${z.kind === 'unit' ? '<button class="go" id="zCopyU">⧉ Copy this unit to the next one…</button><button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
   <div class="zlab">Show</div><div class="zb layers">${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}${faceGuides(ZE.plan).length ? `<label class="opt" title="The red dashed lines showing where the elevations sit on this plan"><input type="checkbox" id="zShowG" ${ZE.showGuides === false ? '' : 'checked'}> <span>Elevation lines</span></label>` : ''}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
   ${facesOnPlan().length ? `<div class="zlab">Elevation lines on this plan</div>${compassTiles(facesOnPlan())}` : ''}
@@ -617,6 +618,11 @@ function panel() {
   if ($('zOrtho')) $('zOrtho').onchange = e => { ZE.ortho = e.target.checked; PV.ortho = ZE.ortho; S.local.zoneOrtho = ZE.ortho; saveLocal(); };
   if (ZE.ortho == null) ZE.ortho = S.local.zoneOrtho !== false; PV.ortho = ZE.ortho; if ($('zOrtho')) $('zOrtho').checked = ZE.ortho;
   document.querySelectorAll('[data-fe2]').forEach(bt => bt.onclick = async () => { const f = facesOnPlan()[+bt.dataset.fe2]; if (ZE.dirty) await save(); await editFace(f.ep, f.idx, 'line', 'plan'); });
+  on('zCopyU', () => { const u = PV.selZone; if (!u || u.kind !== 'unit') return; snap();
+    const group = [u, ...membersOf(u)], copies = []; ZE.zones.forEach(q => { if (group.includes(q)) copies.push(copyZone(q, 0.015, 0.015, null)); });
+    copies.forEach(c => { c._srcUnit = c.unit; ZE.zones.push(c); }); ZE.pendingGroup = copies.map(c => c.id);
+    PV.selectZone(null); PV.marquee = false; PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel();
+    toast('Step 1 of 3 done: the copy is made. Now drag it over the next apartment and drop it on that unit outline.', 7000); });
   on('zFreeV', () => { snap(); const n = PV.disconnectCorner(); if (!n) return toast('This corner is not tied to anything, or the neighbouring shapes need it', 4000); ZE.dirty = true; panel(); toast(`Disconnected from ${n} neighbouring corner${n === 1 ? '' : 's'}`, 3000); });
   on('zFit', () => { const u = PV.selZone; if (!u) return; snap(); squareUp(u); const rep = fitToUnit(u); PV.setZones(ZE.zones); PV.selectZone(u); ZE.dirty = true; panel(); toast(rep.n ? fitMsg(u, rep) : 'No rooms sit inside this outline yet', 6000); });
   on('zFit1', () => { const r = PV.selZone, u = r && unitAround(r); if (!u) return toast('This shape is not inside a unit outline. Draw or move the unit outline around it first.', 5000); snap(); const rep = fitToUnit(u, [r]); PV.setZones(ZE.zones); PV.selectZone(r); ZE.dirty = true; panel(); toast(fitMsg(u, rep), 5000); });
@@ -667,8 +673,26 @@ function panel() {
 }
 function draw(kind) { ZE.drawKind = kind; ZE.PV.selectZone(null); ZE.PV.startDraw('', ZE.rect); panel(); }
 // After a copied group is dropped (or on demand): set the unit number, block and level for every shape in the group.
+// Fit a selection onto the unit outline it has been dropped on: the existing outline is the frame, and the copied rooms and
+// items are stretched into it. Returns the unit it was fitted to, or null when it is not sitting on one.
+function fitGroupToOutline(ids) {
+  const PV = ZE.PV, sel = ZE.zones.filter(q => ids.includes(q.id)); if (!sel.length) return null;
+  const bb = sel.reduce((b, z) => { z.poly.forEach(p => { b.x0 = Math.min(b.x0, p[0]); b.y0 = Math.min(b.y0, p[1]); b.x1 = Math.max(b.x1, p[0]); b.y1 = Math.max(b.y1, p[1]); }); return b; }, { x0: 9, y0: 9, x1: -9, y1: -9 });
+  const c = [(bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2];
+  const target = ZE.zones.filter(q => q.kind === 'unit' && !ids.includes(q.id) && q.poly && q.poly.length > 2 && pointInPoly(c[0], c[1], q.poly)).sort((a, b) => polyArea(a.poly) - polyArea(b.poly))[0];
+  if (!target) return null;
+  const xs = target.poly.map(p => p[0]), ys = target.poly.map(p => p[1]), t = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  const sx = (t.x1 - t.x0) / ((bb.x1 - bb.x0) || 1), sy = (t.y1 - t.y0) / ((bb.y1 - bb.y0) || 1);
+  sel.forEach(z => { z.poly = z.poly.map(p => [t.x0 + (p[0] - bb.x0) * sx, t.y0 + (p[1] - bb.y0) * sy]); z.unit = target.unit || z.unit; z.block = target.block || z.block; z.level = target.level || z.level; });
+  if (sel.some(z => z.kind === 'unit')) ZE.zones = ZE.zones.filter(z => z !== target);   // the copied outline now sits exactly on it
+  PV.setZones(ZE.zones); PV.setMulti(sel.map(z => z.id)); if (ZE.join !== false) PV.weldGroup(14); ZE.dirty = true;
+  return target;
+}
 function groupDetails(ids, isDrop) {
-  const PV = ZE.PV, zs = ZE.zones.filter(q => ids.includes(q.id)); if (!zs.length) return;
+  const PV = ZE.PV; let zs = ZE.zones.filter(q => ids.includes(q.id)); if (!zs.length) return;
+  // dropped on top of an existing unit outline: that outline is the frame, and the copy is stretched into it straight away
+  let fitted = null;
+  if (isDrop && zs.filter(q => q.kind === 'unit').length <= 1) { fitted = fitGroupToOutline(ids); zs = ZE.zones.filter(q => ids.includes(q.id)); }
   const outlines = zs.filter(q => q.kind === 'unit');
   if (outlines.length >= 2) {   // a whole floor (or several units) at once: renumber in order, or leave for renaming one by one
     const first = outlines.map(q => parseInt(String(q.unit || '').replace(/\D/g, ''), 10)).filter(n => !isNaN(n)); const guess = first.length ? Math.max(...first) + 1 : '';
@@ -688,11 +712,11 @@ function groupDetails(ids, isDrop) {
       closeModal(); PV.setZones(ZE.zones); PV.setMulti(ids); ZE.dirty = true; panel(); save(); };
     return;
   }
-  const cur = zs.find(q => q.unit) || {}, guess = isDrop ? nextUnit(cur._srcUnit || cur.unit) : (cur.unit || '');
+  const cur = zs.find(q => q.unit) || {}, guess = fitted ? (fitted.unit || '') : (isDrop ? nextUnit(cur._srcUnit || cur.unit) : (cur.unit || ''));
   const names = [...new Set(zs.filter(q => q.kind !== 'unit').map(q => q.name).filter(Boolean))];
-  modal(`<h2>${isDrop ? 'Copy placed' : 'Group details'}</h2><p>${zs.length} shapes${names.length ? ': ' + esc(names.slice(0, 8).join(', ')) + (names.length > 8 ? '…' : '') : ''}. Room and item names are kept; set what applies to the whole group.</p>
+  modal(`<h2>${fitted ? 'Fitted into Unit ' + esc(fitted.unit || '') : isDrop ? 'Copy placed' : 'Group details'}</h2><p>${fitted ? `The outline that was already there is now the frame: the ${zs.length} copied shapes have been stretched into it and joined to what is around them. ` : ''}${zs.length} shapes${names.length ? ': ' + esc(names.slice(0, 8).join(', ')) + (names.length > 8 ? '…' : '') : ''}. Room and item names are kept; set what applies to the whole group.</p>
     <label class="f">Unit number<input id="gdU" value="${esc(guess)}" list="zdUl"></label>
-    <div class="row2"><label class="f">Block<input id="gdB" value="${esc(cur.block || '')}" list="blocks"></label><label class="f">Level<input id="gdL" value="${esc(cur.level || '')}" list="levels"></label></div>
+    <div class="row2"><label class="f">Block<input id="gdB" value="${esc((fitted && fitted.block) || cur.block || '')}" list="blocks"></label><label class="f">Level<input id="gdL" value="${esc((fitted && fitted.level) || cur.level || '')}" list="levels"></label></div>
     <div class="act"><button id="gdX">${isDrop ? 'Leave as is' : 'Cancel'}</button><button class="go" id="gdOk">Apply to ${zs.length} shapes</button></div>`);
   $('gdX').onclick = () => { closeModal(); zs.forEach(q => delete q._srcUnit); };
   $('gdOk').onclick = () => { snap(); const u = $('gdU').value.trim(), b = $('gdB').value.trim(), l = $('gdL').value.trim(); zs.forEach(q => { if (u && (q.kind === 'unit' || q.unit || q.kind === 'room' || q.kind === 'item')) q.unit = u; if (b) q.block = b; if (l) q.level = l; delete q._srcUnit; }); closeModal(); PV.setZones(ZE.zones); PV.setMulti(ids); ZE.dirty = true; panel(); save(); };

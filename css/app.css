@@ -372,3 +372,4 @@ button,.btn,.chip,label.opt{transition:transform .08s ease,filter .08s ease,back
 .zpanel .zcompass .ztile .zic{margin:0;width:18px;height:18px;flex:none}
 .zpanel .zrose{width:50px;height:50px;border-radius:50%;border:1.5px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--navy);background:#fff}
 .zpanel .zrose span{font-size:19px;line-height:1;display:block}.zpanel .zrose b{font-size:10px;letter-spacing:.04em}
+.zpanel .zsteps{background:#fff7ec;border:1px solid #f0cfa0;border-radius:9px;padding:9px 10px;margin:8px 0}.zpanel .zsteps b{color:#8a5a00;font-size:12.5px}.zpanel .zsteps ol{margin:5px 0 0 16px;padding:0;font-size:12.5px;color:#6b5330;line-height:1.5}
