@@ -162,6 +162,19 @@ export async function editFace(ep, idx, stage) {
     await X.showPlan(ep.id); X.setTab('plan'); await zoneEditor(PV); if (!ZE) return;
     ZE.faceEdit = FE; ZE.zones = links.map((l, i) => { const b = i === idx ? (FE.band || l.band || [0.1, 0.9]) : (l.band || [0.1, 0.9]), bx = i === idx ? (FE.bandX || l.bandX || [0.05, 0.95]) : (l.bandX || [0.05, 0.95]); return { id: '__band' + i, kind: i === idx ? 'band' : 'bandro', name: l.face || 'face', poly: [[bx[0], b[0]], [bx[1], b[0]], [bx[1], b[1]], [bx[0], b[1]]] }; });
     const bz = ZE.zones.find(z => z.id === '__band' + idx); PV.setZones(ZE.zones); PV.selectZone(bz); PV.zoomTo(bz.poly[0][0] - 0.02, bz.poly[0][1] - 0.08, bz.poly[2][0] + 0.02, bz.poly[2][1] + 0.08);
+    // bands that share an edge with this one move together, so storeys never overlap or leave a gap
+    const rectOf = P => ({ x0: Math.min(...P.map(p => p[0])), x1: Math.max(...P.map(p => p[0])), y0: Math.min(...P.map(p => p[1])), y1: Math.max(...P.map(p => p[1])) });
+    const polyOf = r => [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+    FE.prev = rectOf(bz.poly); FE.others = FE.others || {}; const rects = new Map(ZE.zones.filter(o => o.kind === 'bandro').map(o => [o.id, rectOf(o.poly)]));
+    const base = PV.o.onZoneEdit;
+    PV.o.onZoneEdit = (z, kind, dx, dy) => { base && base(z, kind, dx, dy); if (z !== bz) return; const cur = rectOf(bz.poly), old = FE.prev; let moved = false;
+      ZE.zones.forEach((o, i) => { if (o === bz || o.kind !== 'bandro') return; const r = rects.get(o.id); let ch = false;
+        const overlapX = Math.min(r.x1, old.x1) - Math.max(r.x0, old.x0) > 0.02, overlapY = Math.min(r.y1, old.y1) - Math.max(r.y0, old.y0) > 0.02;
+        if (overlapX) { for (const [mine, theirs] of [['y0', 'y1'], ['y1', 'y0'], ['y0', 'y0'], ['y1', 'y1']]) if (cur[mine] !== old[mine] && Math.abs(r[theirs] - old[mine]) < 0.008) { r[theirs] = cur[mine]; ch = true; } }
+        if (overlapY) { for (const [mine, theirs] of [['x0', 'x1'], ['x1', 'x0'], ['x0', 'x0'], ['x1', 'x1']]) if (cur[mine] !== old[mine] && Math.abs(r[theirs] - old[mine]) < 0.008) { r[theirs] = cur[mine]; ch = true; } }
+        if (ch) { FE.others[+o.id.replace('__band', '')] = { band: [+r.y0.toFixed(4), +r.y1.toFixed(4)], bandX: [+r.x0.toFixed(4), +r.x1.toFixed(4)] }; moved = true; }
+        o.poly = polyOf(r); });   // always rebuilt from its rectangle, so a corner the drag happened to share stays square
+      FE.prev = cur; PV._drawZones(); };
   } else {
     await X.showPlan(fp.id); X.setTab('plan'); await zoneEditor(PV); if (!ZE) return;
     const path = (FE.path || (L.path && L.path.length > 1 ? L.path : [L.a, L.b])).map(p => [p[0], p[1]]);
@@ -176,7 +189,7 @@ function facePanel() {
   if (FE.stage === 'band') {
     const bz = ZE.zones.find(z => z.id === '__band' + FE.idx); if (!bz) return; if (PV.selZone !== bz) PV.selectZone(bz);
     el.innerHTML = `<div class="zhead"><h3>1 of 2 · Band on the elevation: ${esc(FE.L.face || 'face')}</h3><button id="zfNext" class="go">Next: line on the floor plan ›</button></div><div class="zbody">
-    <p class="note">The blue box is the part of this elevation that belongs to this face and storey: pins inside it land on <b>${esc((S.plans.find(q => q.id === FE.L.planId) || {}).name || '')}</b>. Drag its corners so it covers that storey from floor level to the underside of the next floor (or the roof), and the full width of the face. The dashed boxes are the other faces on this sheet.</p>
+    <p class="note">The blue box is the part of this elevation that belongs to this face and storey: pins inside it land on <b>${esc((S.plans.find(q => q.id === FE.L.planId) || {}).name || '')}</b>. Drag its corners so it covers that storey from floor level to the underside of the next floor (or the roof), and the full width of the face. The dashed boxes are the other faces on this sheet; an edge they share with this box moves with it, so storeys never overlap.</p>
     <div class="act" style="justify-content:flex-start;flex-wrap:wrap"><button id="zfUndo">Undo</button><button id="zfSaveB">Save band only</button><button id="zfCancel">Cancel</button></div></div>`;
     const grab = () => { const xs = bz.poly.map(p => p[0]), ys = bz.poly.map(p => p[1]); FE.band = [+Math.min(...ys).toFixed(4), +Math.max(...ys).toFixed(4)]; FE.bandX = [+Math.min(...xs).toFixed(4), +Math.max(...xs).toFixed(4)]; };
     $('zfNext').onclick = async () => { grab(); ZE.dirty = false; try { await editFace(FE.ep, FE.idx, 'line'); } catch (e) { console.error(e); toast('Could not open the floor plan step: ' + e.message, 6000); } };
@@ -201,6 +214,7 @@ async function saveFace() {
   const ep2 = S.plans.find(q => q.id === ep.id) || ep; const links = ((ep2.links && ep2.links.length) ? ep2.links : (ep2.link ? [ep2.link] : [])).map(l => ({ ...l }));
   const L = links[idx]; if (!L) return;
   if (FE.band) L.band = FE.band; if (FE.bandX) L.bandX = FE.bandX;
+  Object.entries(FE.others || {}).forEach(([i, o]) => { if (links[i] && +i !== idx) { links[i].band = o.band; links[i].bandX = o.bandX; links[i].edited = true; } });
   if (FE.path && FE.path.length > 1) {
     const path = FE.path.map(p => [+p[0].toFixed(4), +p[1].toFixed(4)]);
     const fp = S.plans.find(q => q.id === L.planId) || ZE.plan;
