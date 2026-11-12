@@ -523,6 +523,25 @@ function draw(kind) { ZE.drawKind = kind; ZE.PV.selectZone(null); ZE.PV.startDra
 // After a copied group is dropped (or on demand): set the unit number, block and level for every shape in the group.
 function groupDetails(ids, isDrop) {
   const PV = ZE.PV, zs = ZE.zones.filter(q => ids.includes(q.id)); if (!zs.length) return;
+  const outlines = zs.filter(q => q.kind === 'unit');
+  if (outlines.length >= 2) {   // a whole floor (or several units) at once: renumber in order, or leave for renaming one by one
+    const first = outlines.map(q => parseInt(String(q.unit || '').replace(/\D/g, ''), 10)).filter(n => !isNaN(n)); const guess = first.length ? Math.max(...first) + 1 : '';
+    modal(`<h2>${outlines.length} units ${isDrop ? 'placed' : 'selected'}</h2><p>Block and level are set to this plan's. Give the units new numbers in one go, or leave them and rename each unit afterwards (select its outline, then Rename unit).</p>
+      <label class="f">Start numbering at<input id="gnS" value="${esc(guess)}" placeholder="e.g. 22"></label>
+      <label class="f">Numbering order<select id="gnO"><option value="lr">Left to right, then next row down</option><option value="rl">Right to left, then next row down</option><option value="tb">Top to bottom, then next column right</option><option value="keep">Keep each unit's current number</option></select></label>
+      <div class="act"><button id="gnX">Leave as is</button><button class="go" id="gnOk">Apply</button></div>`);
+    $('gnX').onclick = () => { closeModal(); zs.forEach(q => delete q._srcUnit); };
+    $('gnOk').onclick = () => { snap(); const st = parseInt($('gnS').value, 10), ord = $('gnO').value; const c = q => centroid(q.poly);
+      let list = outlines.slice(); const rowTol = 0.06;
+      if (ord !== 'keep' && !isNaN(st)) {
+        if (ord === 'tb') list.sort((a, b) => { const ca = c(a), cb = c(b); return Math.abs(ca[0] - cb[0]) > rowTol ? ca[0] - cb[0] : ca[1] - cb[1]; });
+        else list.sort((a, b) => { const ca = c(a), cb = c(b); return Math.abs(ca[1] - cb[1]) > rowTol ? ca[1] - cb[1] : (ord === 'rl' ? cb[0] - ca[0] : ca[0] - cb[0]); });
+        list.forEach((u, i) => { const n = String(st + i); const members = zs.filter(q => q !== u && q.kind !== 'unit' && pointInPoly(...centroid(q.poly), u.poly)); u.unit = n; members.forEach(m => m.unit = n); });
+      }
+      zs.forEach(q => { q.block = ZE.plan.block || q.block; q.level = ZE.plan.level || q.level; delete q._srcUnit; });
+      closeModal(); PV.setZones(ZE.zones); PV.setMulti(ids); ZE.dirty = true; panel(); save(); };
+    return;
+  }
   const cur = zs.find(q => q.unit) || {}, guess = isDrop ? nextUnit(cur._srcUnit || cur.unit) : (cur.unit || '');
   const names = [...new Set(zs.filter(q => q.kind !== 'unit').map(q => q.name).filter(Boolean))];
   modal(`<h2>${isDrop ? 'Copy placed' : 'Group details'}</h2><p>${zs.length} shapes${names.length ? ': ' + esc(names.slice(0, 8).join(', ')) + (names.length > 8 ? '…' : '') : ''}. Room and item names are kept; set what applies to the whole group.</p>
