@@ -93,7 +93,7 @@ export class PlanView {
     this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === skipZone && j === skipIdx) return; const d = Math.hypot((q[0] - n.x) * W, (q[1] - n.y) * H); if (d < bd) { bd = d; best = { x: q[0], y: q[1], snapped: 'corner' }; } }); });
     if (best) return best;
     bd = tol;
-    this.zones.forEach(z => { if (!z.poly || z === skipZone) return; const P = z.poly; for (let i = 0; i < P.length - (this.selZone.kind === 'face' ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L; if (t <= 0.02 || t >= 0.98) continue; const sx = ax + t * (bx - ax), sy = ay + t * (by - ay); const d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'line', zone: z, after: i }; } } });
+    this.zones.forEach(z => { if (!z.poly || z === skipZone) return; const P = z.poly; for (let i = 0; i < P.length - (z.kind === 'face' ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L; if (t <= 0.02 || t >= 0.98) continue; const sx = ax + t * (bx - ax), sy = ay + t * (by - ay); const d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'line', zone: z, after: i }; } } });
     if (best && best.zone && !dry) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
     if (best) return best;
     return this._snapDrawing(n) || n;
@@ -126,7 +126,7 @@ export class PlanView {
     if (!this.plan) return;
     const n = this._norm(e); const inside = n.x >= 0 && n.x <= 1 && n.y >= 0 && n.y <= 1;
     const pin = target && target.closest && target.closest('.pin');
-    if (this.mode === 'draw') { if (!inside) return; const d = this.draft; if (d.length > 2) { const f = d[0], r = this.img.getBoundingClientRect(); if (Math.hypot((f[0] - n.x) * r.width, (f[1] - n.y) * r.height) < 14) return this.finishDraw(); } const sn = this._snap(n); d.push([sn.x, sn.y]); if (this.rect && d.length === 2) { const [a, b] = d; this.draft = [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]]; return this.finishDraw(); } this._drawZones(); this.o.onDraftChange && this.o.onDraftChange(d); return; }
+    if (this.mode === 'draw') { if (!inside) return; const d = this.draft; if (d.length > 2) { const f = d[0], r = this.img.getBoundingClientRect(); if (Math.hypot((f[0] - n.x) * r.width, (f[1] - n.y) * r.height) < 14) return this.finishDraw(); } const sn = this._snap(n); d.push([sn.x, sn.y]); if (this.rect && d.length === 2) { const [a, b] = d; const W = this.plan.w, H = this.plan.h; if (Math.abs(b[0] - a[0]) * W < 6) b[0] = n.x; if (Math.abs(b[1] - a[1]) * H < 6) b[1] = n.y; if (Math.abs(b[0] - a[0]) * W < 6 || Math.abs(b[1] - a[1]) * H < 6) { d.pop(); return; } this.draft = [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]]; return this.finishDraw(); } this._drawZones(); this.o.onDraftChange && this.o.onDraftChange(d); return; }
     if (this.mode === 'place') { if (inside) this.o.onPlace && this.o.onPlace(n.x, n.y); return; }
     if (this.mode === 'zones') {
       const vh = target && target.closest && target.closest('[data-v]');
