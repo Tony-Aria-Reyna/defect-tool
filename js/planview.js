@@ -96,6 +96,12 @@ export class PlanView {
     this.zones.forEach(z => { if (!z.poly || z === skipZone) return; const P = z.poly; for (let i = 0; i < P.length - (z.kind === 'face' ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L; if (t <= 0.02 || t >= 0.98) continue; const sx = ax + t * (bx - ax), sy = ay + t * (by - ay); const d = Math.hypot(px - sx, py - sy) / (z.kind === 'unit' ? 1.6 : 1); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'line', zone: z, after: i }; } } });
     if (best && best.zone && !dry) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
     if (best) return best;
+    // guide lines (the elevation face lines on this plan): corners first, then the line itself
+    const G = this.guides || []; bd = tol * 1.4;
+    G.forEach(g => g.forEach(q => { const d = Math.hypot((q[0] - n.x) * W, (q[1] - n.y) * H); if (d < bd) { bd = d; best = { x: q[0], y: q[1], snapped: 'corner' }; } }));
+    if (best) return best; bd = tol * 1.4;
+    G.forEach(g => { for (let i = 0; i + 1 < g.length; i++) { const ax = g[i][0] * W, ay = g[i][1] * H, bx = g[i + 1][0] * W, by = g[i + 1][1] * H, px = n.x * W, py = n.y * H, L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L)), sx = ax + t * (bx - ax), sy = ay + t * (by - ay), d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'guide' }; } } });
+    if (best) return best;
     return this._snapDrawing(n) || n;
   }
   // Snap to the lines of the drawing itself (walls, grids extracted from the PDF): a crossing of two lines first, else the nearest line.
@@ -169,6 +175,7 @@ export class PlanView {
     const show = this.showZones || this.mode === 'zones' || this.mode === 'draw';
     let h = '', hh = '';   // hh: corner handles of the selected shape, drawn last so nothing covers them
     const hide = this.hideKinds || new Set();
+    if ((this.mode === 'zones' || this.mode === 'draw') && this.guides) this.guides.forEach(g => { h += `<polyline class="zguide" points="${g.map(p => `${p[0] * W},${p[1] * H}`).join(' ')}" style="stroke-width:${2.5 * inv}px;stroke-dasharray:${8 * inv} ${5 * inv}"/>`; });
     if (show) [...this.zones].sort((a, b) => ({ unit: 0, area: 1, room: 2, item: 3 }[a.kind] || 0) - ({ unit: 0, area: 1, room: 2, item: 3 }[b.kind] || 0)).forEach(z => {
       const face = z.kind === 'face';
       if (!z.poly || z.poly.length < (face ? 2 : 3) || hide.has(z.kind)) return; const sel = this.selZone && this.selZone.id === z.id, msel = this.multi.has(z.id);

@@ -213,7 +213,7 @@ export async function editFace(ep, idx, stage) {
     await X.showPlan(fp.id); X.setTab('plan'); await zoneEditor(PV); if (!ZE) return;
     const path = (FE.path || (L.path && L.path.length > 1 ? L.path : [L.a, L.b])).map(p => [p[0], p[1]]);
     const fz = { id: '__face', kind: 'face', name: (L.face || 'Face') + ' (' + ep.name + ')', poly: path };
-    ZE.faceEdit = FE; ZE.zones.push(fz); PV.setZones(ZE.zones); PV.selectZone(fz); PV.hideKinds = new Set(['item']);
+    ZE.faceEdit = FE; PV.guides = (PV.guides || []).filter(g => g !== L.path && JSON.stringify(g) !== JSON.stringify(L.path)); ZE.zones.push(fz); PV.setZones(ZE.zones); PV.selectZone(fz); PV.hideKinds = new Set(['item']);
     const xs = path.map(p => p[0]), ys = path.map(p => p[1]); PV.zoomTo(Math.min(...xs) - 0.03, Math.min(...ys) - 0.06, Math.max(...xs) + 0.03, Math.max(...ys) + 0.06);
   }
   panel();
@@ -464,6 +464,8 @@ export async function zoneEditor(PV) {
   const plan = S.plans.find(p => p.id === S.curPlan) || S.plans[0]; if (plan.id !== S.curPlan) await X.showPlan(plan.id);
   if (!ZE) { Nav.open('zones', () => { if (ZE) close(true); }); document.addEventListener('keydown', zoneKeys); }
   $('planPane').classList.add('zeditor');
+  // the elevation face lines that sit on this plan show as red dashed guides and corners snap to them
+  PV.guides = S.plans.filter(q => q.kind === 'elevation').flatMap(q => (q.links || []).filter(l => l.planId === plan.id && l.path && l.path.length > 1).map(l => l.path));
   ZE = { PV, plan, zones: JSON.parse(JSON.stringify(plan.zones || [])), dirty: false, members: null, collapsed: ZE ? ZE.collapsed : false, rect: ZE ? ZE.rect : !!S.local.zoneRect };
   PV.selectZone(null);
   PV.setZones(ZE.zones); PV.setMode('zones');
@@ -660,7 +662,7 @@ async function close(fromBack) {
   if (ZE.dirty && fromBack) { await save(); }
   document.removeEventListener('keydown', zoneKeys);
   const PV = ZE.PV; ['onDrawn', 'onZoneSelect', 'onDraftChange', 'onZoneDragStart', 'onZoneEdit', 'onVertexAdded', 'onVertexSelect', 'onMultiChange', 'onGroupMoved', 'onEditStart'].forEach(k => delete PV.o[k]); PV.marquee = false; PV.setMulti([]);
-  PV.selectZone(null); PV.setMode('view'); PV.hideKinds = null; $('zonePanel').classList.remove('show'); $('planPane').classList.remove('zeditor'); ZE = null; if (!fromBack) Nav.closed('zones'); await X.reloadProject();
+  PV.selectZone(null); PV.setMode('view'); PV.hideKinds = null; PV.guides = null; $('zonePanel').classList.remove('show'); $('planPane').classList.remove('zeditor'); ZE = null; if (!fromBack) Nav.closed('zones'); await X.reloadProject();
 }
 
 /* ================================================================ import */

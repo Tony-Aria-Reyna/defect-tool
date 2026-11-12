@@ -328,3 +328,4 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .zeditor .viewbar,.zeditor .vbtoggle,.zeditor .pinfab{display:none!important}
 .pin.dragging{opacity:.75;filter:drop-shadow(0 6px 6px rgba(0,0,0,.4));z-index:9}
 .psheets{display:block}.pf span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zsvg polyline.zguide{fill:none;stroke:#e11;opacity:.8;pointer-events:none}
