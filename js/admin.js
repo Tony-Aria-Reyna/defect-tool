@@ -190,11 +190,12 @@ function withPath(link, fp) {
 
 // Adjust one face line on the floor plan: the existing line is shown in red on the floor plan with its corners; drag a corner,
 // tap the line to add one, tap a corner then Delete to remove it. Saving updates the link and re-maps every pin on the elevation.
-export async function editFace(ep, idx, stage) {
+export async function editFace(ep, idx, stage, back) {
   const links = (ep.links && ep.links.length) ? ep.links : (ep.link ? [ep.link] : []); const L = links[idx]; if (!L) return;
   const fp = S.plans.find(q => q.id === L.planId); if (!fp) return toast('That face points at a floor plan that no longer exists');
   const keep = ZE && ZE.faceEdit ? ZE.faceEdit : null; if (ZE) await close(true);
   const FE = keep && keep.ep.id === ep.id && keep.idx === idx ? keep : { ep, idx, L: { ...L }, band: L.band ? L.band.slice() : null, bandX: L.bandX ? L.bandX.slice() : null, path: null };
+  if (back) FE.back = back;
   FE.stage = stage || 'band';
   const PV = X.PV;
   if (FE.stage === 'band') {
@@ -226,6 +227,11 @@ export async function editFace(ep, idx, stage) {
 }
 function facePanel() {
   const el = $('zonePanel'), PV = ZE.PV, FE = ZE.faceEdit; el.classList.remove('collapsed'); el.classList.add('show');
+  if (PV.mode === 'draw') { el.innerHTML = `<div class="zhead"><h3>Drawing the face line</h3></div><div class="zbody"><p class="note">Tap each corner of the outside wall in order, left to right as seen on the elevation. Taps snap to the drawing and to the boundaries. Press Finish when the last corner is done.</p><div class="zb"><button id="zfdU">↶ Undo last point</button><button class="go" id="zfdOk">Finish</button><button id="zfdX">Cancel</button></div></div>`;
+    $('zfdU').onclick = () => { PV.undoPoint(); };
+    $('zfdOk').onclick = () => PV.finishDraw();
+    $('zfdX').onclick = () => { PV.setMode('zones'); PV.selectZone(ZE.zones.find(z => z.id === '__face')); panel(); };
+    return; }
   if (FE.stage === 'band') {
     const bz = ZE.zones.find(z => z.id === '__band' + FE.idx); if (!bz) return; if (PV.selZone !== bz) PV.selectZone(bz);
     el.innerHTML = `<div class="zhead"><h3>1 of 2 · Band on the elevation: ${esc(FE.L.face || 'face')}</h3><button id="zfNext" class="go">Next: line on the floor plan ›</button></div><div class="zbody">
@@ -241,13 +247,14 @@ function facePanel() {
   const fz = ZE.zones.find(z => z.id === '__face'); if (!fz) return; if (PV.selZone !== fz) PV.selectZone(fz);
   el.innerHTML = `<div class="zhead"><h3>2 of 2 · Line on the floor plan: ${esc(FE.L.face || 'face')}</h3><button id="zfSave" class="go">Save face</button></div><div class="zbody">
   <p class="note">The red line is where this part of the elevation sits on <b>${esc(ZE.plan.name)}</b>. Drag a corner to move it (it snaps to the drawing). Tap the line to add a corner. Tap a corner, then Delete (or the button below) to remove it. ${PV.selVertex != null ? '<b>Corner ' + (PV.selVertex + 1) + ' of ' + fz.poly.length + ' selected.</b>' : ''}</p>
-  <div class="act" style="justify-content:flex-start;flex-wrap:wrap"><button id="zfBack">‹ Back to the band</button><button id="zfDel" ${PV.selVertex == null ? 'disabled' : ''}>Delete corner</button><button id="zfUndo">Undo</button><button id="zfReset">Start again</button><button id="zfCancel">Cancel</button></div></div>`;
+  <div class="act" style="justify-content:flex-start;flex-wrap:wrap"><button id="zfDraw">✏ Redraw this line</button><button id="zfBack">‹ Back to the band</button><button id="zfDel" ${PV.selVertex == null ? 'disabled' : ''}>Delete corner</button><button id="zfUndo">Undo</button><button id="zfReset">Start again</button><button id="zfCancel">Cancel</button></div></div>`;
   $('zfSave').onclick = () => { FE.path = fz.poly.map(p => [p[0], p[1]]); saveFace(); };
   $('zfBack').onclick = async () => { FE.path = fz.poly.map(p => [p[0], p[1]]); ZE.dirty = false; await editFace(FE.ep, FE.idx, 'band'); };
+  $('zfDraw').onclick = () => { ZE.drawKind = 'face'; PV.selectZone(null); PV.startDraw('', false, 2); panel(); };
   $('zfDel').onclick = () => { if (PV.deleteVertex()) { ZE.dirty = true; facePanel(); } };
   $('zfUndo').onclick = undo;
   $('zfReset').onclick = () => { snap(); const L = FE.L; fz.poly = (L.path && L.path.length > 1 ? L.path : [L.a, L.b]).map(p => [p[0], p[1]]); PV.setZones(ZE.zones); PV.selectZone(fz); ZE.dirty = false; facePanel(); };
-  $('zfCancel').onclick = async () => { const epId = FE.ep.id; ZE.dirty = false; await close(); await X.showPlan(epId); };
+  $('zfCancel').onclick = async () => { const epId = FE.ep.id, planId = FE.L.planId, back = FE.back; ZE.dirty = false; await close(); if (back === 'plan') { await X.showPlan(planId); await zoneEditor(X.PV); } else await X.showPlan(epId); };
 }
 async function saveFace() {
   const FE = ZE.faceEdit, { ep, idx } = FE;
@@ -267,7 +274,8 @@ async function saveFace() {
   const b = busy('Saving the face…');
   try { await S.store.savePlan(S.project.id, { ...rest, links }); ZE.dirty = false; await X.reloadProject(); const k = await X.remapElevationPins(ep.id); b.done(); toast('Face saved' + (k ? '; ' + k + ' pin' + (k === 1 ? '' : 's') + ' re-mapped' : ''), 4000); }
   catch (e) { b.done(); toast('Could not save: ' + e.message, 5000); return; }
-  const epId = ep.id; await close(true); Nav.closed('zones'); await X.showPlan(epId);
+  const planId = L.planId, epId = ep.id, back = FE.back; await close(true); Nav.closed('zones');
+  if (back === 'plan') { await X.showPlan(planId); await zoneEditor(X.PV); } else await X.showPlan(epId);
 }
 // Wizard: mark a plan as an elevation and link it to a floor plan by tapping the two ends of the building face on each.
 export async function linkElevation(ep) {
@@ -476,7 +484,9 @@ export async function zoneEditor(PV) {
   PV.selectZone(null);
   PV.setZones(ZE.zones); PV.setMode('zones');
   Object.assign(PV.o, {
-    onDrawn: poly => { PV.setMode('zones'); zoneDetails({ id: uid(), kind: ZE.drawKind, poly, block: plan.block || '', level: plan.level || '' }, true); },
+    onDrawn: poly => { PV.setMode('zones');
+      if (ZE.faceEdit && ZE.drawKind === 'face') { snap(); const fz = ZE.zones.find(z => z.id === '__face'); fz.poly = poly.map(q => [q[0], q[1]]); ZE.faceEdit.path = fz.poly.map(q => q.slice()); PV.setZones(ZE.zones); PV.selectZone(fz); ZE.dirty = true; panel(); return toast('Line redrawn. Drag its corners to fine-tune, then Save face.', 5000); }
+      zoneDetails({ id: uid(), kind: ZE.drawKind, poly, block: plan.block || '', level: plan.level || '' }, true); },
     onZoneSelect: () => panel(), onDraftChange: () => panel(),
     onEditStart: () => snap(),
     onZoneDragStart: z => { ZE.members = z.kind === 'unit' ? membersOf(z).map(m => ({ m, orig: m.poly.map(p => p.slice()) })) : null; },
@@ -513,6 +523,7 @@ const fitMsg = (unit, rep) => `${rep.n} room${rep.n === 1 ? '' : 's'} fitted to 
 // Make nearly-square corners exactly square: edges within about 10 degrees of horizontal or vertical are straightened.
 function squareUp(z) { const W = ZE.plan.w, H = ZE.plan.h, P = z.poly, n = P.length, open = z.kind === 'face';
   for (let pass = 0; pass < 3; pass++) for (let i = 0; i < n - (open ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % n], dx = Math.abs(a[0] - b[0]) * W, dy = Math.abs(a[1] - b[1]) * H; if (dx < 0.18 * dy) { const x = (a[0] + b[0]) / 2; a[0] = b[0] = x; } else if (dy < 0.18 * dx) { const y = (a[1] + b[1]) / 2; a[1] = b[1] = y; } } }
+const facesOnPlan = () => !ZE || ZE.faceEdit ? [] : S.plans.filter(q => q.kind === 'elevation').flatMap(ep => ((ep.links || []).map((l, idx) => ({ ep, l, idx }))).filter(x => x.l.planId === ZE.plan.id));
 const unitAround = z => ZE.zones.find(u => u.kind === 'unit' && u !== z && pointInPoly(...centroid(z.poly), u.poly));
 function snap() { if (!ZE) return; ZE.undo = ZE.undo || []; ZE.undo.push(JSON.stringify(ZE.zones)); if (ZE.undo.length > 60) ZE.undo.shift(); ZE.redo = []; }
 function restore(json) { const PV = ZE.PV, selId = PV.selZone && PV.selZone.id; ZE.zones = JSON.parse(json); PV.setZones(ZE.zones); PV.selectZone(ZE.zones.find(z => z.id === selId) || null); ZE.dirty = true; panel(); }
@@ -548,6 +559,7 @@ function panel() {
      ${z.kind === 'unit' ? '<button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
   <div class="zb layers"><span class="muted small">Show:</span>${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
+  ${facesOnPlan().length ? `<div class="zb"><span class="muted small" style="align-self:center">Elevation lines:</span>${facesOnPlan().map((f, i) => `<button class="small" data-fe2="${i}" title="${esc(f.ep.name)}">📐 ${esc(f.l.face || 'face')}</button>`).join('')}</div>` : ''}
   ${CLIP && CLIP.n ? `<div class="zb"><button class="go" id="zPaste">📋 Paste ${CLIP.n} shapes from ${esc(CLIP.from)}</button><button id="zPasteX">Forget copy</button></div>` : ''}
   <p class="muted small">${ZE.zones.filter(q => q.kind === 'unit').length} units, ${ZE.zones.filter(q => q.kind === 'room').length} rooms, ${ZE.zones.filter(q => q.kind === 'area').length} common areas on this plan${ZE.dirty ? ' · <b>unsaved changes</b>' : ''}</p>
   <div class="zb"><button id="zUndo2" ${(ZE.undo || []).length ? '' : 'disabled'}>↶ Undo</button><button id="zRedo2" ${(ZE.redo || []).length ? '' : 'disabled'}>↷ Redo</button></div>
@@ -561,6 +573,7 @@ function panel() {
   if ($('zRect')) $('zRect').onchange = e => { ZE.rect = e.target.checked; S.local.zoneRect = ZE.rect; saveLocal(); };
   if ($('zOrtho')) $('zOrtho').onchange = e => { ZE.ortho = e.target.checked; PV.ortho = ZE.ortho; S.local.zoneOrtho = ZE.ortho; saveLocal(); };
   if (ZE.ortho == null) ZE.ortho = S.local.zoneOrtho !== false; PV.ortho = ZE.ortho; if ($('zOrtho')) $('zOrtho').checked = ZE.ortho;
+  document.querySelectorAll('[data-fe2]').forEach(bt => bt.onclick = async () => { const f = facesOnPlan()[+bt.dataset.fe2]; if (ZE.dirty) await save(); await editFace(f.ep, f.idx, 'line', 'plan'); });
   on('zFit', () => { const u = PV.selZone; if (!u) return; snap(); squareUp(u); const rep = fitToUnit(u); PV.setZones(ZE.zones); PV.selectZone(u); ZE.dirty = true; panel(); toast(rep.n ? fitMsg(u, rep) : 'No rooms sit inside this outline yet', 6000); });
   on('zFit1', () => { const r = PV.selZone, u = r && unitAround(r); if (!u) return toast('This shape is not inside a unit outline. Draw or move the unit outline around it first.', 5000); snap(); const rep = fitToUnit(u, [r]); PV.setZones(ZE.zones); PV.selectZone(r); ZE.dirty = true; panel(); toast(fitMsg(u, rep), 5000); });
   on('zSq', () => { const q = PV.selZone; if (!q) return; snap(); squareUp(q); PV.setZones(ZE.zones); PV.selectZone(q); ZE.dirty = true; panel(); toast('Corners squared', 2000); });
@@ -655,11 +668,18 @@ function zoneDetails(z, isNew) {
     else if (isNew && z.kind !== 'area') { const u = unitAround(z); if (u) { const rep = fitToUnit(u, [z]); if (rep.trimmed.length) fitNote = `${z.name} reached outside Unit ${u.unit} and was trimmed to the outline.`; } }
     ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z); if (fitNote && z.kind !== 'unit') setTimeout(() => toast(fitNote, 7000), 3600);
     if (isNew && z.kind === 'unit') { save().then(() => { modal(`<h2>Unit ${esc(z.unit || '')} outline saved</h2><p>${fitNote ? esc(fitNote) + ' ' : ''}Break it up into rooms now? Each room you draw inside it takes the unit number automatically and is trimmed to the outline.</p><div class="btnlist"><button id="zuRooms">⬠ Draw the rooms in this unit</button><button id="zuNext">⬚ Draw the next unit outline</button><button id="zuDup">⧉ Duplicate a finished unit onto this one</button><button id="zuStop">Stop drawing</button></div>`); $('zuRooms').onclick = () => { closeModal(); ZE.rect = true; S.local.zoneRect = true; saveLocal(); toast('Rectangles on: tap two opposite corners of each room. Untick Rectangles for an L-shape.', 4000); draw('room'); }; $('zuNext').onclick = () => { closeModal(); draw('unit'); }; $('zuDup').onclick = () => { closeModal(); ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel(); toast('Select a finished unit, tap Duplicate unit, then drag the copy over this outline.', 5000); }; $('zuStop').onclick = () => { closeModal(); ZE.PV.setMode('zones'); panel(); }; }); }
-    else if (isNew) { save().then(() => { const next = { room: 'room', area: 'common area', item: 'item' }[z.kind]; ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel(); toast(`Saved. Press Draw ${next} for the next one, or Done to leave the editor.`, 3500); }); } else panel(); };
+    else if (isNew) { save().then(() => { const kindN = { room: 'room', area: 'common area', item: 'item' }[z.kind]; ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel();
+      if (z.kind === 'item') return toast(`Saved. Press Draw item for the next one, or Done to leave the editor.`, 3500);
+      // a room or common area is where items live (kitchen unit, vanity, shower…), so offer to draw one straight away
+      modal(`<h2>${esc(z.name || kindN)} saved</h2><p>Draw an item inside it now? An item is a fitting people raise defects against: kitchen unit, vanity, shower, wardrobe, hot water cupboard. Each one you draw inside this ${kindN} takes its name and unit automatically.</p><div class="btnlist"><button id="zrItem">▣ Draw an item in this ${kindN}</button><button id="zrNext">⬚ Draw the next ${kindN}</button><button id="zrStop">Stop drawing</button></div>`);
+      $('zrItem').onclick = () => { closeModal(); draw('item'); };
+      $('zrNext').onclick = () => { closeModal(); draw(z.kind); };
+      $('zrStop').onclick = () => { closeModal(); ZE.PV.setMode('zones'); panel(); };
+    }); } else panel(); };
 }
 async function save() {
   if (ZE.faceEdit) return saveFace();
-  const p = ZE.plan; p.zones = ZE.zones.filter(z => z.kind !== 'face' && z.kind !== 'band' && z.kind !== 'bandro').map(z => ({ id: z.id, kind: z.kind, name: z.name || '', unit: z.unit || '', block: z.block || '', level: z.level || '', poly: z.poly.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)]) }));
+  const p = ZE.plan; p.zones = ZE.zones.filter(z => z.kind !== 'face' && z.kind !== 'band' && z.kind !== 'bandro').map(z => ({ id: z.id, kind: z.kind, name: z.name || '', unit: z.unit || '', block: z.block || '', level: z.level || '', ...(z.room ? { room: z.room } : {}), poly: z.poly.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)]) }));
   try { await S.store.savePlan(S.project.id, p); ZE.dirty = false; toast('Boundaries saved'); panel(); } catch (e) { toast('Could not save: ' + e.message, 5000); }
 }
 async function close(fromBack) {
