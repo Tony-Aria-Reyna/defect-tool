@@ -332,7 +332,7 @@ function applyZone(d, x, y, planId) {
 async function onPlace(x, y) {
   const pl = placing; stopPlacing();
   if (pl.mode === 'pick') { toast('✓ Point recorded', 1200); pl.resolve({ x, y }); return; }
-  if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); ED.focusDesc = true; const el = $('edBody').querySelector('[name=desc]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
+  if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); ED.focusDesc = true; const el = $('edBody').querySelector('[name=title]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
   else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
 }
 // Ask the user to tap one point on a plan (used when linking an elevation to a floor plan).
@@ -430,8 +430,8 @@ export function openEditor(d, isNew, isDraft) {
   $('edCancel').textContent = ro ? 'Close' : 'Cancel';
   if (!$('sheet').classList.contains('show')) Nav.open('editor', () => closeEditor());
   $('sheet').classList.add('show');
-  // straight after a pin is dropped the cursor goes into the description, so typing or dictating can start at once
-  if (ED.focusDesc) { ED.focusDesc = false; const el = $('edBody').querySelector('[name=desc]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
+  // straight after a pin is dropped the cursor goes into the title, so typing or dictating can start at once
+  if (ED.focusDesc) { ED.focusDesc = false; const el = $('edBody').querySelector('[name=title]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
 }
 function aiStatus(m, err) { const s = $('aiSt'); if (s) { s.textContent = m || ''; s.style.color = err ? '#b00000' : ''; } if (err && m) toast(m, 5000); }
 // Full-size plan window showing where a defect is, with a plain X to close.
