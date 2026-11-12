@@ -171,3 +171,21 @@ export function storeyBands(dr, nStoreys) {
   if (ys.length === nStoreys && nStoreys > 1) { const bands = ys.slice(0, -1).map((y, i) => [y, i === nStoreys - 2 ? bottom : ys[i + 1]]); bands.unshift([top, ys[0]]); return bands.reverse(); }
   const h = (bottom - top) / nStoreys; return Array.from({ length: nStoreys }, (_, i) => [bottom - (i + 1) * h, bottom - i * h]);   // ground first
 }
+
+// How to scale and shift an attached sheet (ceiling, wall plan…) so its grid bubbles sit on the floor plan's grid bubbles.
+// Only true grid labels are used, each bubble is paired with the nearest bubble of the same label, and the answer is
+// thrown away unless it is a small, sensible adjustment. Returns null when no adjustment is needed or it cannot tell.
+export function gridFit(pg, vg) {
+  const ok = g => g && GRID_RE.test(g.l) && g.l.length <= 3; pg = (pg || []).filter(ok); vg = (vg || []).filter(ok); if (pg.length < 2 || vg.length < 2) return null;
+  const count = L => { const c = {}; L.forEach(g => { c[g.l] = (c[g.l] || 0) + 1; }); return c; }, cp = count(pg), cv = count(vg);
+  const pairs = []; vg.forEach(v => { if (cv[v.l] > 2 || cp[v.l] > 2) return; let b = null, bd = 0.12; pg.forEach(p => { if (p.l !== v.l) return; const d = Math.hypot(p.x - v.x, p.y - v.y); if (d < bd) { bd = d; b = p; } }); if (b) pairs.push({ v, p: b }); });
+  if (pairs.length < 3) return null;
+  const fit1 = k => { const n = pairs.length, mv = pairs.reduce((a, q) => a + q.v[k], 0) / n, mp = pairs.reduce((a, q) => a + q.p[k], 0) / n; let sxx = 0, sxy = 0; pairs.forEach(q => { sxx += (q.v[k] - mv) ** 2; sxy += (q.v[k] - mv) * (q.p[k] - mp); }); const spread = Math.sqrt(sxx / n); return { s: spread > 0.08 ? sxy / sxx : null, mv, mp }; };
+  const fx = fit1('x'), fy = fit1('y'); let sx = fx.s, sy = fy.s; if (sx == null && sy == null) return null; if (sx == null) sx = sy; if (sy == null) sy = sx;
+  const tx = fx.mp - sx * fx.mv, ty = fy.mp - sy * fy.mv;
+  if (!(sx > 0.8 && sx < 1.25 && sy > 0.8 && sy < 1.25 && Math.abs(tx) < 0.2 && Math.abs(ty) < 0.2)) return null;
+  if (Math.abs(sx - 1) < 0.004 && Math.abs(sy - 1) < 0.004 && Math.abs(tx) < 0.004 && Math.abs(ty) < 0.004) return null;
+  return { sx, sy, tx, ty };
+}
+// A stored alignment is only used if it is a small, sensible adjustment (older versions could store one that squashed the sheet out of sight).
+export const saneFit = f => (f && f.sx > 0.8 && f.sx < 1.25 && f.sy > 0.8 && f.sy < 1.25 && Math.abs(f.tx) < 0.2 && Math.abs(f.ty) < 0.2) ? f : null;

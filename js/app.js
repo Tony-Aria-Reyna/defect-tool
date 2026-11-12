@@ -224,7 +224,7 @@ export async function showPlan(id, focus) {
   $('plantabs').querySelectorAll('[data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === id));
   // Alternative views of the same sheet (ceiling plan, wall plan, cladding elevations…). Pins dropped on a view take its surface.
   S.view = S.view || {}; const views = planViews(p), vkey = views.some(v => v.key === S.view[p && p.id]) && !can.contractor() ? S.view[p.id] : 'floor', cur = views.find(v => v.key === vkey) || views[0];
-  await PV.setPlan(p, p ? await imgUrl(cur.img) : ''); PV.setZonesVisible(false); PV.setImageFit(cur.fit || null);
+  await PV.setPlan(p, p ? await imgUrl(cur.img) : ''); PV.setZonesVisible(false); PV.setImageFit(cur.key === 'floor' ? null : ((cur.grids && cur.grids.length && p.grids && p.grids.length) ? Faces.gridFit(p.grids, cur.grids) : Faces.saneFit(cur.fit)));
   let rb = $('bRcp'); if (!rb) { rb = document.createElement('div'); rb.id = 'bRcp'; rb.className = 'viewbar'; $('planPane').appendChild(rb); }
   rb.style.display = p && views.length > 1 && !can.contractor() ? '' : 'none'; rb.classList.toggle('hidden', rb.style.display === 'none');
   rb.innerHTML = views.map(v => `<button data-view="${esc(v.key)}" class="${v.key === vkey ? 'on' : ''}">${esc(v.name)}</button>`).join('');
