@@ -508,12 +508,34 @@ async function renderPhotos() {
   $('fls').querySelectorAll('[data-f]').forEach(a => a.onclick = async ev => { ev.preventDefault(); const f = (ED.d.files || [])[+a.dataset.f]; if (!f) return; const u = f.data || (f.url ? await imgUrl(f.url) : ''); if (u) window.open(u, '_blank'); else toast('This file is still waiting to upload'); });
   $('fls').querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { const i = +b.dataset.fx; const f = ED.d.files[i]; if (f.path && !f.isNew) (ED.removed = ED.removed || []).push(f.path); ED.d.files.splice(i, 1); openEditor(ED.d, ED.isNew, true); });
   const wf = (status, label, needComment) => async () => { collect(); const c = $('cmt') ? $('cmt').value.trim() : ''; if (needComment && !c) { toast(label + ': add a short comment first so the other side knows what happened'); $('cmt').focus(); return; } const sel = $('edBody').querySelector('[name=status]'); if (sel) { if (![...sel.options].some(o => o.value === status)) { const o = document.createElement('option'); o.textContent = status; sel.appendChild(o); } sel.value = status; } ED.d.status = status; ED.wfLabel = label; await saveEditor(); };
-  if ($('wfReady')) $('wfReady').onclick = wf('Ready for review', 'Ready for inspection', true);
+  if ($('wfReady')) $('wfReady').onclick = () => readyDialog(wf('Ready for review', 'Ready for inspection', true));
   if ($('wfAccept')) $('wfAccept').onclick = wf('Closed', 'Accepted and closed', false);
   if ($('wfReopen')) $('wfReopen').onclick = wf('Open', 'Reopened and sent back', true);
   if ($('wfProg')) $('wfProg').onclick = wf('In progress', 'In progress', false);
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
   requestAnimationFrame(() => Nav.refit($('edBody')));
+}
+// Marking an item ready for inspection: prompt for a photo of the fix (optional) and a short note that can be spoken and tidied by Gemini.
+function readyDialog(go) {
+  collect(); const d = ED.d, pre = $('cmt') ? $('cmt').value.trim() : '', shots = [];
+  modal(`<h2>Ready for inspection</h2><p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>
+    <button class="bigcam" id="rdCam">📷 Take a photo of the fix</button><div class="rdmore"><a href="#" id="rdGal">or choose one from the gallery</a></div><div id="rdPh" class="rdph"></div>
+    <input type="file" id="rdFile" accept="image/*" capture="environment" hidden><input type="file" id="rdFile2" accept="image/*" multiple hidden>
+    <label class="f">What was done<textarea id="rdTxt" rows="3" placeholder="Hold the microphone and say what was fixed, or type it here">${esc(pre)}</textarea></label>
+    <div class="rdrow"><button class="mic" id="rdMic" title="Hold to talk">🎤</button><span class="note" id="rdSt">Hold the microphone and talk. Let go and it is tidied up for you.</span><button id="rdTidy">✨ Tidy up</button></div>
+    <div class="act"><button id="rdX">Cancel</button><button class="go" id="rdGo">Mark ready for inspection</button></div>`);
+  const st = (t, bad) => { $('rdSt').textContent = t; $('rdSt').style.color = bad ? '#a32222' : ''; };
+  const draw = () => { $('rdPh').innerHTML = shots.map((p, i) => `<div class="ph"><img src="${p.data}" alt=""><button data-x="${i}">✕</button></div>`).join(''); $('rdPh').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { shots.splice(+b.dataset.x, 1); draw(); }); $('rdCam').textContent = shots.length ? '📷 Take another photo' : '📷 Take a photo of the fix'; };
+  const add = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) { try { shots.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } draw(); };
+  $('rdCam').onclick = () => $('rdFile').click(); $('rdGal').onclick = e => { e.preventDefault(); $('rdFile2').click(); }; $('rdFile').onchange = add; $('rdFile2').onchange = add;
+  const tidy = async () => { const raw = $('rdTxt').value.trim(); if (!raw) return st('Say or type what was done first.', true); if (!navigator.onLine) return st('No signal: your words are kept as they are.'); st('Tidying up…');
+    try { const out = await aiCall(`A contractor on a building site is reporting that a defect has been fixed and is ready for inspection. Rewrite their spoken note as one to three short, clear, professional sentences in New Zealand English, past tense, no em dashes. Keep every fact they gave (what was done, where, when, by whom, product names). Do not add anything they did not say and do not claim the work complies.\nDEFECT: ${d.title || ''}. ${d.desc || ''}\nSPOKEN NOTE: ${raw}\nReturn JSON only: {"text":"..."}`); let t = ''; try { t = JSON.parse(out).text || ''; } catch (e) { t = String(out || '').trim(); } if (t && $('rdTxt')) { $('rdTxt').value = t.replace(/\s*—\s*/g, ', '); st('Tidied. Check it reads right, then mark ready.'); } else st('Kept as you said it.'); }
+    catch (e) { st(e.message === 'nokey' ? 'Gemini is not set up on this device, so your words are kept as they are.' : 'Could not tidy it (' + friendly(e) + '). Your words are kept.', true); } };
+  holdToTalk($('rdMic'), () => dictate($('rdTxt'), $('rdMic'), st, () => { if ($('rdTxt') && $('rdTxt').value.trim()) tidy(); }));
+  $('rdTidy').onclick = tidy;
+  $('rdX').onclick = () => { stopDictation(); closeModal(); };
+  $('rdGo').onclick = async () => { stopDictation(); const txt = $('rdTxt').value.trim(); if (!txt && !shots.length) return st('Add a photo or a short note so the inspector knows what was done.', true);
+    d.photos = (d.photos || []).concat(shots); if ($('cmt')) $('cmt').value = txt || `Photo${shots.length === 1 ? '' : 's'} of the completed work attached.`; closeModal(); await go(); };
 }
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }

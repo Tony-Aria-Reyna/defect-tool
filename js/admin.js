@@ -979,6 +979,17 @@ export async function importJson(file) {
     };
     return;
   }
+  if (j.type === 'updates' && Array.isArray(j.items)) {
+    if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
+    const rows = j.items.map(it => { const d = S.defects.find(q => q.id === it.id); if (!d) return { it }; const old = JSON.stringify((d.history || []).map(h => [h.t, h.who, h.txt])), add = (it.history || []).filter(h => !old.includes(JSON.stringify([h.t, h.who, h.txt]))); const st = it.status && it.status !== d.status && (!it.statusFrom || it.statusFrom.includes(d.status)) ? it.status : ''; const extCh = it.ext && Object.entries(it.ext).some(([k, v]) => ((d.ext || {})[k] || '') !== v); return { it, d, add, st, extCh, held: !!(it.status && it.status !== d.status && !st) }; });
+    const hit = rows.filter(r => r.d && (r.add.length || r.st || r.extCh)), sts = hit.filter(r => r.st), held = rows.filter(r => r.held), miss = rows.filter(r => !r.d);
+    modal(`<h2>${esc(j.title || 'Register update')}</h2><p>${esc(j.note || '')}</p><p><b>${hit.length}</b> of ${rows.length} items have something new.${miss.length ? ` ${miss.length} are not in this project.` : ''}</p>${sts.length ? `<table class="t"><tr><th>Item</th><th>Status</th></tr>${sts.map(r => `<tr><td>${esc(r.d.id)} ${esc((r.d.title || '').slice(0, 40))}</td><td>${esc(r.d.status)} → <b>${esc(r.st)}</b></td></tr>`).join('')}</table>` : ''}${held.length ? `<p class="note">${held.length} status change${held.length === 1 ? ' is' : 's are'} not applied because the item has been moved on in the app since (${esc(held.map(r => r.d.id + ' is ' + r.d.status).join(', '))}).</p>` : ''}<p class="note">New responses are added to each item's comment trail and original record. Nothing is removed.</p><p class="note" id="upSt"></p><div class="act"><button id="upX">Cancel</button><button class="go" id="upGo">Apply update</button></div>`, true);
+    $('upX').onclick = closeModal;
+    $('upGo').onclick = async () => { $('upGo').disabled = true; let n = 0; const t = new Date().toISOString();
+      try { for (const r of hit) { $('upSt').textContent = `Updating ${++n} of ${hit.length}…`; const patch = {}; if (r.st) patch.status = r.st; if (r.extCh) patch.ext = { ...(r.d.ext || {}), ...r.it.ext }; const hist = r.add.concat(r.st ? [{ t, who: S.user.name, txt: `Status ${r.d.status} → ${r.st} (${j.title || 'register update'}).` }] : []); await S.store.updateDefect(S.project.id, r.d.id, patch, hist); Object.assign(r.d, patch); }
+        closeModal(); await X.reloadProject(); X.render(); toast(`${hit.length} item${hit.length === 1 ? '' : 's'} updated, ${sts.length} status change${sts.length === 1 ? '' : 's'}`, 6000); } catch (e) { $('upSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('upGo').disabled = false; } };
+    return;
+  }
   if (j.type === 'pins' && Array.isArray(j.items)) {
     if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
     const planFor = c => S.plans.find(p => String(p.code || '').replace(/\D/g, '').startsWith(String(c))) || S.plans.find(p => String(p.name || '').replace(/[\s-]/g, '').includes(String(c)));
