@@ -31,7 +31,7 @@ export class PlanView {
           if (e.pointerType === 'touch') { clearTimeout(this._hold); this._hold = setTimeout(() => { if (st && moved <= st.tol && pts.size === 1) { drag = { kind: 'p', id: pinEl.dataset.id, el: pinEl }; pinEl.classList.add('dragging'); try { navigator.vibrate && navigator.vibrate(30); } catch (x) {} } }, 420); }
           else drag = { kind: 'p', id: pinEl.dataset.id, el: pinEl, pending: true };
         }
-        if (this.mode === 'zones' && v && this.selZone) { const i = +v.dataset.v, p0 = this.selZone.poly[i], tol = 7 / this.pv.s; const shared = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === this.selZone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) shared.push([z, j]); }); }); drag = { kind: 'v', i, shared }; this.o.onEditStart && this.o.onEditStart(); }
+        if (this.mode === 'zones' && v && this.selZone) { const i = +v.dataset.v, p0 = this.selZone.poly[i], tol = 7 / this.pv.s; const shared = this.join === false ? [] : (() => { const out = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === this.selZone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) out.push([z, j]); }); }); return out; })(); drag = { kind: 'v', i, shared }; this.o.onEditStart && this.o.onEditStart(); }
         else if (this.mode === 'zones' && this.multi && this.multi.size && !v && (() => { const n0 = this._norm(e); return this.zones.some(z => this.multi.has(z.id) && z.poly && z.poly.length > 2 && inPoly(n0.x, n0.y, z.poly)); })()) { drag = { kind: 'g', start: this._norm(e), origs: new Map([...this.multi].map(id => { const z = this.zones.find(q => q.id === id); return [id, z ? z.poly.map(p => p.slice()) : null]; })) }; this.o.onEditStart && this.o.onEditStart(); }
         else if (this.mode === 'zones' && this.marquee && !v && !this._zoneAt(e)) { drag = { kind: 'm', start: this._norm(e), cur: null }; }
         else if (this.mode === 'zones' && this.moveZone && this.selZone && this._zoneAt(e)?.id === this.selZone.id) { drag = { kind: 'z', start: this._norm(e), orig: this.selZone.poly.map(p => p.slice()) }; this.o.onEditStart && this.o.onEditStart(); this.o.onZoneDragStart && this.o.onZoneDragStart(this.selZone); }
@@ -121,7 +121,7 @@ export class PlanView {
     if (best) return best;
     bd = tol;
     this.zones.forEach(z => { if (!z.poly || z === skipZone) return; const P = z.poly; for (let i = 0; i < P.length - (z.kind === 'face' ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % P.length]; const ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = n.x * W, py = n.y * H; const L = (bx - ax) ** 2 + (by - ay) ** 2; if (!L) continue; const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L; if (t <= 0.02 || t >= 0.98) continue; const sx = ax + t * (bx - ax), sy = ay + t * (by - ay); const d = Math.hypot(px - sx, py - sy) / (z.kind === 'unit' ? 1.6 : 1); if (d < bd) { bd = d; best = { x: sx / W, y: sy / H, snapped: 'line', zone: z, after: i }; } } });
-    if (best && best.zone && !dry) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
+    if (best && best.zone && !dry && this.join !== false) { best.zone.poly.splice(best.after + 1, 0, [best.x, best.y]); this.o.onZoneEdit && this.o.onZoneEdit(best.zone, 'v'); }
     if (best) return best;
     // guide lines (the elevation face lines on this plan): corners first, then the line itself
     const G = this.guides || []; bd = tol * 1.4;
@@ -232,7 +232,7 @@ export class PlanView {
     for (let i = 0; i < P.length - (z.kind === 'face' ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % P.length], ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy; if (l2 < 1) continue; const t = ((px - ax) * dx + (py - ay) * dy) / l2; if (t < 0.08 || t > 0.92) continue; const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy)); if (d < tol && (!best || d < best.d)) best = { i, d }; }
     return best; }
   // corners of other shapes (and of this one) sitting on the same point, so they travel with it
-  _sharedAt(p0, zone, i) { const tol = 7 / this.pv.s, out = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === zone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) out.push([z, j]); }); }); return out; }
+  _sharedAt(p0, zone, i) { if (this.join === false) return []; const tol = 7 / this.pv.s, out = []; this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === zone && j === i) return; if (Math.abs((q[0] - p0[0]) * this.plan.w) < tol && Math.abs((q[1] - p0[1]) * this.plan.h) < tol) out.push([z, j]); }); }); return out; }
   // slide a whole wall sideways, keeping its length and direction; it snaps to anything the moved ends come close to
   _slideEdge(d, n) {
     const z = this.selZone, W = this.plan.w, H = this.plan.h, A = d.orig[d.ia], B = d.orig[d.ib];
@@ -248,6 +248,20 @@ export class PlanView {
   _align(z, i, pt) { if (!this.ortho || !z || z.kind === 'band') return pt; const P = z.poly, W = this.plan.w, H = this.plan.h, tol = 10 / this.pv.s, open = z.kind === 'face'; const out = [pt[0], pt[1]];
     const nbs = [P[(i - 1 + P.length) % P.length], P[(i + 1) % P.length]].filter((q, k) => q && !(open && ((k === 0 && i === 0) || (k === 1 && i === P.length - 1))));
     let bx = tol, by = tol; nbs.forEach(q => { const dx = Math.abs(q[0] - pt[0]) * W, dy = Math.abs(q[1] - pt[1]) * H; if (dx < bx) { bx = dx; out[0] = q[0]; } if (dy < by) { by = dy; out[1] = q[1]; } }); return out; }
+  // Undo a join at the selected corner: a corner another shape only gained from snapping (it sits on a straight run of that
+  // shape's wall) is removed, so the two are no longer tied together. Returns how many were freed.
+  disconnectCorner() {
+    const z = this.selZone, i = this.selVertex; if (!z || i == null) return 0;
+    const W = this.plan.w, H = this.plan.h, p = z.poly[i], tol = 3 / this.pv.s; let n = 0;
+    this.zones.forEach(o => { if (o === z || !o.poly || o.poly.length < 4) return;
+      for (let j = o.poly.length - 1; j >= 0; j--) { const q = o.poly[j]; if (Math.abs((q[0] - p[0]) * W) > tol || Math.abs((q[1] - p[1]) * H) > tol) continue;
+        const a = o.poly[(j - 1 + o.poly.length) % o.poly.length], b = o.poly[(j + 1) % o.poly.length];
+        const cross = Math.abs(((b[0] - a[0]) * W) * ((q[1] - a[1]) * H) - ((b[1] - a[1]) * H) * ((q[0] - a[0]) * W)) / (Math.hypot((b[0] - a[0]) * W, (b[1] - a[1]) * H) || 1);
+        if (cross < 2.5) { o.poly.splice(j, 1); n++; }   // it sat on a straight run, so the wall keeps its shape without it
+      } });
+    if (n) { this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(z, 'v'); }
+    return n;
+  }
   deleteVertex() { const z = this.selZone, i = this.selVertex; if (!z || i == null || z.kind === 'band' || z.poly.length <= (z.kind === 'face' ? 2 : 3)) return false; this.o.onEditStart && this.o.onEditStart(); z.poly.splice(i, 1); this.selVertex = null; this._drawZones(); this.o.onZoneEdit && this.o.onZoneEdit(z, 'v'); return true; }
   setMode(m, banner) { this.mode = m; this.vp.classList.toggle('placing', m === 'place' || m === 'draw'); if (m !== 'draw') this.draft = null; if (m !== 'zones') this.moveZone = false; this.banner(banner); this._drawZones(); }
   startDraw(banner, rect, min) { this.setMode('draw', banner); this.draft = []; this.rect = !!rect; this.minDraw = min || 3; }

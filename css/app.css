@@ -332,3 +332,32 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .pin.dragging{opacity:.75;filter:drop-shadow(0 6px 6px rgba(0,0,0,.4));z-index:9}
 .psheets{display:block}.pf span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .zsvg polyline.zguide{fill:none;stroke:#e11;opacity:.8;pointer-events:none}
+
+/* a tap always shows itself, and a window that was opened from another can go back to it */
+button,.btn,.chip,label.opt{transition:transform .08s ease,filter .08s ease,background .12s ease}
+.tapped{transform:scale(.96);filter:brightness(.93)}
+.mnav{margin:-4px 0 6px}.mback{border:0;background:none;color:var(--navy);font-weight:700;padding:4px 6px 4px 0;cursor:pointer;font-size:14px}.mback:hover{text-decoration:underline}
+.askov{position:fixed;inset:0;background:rgba(1,28,53,.45);z-index:60;display:flex;align-items:center;justify-content:center;padding:14px}
+.askov>div{background:#fff;border-radius:12px;padding:16px;max-width:380px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.askov b{color:var(--navy);font-size:16px}.askov p{color:var(--muted);font-size:13px;margin:6px 0 12px}
+.askov .act{display:flex;gap:8px;justify-content:flex-end}.askov button{padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:#fff;font-weight:600;cursor:pointer}
+.askov .go{background:var(--navy);color:#fff;border-color:var(--navy)}.askov .warn{color:#b3261e;border-color:#f0b4ae}
+@media(max-width:899px){
+  .mbox h2{position:sticky;top:-16px;background:#fff;padding:6px 0 8px;margin:0 0 8px;z-index:3}
+  .mbox .act{position:sticky;bottom:-16px;background:#fff;padding:10px 0 4px;margin-top:12px;border-top:1px solid var(--line);z-index:3}
+  .mbox .act button{flex:1 1 auto;min-width:40%}
+}
+
+/* boundary editor: the tools people work with are tiles with a coloured icon, grouped under small headings */
+.zpanel .zlab{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#6b7a89;font-weight:700;margin:10px 0 5px}
+.zpanel .ztiles{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:4px}
+.zpanel .ztiles.one{grid-template-columns:1fr}
+.zpanel .ztile{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:10px;border:1.5px solid var(--line);border-radius:10px;background:#fff;font-weight:700;font-size:13px;line-height:1.15;text-align:left;color:var(--navy)}
+.zpanel .ztile small{font-weight:600;font-size:10.5px;color:var(--muted)}
+.zpanel .ztile .zic{width:22px;height:22px;margin-bottom:2px}
+.zpanel .ztile.tu{border-color:#bcd0ff;background:#f5f8ff}.zpanel .ztile.tr{border-color:#b7e3dd;background:#f3fbfa}
+.zpanel .ztile.ta{border-color:#d6c6f0;background:#f9f6fe}.zpanel .ztile.ti{border-color:#f5d3b0;background:#fff9f3}
+.zpanel .ztile.te{border-color:#f3c2c2;background:#fff6f6;color:#9c2b2b}.zpanel .ztile.ts{flex-direction:row;align-items:center;gap:8px}
+.zpanel .ztile.on{background:var(--navy);color:#fff;border-color:var(--navy)}.zpanel .ztile.on .zic{stroke:#fff}
+.zpanel .zb.opts{display:flex;flex-wrap:wrap;gap:10px}
+.zpanel .zb.layers{display:flex;flex-wrap:wrap;gap:10px}

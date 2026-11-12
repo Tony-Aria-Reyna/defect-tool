@@ -13,8 +13,34 @@ export const safeName = s => String(s || '').replace(/[\\/:*?"<>|]/g, '').replac
 let toastT;
 export function toast(m, ms) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', ms || 2800); }
 import * as Nav from './nav.js';
-export function modal(html, wide) { const b = $('mbox'); b.innerHTML = html; b.classList.toggle('wide', !!wide); if (!$('modal').classList.contains('show')) Nav.open('modal', () => $('modal').classList.remove('show')); $('modal').classList.add('show'); return b; }
-export function closeModal() { $('modal').classList.remove('show'); Nav.closed('modal'); }
+let MODAL = { back: null, snap: null };
+const mFields = () => [...$('mbox').querySelectorAll('input,select,textarea')].map(e => (e.type === 'checkbox' || e.type === 'radio') ? (e.checked ? '1' : '0') : e.value).join('\u0001');
+// opts.back: a function that reopens the window this one came from, shown as a Back button in the heading
+export function modal(html, wide, opts = {}) {
+  const b = $('mbox'); b.innerHTML = html; b.classList.toggle('wide', !!wide);
+  MODAL.back = opts.back || null; MODAL.snap = null;
+  if (MODAL.back) { const bar = document.createElement('div'); bar.className = 'mnav'; bar.innerHTML = '<button class="mback" id="mBack">‹ Back</button>'; b.insertBefore(bar, b.firstChild); bar.querySelector('button').onclick = () => { const f = MODAL.back; closeModal(); f && f(); }; }
+  if (!$('modal').classList.contains('show')) Nav.open('modal', () => $('modal').classList.remove('show'));
+  $('modal').classList.add('show');
+  requestAnimationFrame(() => { MODAL.snap = mFields(); });
+  return b;
+}
+export function closeModal() { $('modal').classList.remove('show'); MODAL = { back: null, snap: null }; Nav.closed('modal'); }
+// Closing by tapping outside or pressing Escape: anything typed is checked first, so a stray tap cannot lose it.
+export async function dismissModal() {
+  if (MODAL.snap != null && mFields() !== MODAL.snap) { if (!(await askDiscard())) return false; }
+  closeModal(); return true;
+}
+function askDiscard() {
+  return new Promise(res => {
+    const d = document.createElement('div'); d.className = 'askov';
+    d.innerHTML = '<div><b>Discard what you have filled in?</b><p>You tapped outside the window. Nothing has been saved yet.</p><div class="act"><button class="go" id="akKeep">Keep editing</button><button class="warn" id="akGo">Discard</button></div></div>';
+    document.body.appendChild(d);
+    const done = v => { d.remove(); res(v); };
+    d.querySelector('#akKeep').onclick = () => done(false); d.querySelector('#akGo').onclick = () => done(true);
+    d.addEventListener('click', e => { if (e.target === d) done(false); });
+  });
+}
 export function busy(msg) { const b = $('busy'); b.querySelector('span').textContent = msg; b.classList.add('show'); return { set: m => b.querySelector('span').textContent = m, done: () => b.classList.remove('show') }; }
 export function confirmBox(msg, okLabel) {
   return new Promise(res => {

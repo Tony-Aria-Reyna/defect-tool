@@ -3,7 +3,7 @@ import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal } from './state.js';
-import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
@@ -672,10 +672,11 @@ function wire() {
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
   $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1);
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
-  $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+  $('modal').addEventListener('click', e => { if (e.target.id === 'modal') dismissModal(); });
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
-  document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) closeModal(); else if ($('sheet').classList.contains('show')) closeEditor(); else if (placing) stopPlacing(); });
+  document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) dismissModal(); else if ($('sheet').classList.contains('show')) closeEditor(); else if (placing) stopPlacing(); });
+  document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button,.btn,.chip,label.opt,[data-p],[data-view],[data-el]'); if (!b || b.disabled) return; b.classList.add('tapped'); setTimeout(() => b.classList.remove('tapped'), 220); }, true);
   initDrop({ Admin, FM, addPhotos, addFiles, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
 }
 // Quick-pick a typical defect: fills title, description, action, trade, type, severity and element; keeps location and photos.
