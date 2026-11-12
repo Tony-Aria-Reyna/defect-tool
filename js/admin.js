@@ -448,6 +448,30 @@ export async function zoneEditor(PV) {
 }
 function membersOf(unitZone) { return ZE.zones.filter(z => z !== unitZone && z.kind !== 'unit' && pointInPoly(...centroid(z.poly), unitZone.poly)); }
 // Undo / redo for the boundary editor: snapshots of all shapes on this plan before each change (Ctrl+Z, Ctrl+Y).
+
+// ---- keeping units clean: rooms fit inside their unit outline, corners square
+function nearestOnPoly(pt, poly, W, H) { let best = null; const px = pt[0] * W, py = pt[1] * H;
+  for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1; const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)); const x = ax + t * dx, y = ay + t * dy, d = Math.hypot(px - x, py - y); if (!best || d < best.d) best = { d, pt: [x / W, y / H] }; }
+  return best; }
+// Pull every room, area or item of a unit onto or inside its outline. Corners outside come in to the outline, corners a wall's
+// thickness inside it snap onto it. Returns { n, trimmed: [names that reached outside] }.
+function fitToUnit(unit, members) {
+  const W = ZE.plan.w, H = ZE.plan.h, tol = Math.max(10, 0.008 * W), far = tol * 1.5, rep = { n: 0, trimmed: [] };
+  (members || membersOf(unit)).forEach(z => { if (z.kind === 'unit' || z.kind === 'area') return; let out = 0;
+    z.poly = z.poly.map(p => { const inside = pointInPoly(p[0], p[1], unit.poly), nr = nearestOnPoly(p, unit.poly, W, H); if (!inside && nr.d > far) out++; if (!inside) { // come in along one axis where possible, so square rooms stay square
+        const U = unit.poly, cand = []; for (let i = 0; i < U.length; i++) { const a = U[i], b = U[(i + 1) % U.length];
+          if ((a[1] - p[1]) * (b[1] - p[1]) <= 0 && a[1] !== b[1]) { const x = a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0]); cand.push({ d: Math.abs(x - p[0]) * W, pt: [x, p[1]] }); }
+          if ((a[0] - p[0]) * (b[0] - p[0]) <= 0 && a[0] !== b[0]) { const y = a[1] + (p[0] - a[0]) / (b[0] - a[0]) * (b[1] - a[1]); cand.push({ d: Math.abs(y - p[1]) * H, pt: [p[0], y] }); } }
+        cand.sort((x, y) => x.d - y.d); const ax = cand[0] && cand[0].d < nr.d * 2.5 ? cand[0].pt : nr.pt; const c = unit.poly.find(q => Math.hypot((q[0] - ax[0]) * W, (q[1] - ax[1]) * H) < tol); return c ? [c[0], c[1]] : ax; }
+      if (nr.d < tol) { const c = unit.poly.find(q => Math.hypot((q[0] - nr.pt[0]) * W, (q[1] - nr.pt[1]) * H) < tol); return c ? [c[0], c[1]] : nr.pt; } return p; });
+    z.poly = z.poly.filter((p, i, a) => { const q = a[(i + 1) % a.length]; return Math.hypot((p[0] - q[0]) * W, (p[1] - q[1]) * H) > 1; });
+    z.unit = unit.unit; z.block = unit.block || z.block; z.level = unit.level || z.level; rep.n++; if (out) rep.trimmed.push(z.name || z.kind); });
+  return rep; }
+const fitMsg = (unit, rep) => `${rep.n} room${rep.n === 1 ? '' : 's'} fitted to Unit ${unit.unit}` + (rep.trimmed.length ? `. ${rep.trimmed.join(', ')} reached outside the outline and ${rep.trimmed.length === 1 ? 'was' : 'were'} trimmed to it: check ${rep.trimmed.length === 1 ? 'it' : 'them'}.` : '');
+// Make nearly-square corners exactly square: edges within about 10 degrees of horizontal or vertical are straightened.
+function squareUp(z) { const W = ZE.plan.w, H = ZE.plan.h, P = z.poly, n = P.length, open = z.kind === 'face';
+  for (let pass = 0; pass < 3; pass++) for (let i = 0; i < n - (open ? 1 : 0); i++) { const a = P[i], b = P[(i + 1) % n], dx = Math.abs(a[0] - b[0]) * W, dy = Math.abs(a[1] - b[1]) * H; if (dx < 0.18 * dy) { const x = (a[0] + b[0]) / 2; a[0] = b[0] = x; } else if (dy < 0.18 * dx) { const y = (a[1] + b[1]) / 2; a[1] = b[1] = y; } } }
+const unitAround = z => ZE.zones.find(u => u.kind === 'unit' && u !== z && pointInPoly(...centroid(z.poly), u.poly));
 function snap() { if (!ZE) return; ZE.undo = ZE.undo || []; ZE.undo.push(JSON.stringify(ZE.zones)); if (ZE.undo.length > 60) ZE.undo.shift(); ZE.redo = []; }
 function restore(json) { const PV = ZE.PV, selId = PV.selZone && PV.selZone.id; ZE.zones = JSON.parse(json); PV.setZones(ZE.zones); PV.selectZone(ZE.zones.find(z => z.id === selId) || null); ZE.dirty = true; panel(); }
 function undo() { if (!ZE || !(ZE.undo || []).length) { toast('Nothing to undo'); return; } (ZE.redo = ZE.redo || []).push(JSON.stringify(ZE.zones)); restore(ZE.undo.pop()); }
@@ -469,7 +493,7 @@ function panel() {
   ${drawing ? `<div class="zsel"><b>Drawing a ${kindName[ZE.drawKind].toLowerCase()}${ZE.rect ? ' (rectangle)' : ''}</b><p class="hint">${ZE.rect ? 'Tap two opposite corners. Tapping near an existing corner or line snaps to it.' : 'Tap each corner in turn. Tapping near an existing corner or line snaps to it and joins the two, so they move together later. Tap the first point (white) or press Finish to close.'}</p>
      <div class="zb">${ZE.rect ? '' : `<button id="zUndo">↶ Undo last point</button><button class="go" id="zFin" ${(PV.draft || []).length < 3 ? 'disabled' : ''}>Finish</button>`}<button id="zCan">Cancel</button></div></div>` : `
   <p class="hint">Draw each unit outline first, then the rooms inside it. Each boundary saves as soon as you name it, and drawing continues with the next one. To reshape: tap a shape, drag its corners, or tap on one of its edges to add a corner there. Use "Duplicate unit" to copy a finished unit, with all its rooms, to the next one and drag it into place.</p>
-  <div class="zb"><label class="opt" style="margin-right:8px"><input type="checkbox" id="zRect" ${ZE.rect ? 'checked' : ''}> <span>Rectangles (two taps)</span></label></div>
+  <div class="zb"><label class="opt" style="margin-right:8px"><input type="checkbox" id="zRect" ${ZE.rect ? 'checked' : ''}> <span>Rectangles (two taps)</span></label><label class="opt"><input type="checkbox" id="zOrtho" ${ZE.ortho ? 'checked' : ''}> <span>Right angles</span></label></div>
   <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button><button id="zI">▣ Draw item (kitchen unit, WC, vanity…)</button></div>
   <div class="zb"><button id="zMulti" class="${PV.marquee ? 'go' : ''}">${PV.marquee ? '✓ Selecting several (tap shapes or drag a box)' : '☐ Select several…'}</button></div>
   ${(PV.multi && PV.multi.size) ? `<div class="zsel"><b>${PV.multi.size} shapes selected</b><p class="hint">Drag any selected shape to move the group; it snaps to neighbours and walls on drop. Tap a shape to add or remove it.</p>
@@ -477,6 +501,7 @@ function panel() {
      <div class="zb"><button id="zgUnit">✎ Rename: unit number, block, level…</button><button class="warn" id="zgDel">🗑 Delete group</button><button id="zgClear">Clear selection</button></div></div>` : ''}
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
      <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? '<div class="zb"><button class="warn" id="zDelV">✂ Delete this corner</button></div>' : ''}
+     <div class="zb">${z.kind === 'unit' ? '<button class="go" id="zFit">⤢ Fit rooms to this outline</button>' : (z.kind !== 'area' ? '<button id="zFit1">⤢ Fit to its unit</button>' : '')}<button id="zSq">∟ Square up corners</button></div>
      <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
      ${z.kind === 'unit' ? '<button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zDupU">⧉ Duplicate unit with its rooms</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
   <div class="zb layers"><span class="muted small">Show:</span>${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}</div>
@@ -492,6 +517,11 @@ function panel() {
   if ($('zPick')) $('zPick').onchange = e => { const q = ZE.zones.find(x => x.id === e.target.value); if (q) { PV.setMode('zones'); PV.selectZone(q); panel(); } };
   on('zDone', async () => { if (ZE.dirty) await save(); close(); });
   if ($('zRect')) $('zRect').onchange = e => { ZE.rect = e.target.checked; S.local.zoneRect = ZE.rect; saveLocal(); };
+  if ($('zOrtho')) $('zOrtho').onchange = e => { ZE.ortho = e.target.checked; PV.ortho = ZE.ortho; S.local.zoneOrtho = ZE.ortho; saveLocal(); };
+  if (ZE.ortho == null) ZE.ortho = S.local.zoneOrtho !== false; PV.ortho = ZE.ortho; if ($('zOrtho')) $('zOrtho').checked = ZE.ortho;
+  on('zFit', () => { const u = PV.selZone; if (!u) return; snap(); squareUp(u); const rep = fitToUnit(u); PV.setZones(ZE.zones); PV.selectZone(u); ZE.dirty = true; panel(); toast(rep.n ? fitMsg(u, rep) : 'No rooms sit inside this outline yet', 6000); });
+  on('zFit1', () => { const r = PV.selZone, u = r && unitAround(r); if (!u) return toast('This shape is not inside a unit outline. Draw or move the unit outline around it first.', 5000); snap(); const rep = fitToUnit(u, [r]); PV.setZones(ZE.zones); PV.selectZone(r); ZE.dirty = true; panel(); toast(fitMsg(u, rep), 5000); });
+  on('zSq', () => { const q = PV.selZone; if (!q) return; snap(); squareUp(q); PV.setZones(ZE.zones); PV.selectZone(q); ZE.dirty = true; panel(); toast('Corners squared', 2000); });
   on('zU', () => draw('unit'));
   on('zRenU', () => { const z = PV.selZone; if (!z) return; groupDetails([z, ...membersOf(z)].map(q => q.id)); });
   on('zI', () => draw('item')); on('zR', () => draw('room')); on('zA', () => draw('area'));
@@ -576,8 +606,13 @@ function zoneDetails(z, isNew) {
   $('zdX').onclick = () => { closeModal(); panel(); };
   $('zdOk').onclick = () => { const oldUnit = z.unit; z.kind = $('zdK').value; z.unit = $('zdU').value.trim(); if (!isNew && z.kind === 'unit' && z.unit !== oldUnit) membersOf(z).forEach(m => { if (!m.unit || m.unit === oldUnit) m.unit = z.unit; }); z.name = z.kind === 'unit' ? '' : $('zdN').value.trim(); z.block = $('zdB').value.trim(); z.level = $('zdL').value.trim();
     if (z.kind === 'unit' && !z.unit) return toast('Enter the unit number'); if (z.kind !== 'unit' && !z.name) return toast('Enter the room or area name');
-    snap(); if (isNew) ZE.zones.push(z); ZE.dirty = true; closeModal(); ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z);
-    if (isNew && z.kind === 'unit') { save().then(() => { modal(`<h2>Unit ${esc(z.unit || '')} outline saved</h2><p>Break it up into rooms now? Each room you draw inside it takes the unit number automatically.</p><div class="btnlist"><button id="zuRooms">⬠ Draw the rooms in this unit</button><button id="zuNext">⬚ Draw the next unit outline</button><button id="zuDup">⧉ Duplicate a finished unit onto this one</button><button id="zuStop">Stop drawing</button></div>`); $('zuRooms').onclick = () => { closeModal(); ZE.rect = true; S.local.zoneRect = true; saveLocal(); toast('Rectangles on: tap two opposite corners of each room. Untick Rectangles for an L-shape.', 4000); draw('room'); }; $('zuNext').onclick = () => { closeModal(); draw('unit'); }; $('zuDup').onclick = () => { closeModal(); ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel(); toast('Select a finished unit, tap Duplicate unit, then drag the copy over this outline.', 5000); }; $('zuStop').onclick = () => { closeModal(); ZE.PV.setMode('zones'); panel(); }; }); }
+    snap(); if (isNew) ZE.zones.push(z); ZE.dirty = true; closeModal();
+    // a new outline takes in the rooms already inside it; a new room is trimmed to the unit around it and takes its number
+    let fitNote = '';
+    if (isNew && z.kind === 'unit') { const rep = fitToUnit(z); if (rep.n) fitNote = fitMsg(z, rep); }
+    else if (isNew && z.kind !== 'area') { const u = unitAround(z); if (u) { const rep = fitToUnit(u, [z]); if (rep.trimmed.length) fitNote = `${z.name} reached outside Unit ${u.unit} and was trimmed to the outline.`; } }
+    ZE.PV.setZones(ZE.zones); ZE.PV.selectZone(z); if (fitNote && z.kind !== 'unit') setTimeout(() => toast(fitNote, 7000), 3600);
+    if (isNew && z.kind === 'unit') { save().then(() => { modal(`<h2>Unit ${esc(z.unit || '')} outline saved</h2><p>${fitNote ? esc(fitNote) + ' ' : ''}Break it up into rooms now? Each room you draw inside it takes the unit number automatically and is trimmed to the outline.</p><div class="btnlist"><button id="zuRooms">⬠ Draw the rooms in this unit</button><button id="zuNext">⬚ Draw the next unit outline</button><button id="zuDup">⧉ Duplicate a finished unit onto this one</button><button id="zuStop">Stop drawing</button></div>`); $('zuRooms').onclick = () => { closeModal(); ZE.rect = true; S.local.zoneRect = true; saveLocal(); toast('Rectangles on: tap two opposite corners of each room. Untick Rectangles for an L-shape.', 4000); draw('room'); }; $('zuNext').onclick = () => { closeModal(); draw('unit'); }; $('zuDup').onclick = () => { closeModal(); ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel(); toast('Select a finished unit, tap Duplicate unit, then drag the copy over this outline.', 5000); }; $('zuStop').onclick = () => { closeModal(); ZE.PV.setMode('zones'); panel(); }; }); }
     else if (isNew) { save().then(() => { const next = { room: 'room', area: 'common area', item: 'item' }[z.kind]; ZE.PV.setMode('zones'); ZE.PV.selectZone(z); panel(); toast(`Saved. Press Draw ${next} for the next one, or Done to leave the editor.`, 3500); }); } else panel(); };
 }
 async function save() {

@@ -77,7 +77,7 @@ main{flex:1;display:flex;min-height:0}
 .pin span{position:absolute;top:5px;left:-4px;width:36px;text-align:center;color:#fff;font-size:9.5px;font-weight:700}
 .pin.sel svg{filter:drop-shadow(0 0 4px #ffeb3b) drop-shadow(0 0 2px #ffeb3b)}
 .zsvg polygon{fill:rgba(59,175,190,.10);stroke:#1e8a99}
-.zsvg polygon.zu{fill:rgba(1,28,53,.05);stroke:#011C35;stroke-dasharray:6 4}
+.zsvg polygon.zu{fill:rgba(0,87,255,.04);stroke:#0057ff;stroke-linejoin:miter}
 .zsvg polygon.za{fill:rgba(227,155,27,.10);stroke:#b97a0c}
 .zsvg polygon.zsel{fill:rgba(255,235,59,.30);stroke:#d64545}
 .zsvg text.zl{text-anchor:middle;dominant-baseline:middle;font-weight:700;fill:#1e6f7a;paint-order:stroke;stroke:#fff;stroke-width:3px;pointer-events:none;font-family:Arial,sans-serif}
