@@ -7,7 +7,8 @@ const NS = 'http://www.w3.org/2000/svg';
 export class PlanView {
   constructor(vp, o = {}) {
     this.vp = vp; this.o = o; this.pv = { s: 1, x: 0, y: 0 }; this.plan = null; this.pins = []; this.zones = []; this.showZones = false;
-    this.mode = 'view'; this.draft = null; this.selZone = null; this.moveZone = false;
+    this.mode = 'view'; this.draft = null; this.selZone = null; this.moveZone = false; this.altDown = false;
+    addEventListener('keydown', e => { if (e.key === 'Alt') this.altDown = true; }); addEventListener('keyup', e => { if (e.key === 'Alt') this.altDown = false; }); addEventListener('blur', () => { this.altDown = false; });
     try { if (location.search.includes('demo')) window.__pv = this; } catch (e) {}   // demo mode only: handle for automated tests
     vp.classList.add('planvp');
     vp.innerHTML = `<div class="inner"><img alt=""><svg class="zsvg" xmlns="${NS}"></svg><div class="pins"></div></div>
@@ -133,6 +134,7 @@ export class PlanView {
     return false;
   }
   _snap(n, skipZone, skipIdx, dry) {
+    if (this.snapOff || this.altDown) return n;
     if (!this.plan) return n; const W = this.plan.w, H = this.plan.h, tol = 13 / this.pv.s; let best = null, bd = tol;
     this.zones.forEach(z => { if (!z.poly) return; z.poly.forEach((q, j) => { if (z === skipZone && j === skipIdx) return; const d = Math.hypot((q[0] - n.x) * W, (q[1] - n.y) * H) / (z.kind === 'unit' ? 1.6 : 1); if (d < bd) { bd = d; best = { x: q[0], y: q[1], snapped: 'corner' }; } }); });
     if (best) return best;

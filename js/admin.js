@@ -554,7 +554,17 @@ const ICON = {
   item: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><rect x="7.5" y="9" width="9" height="7" rx="1" fill="currentColor" stroke="none"/>',
   select: '<rect x="3" y="4" width="18" height="16" rx="1.5" stroke-dasharray="3 3"/><circle cx="3" cy="4" r="1.8" fill="currentColor" stroke="none"/><circle cx="21" cy="20" r="1.8" fill="currentColor" stroke="none"/>',
   elev: '<path d="M2 16h6l0-5h7v-4h8"/><circle cx="2" cy="16" r="1.6" fill="currentColor" stroke="none"/><circle cx="23" cy="7" r="1.6" fill="currentColor" stroke="none"/>',
-  done: '<path d="M4 12.5l5.5 5.5L20 6.5"/>'
+  done: '<path d="M4 12.5l5.5 5.5L20 6.5"/>',
+  edit: '<path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3z"/>',
+  move: '<path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/>',
+  dup: '<rect x="8" y="3" width="13" height="13" rx="1.5"/><path d="M16 19.5A1.5 1.5 0 0 1 14.5 21H4.5A1.5 1.5 0 0 1 3 19.5V8"/>',
+  del: '<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/>',
+  fit: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M8 12h8M8 12l2.5-2.5M8 12l2.5 2.5M16 12l-2.5-2.5M16 12l-2.5 2.5"/>',
+  square: '<path d="M6 4v14h14"/><path d="M10 14h4v-4"/>',
+  rename: '<path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14 6l4 4"/>',
+  cut: '<path d="M6 4l12 12M18 4L6 16"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/>',
+  unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 7.5-2"/>',
+  copyto: '<rect x="3" y="4" width="10" height="10" rx="1.5"/><rect x="11" y="10" width="10" height="10" rx="1.5"/>'
 };
 const ico = (n, col) => `<svg class="zic" viewBox="0 0 24 24" fill="none" stroke="${col || 'currentColor'}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
 const COL = { unit: '#0057ff', room: '#0f9d8c', area: '#8a5cd1', item: '#e07b2a', elev: '#d64545' };
@@ -621,7 +631,7 @@ function panel() {
   ${drawing ? `<div class="zsel"><b>Drawing a ${kindName[ZE.drawKind].toLowerCase()}${ZE.rect ? ' (rectangle)' : ''}</b><p class="hint">${ZE.rect ? 'Tap two opposite corners. Tapping near an existing corner or line snaps to it.' : 'Tap each corner in turn. Tapping near an existing corner or line snaps to it and joins the two, so they move together later. Tap the first point (white) or press Finish to close.'}</p>
      <div class="zb">${ZE.rect ? '' : `<button id="zUndo">↶ Undo last point</button><button class="go" id="zFin" ${(PV.draft || []).length < 3 ? 'disabled' : ''}>Finish</button>`}<button id="zCan">Cancel</button></div></div>` : `
   <p class="hint">Unit outlines first, then the rooms inside them. Tap a shape to reshape it: drag a corner, drag a wall to slide it, or tap a wall to add a corner.</p>
-  <div class="zlab">Drawing aids</div><div class="zb opts"><label class="opt" style="margin-right:8px"><input type="checkbox" id="zRect" ${ZE.rect ? 'checked' : ''}> <span>Rectangles (two taps)</span></label><label class="opt"><input type="checkbox" id="zOrtho" ${ZE.ortho ? 'checked' : ''}> <span>Right angles</span></label><label class="opt" title="Corners that sit on top of each other move together, and a dropped group joins onto what is around it"><input type="checkbox" id="zJoin" ${ZE.join === false ? '' : 'checked'}> <span>Join to neighbours</span></label></div>
+  <div class="zlab">Drawing aids</div><div class="zb opts"><label class="opt" style="margin-right:8px"><input type="checkbox" id="zRect" ${ZE.rect ? 'checked' : ''}> <span>Rectangles (two taps)</span></label><label class="opt"><input type="checkbox" id="zOrtho" ${ZE.ortho ? 'checked' : ''}> <span>Right angles</span></label><label class="opt" title="Corners that sit on top of each other move together, and a dropped group joins onto what is around it"><input type="checkbox" id="zJoin" ${ZE.join === false ? '' : 'checked'}> <span>Join to neighbours</span></label><label class="opt" title="Taps and corners jump onto the walls on the drawing and onto other boundaries. Hold Alt to turn it off for one move."><input type="checkbox" id="zSnap" ${PV.snapOff ? '' : 'checked'}> <span>Snap to walls</span></label></div>
   <div class="zlab">Draw</div>
   <div class="ztiles"><button class="ztile tu" id="zU">${ico('unit', COL.unit)}<span>Unit outline</span></button><button class="ztile tr" id="zR">${ico('room', COL.room)}<span>Room</span></button><button class="ztile ta" id="zA">${ico('area', COL.area)}<span>Common area</span></button><button class="ztile ti" id="zI">${ico('item', COL.item)}<span>Item</span><small>kitchen, WC, vanity</small></button></div>
   <div class="ztiles one"><button class="ztile ts ${PV.marquee ? 'on' : ''}" id="zMulti">${ico('select')}<span>${PV.marquee ? 'Selecting several: tap shapes or drag a box' : 'Select several…'}</span></button></div>
@@ -631,10 +641,16 @@ function panel() {
      <div class="zb"><button id="zgWeld" title="Move every corner of the selection that is close to a neighbouring boundary onto it, so no slivers are left">🔗 Connect to neighbours</button><button class="go" id="zgCopy">⧉ Copy group</button><button id="zgClip">📋 Copy to another plan</button><button id="zgMirH">⇄ Mirror east-west</button><button id="zgMirV">⇅ Mirror north-south</button></div>
      <div class="zb"><button id="zgUnit">✎ Rename: unit number, block, level…</button><button class="warn" id="zgDel">🗑 Delete group</button><button class="go" id="zgClear">✓ Done selecting (back to editing)</button></div></div>` : ''}
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
-     <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? '<div class="zb"><button class="warn" id="zDelV">✂ Delete this corner</button><button id="zFreeV" title="Stop this corner being tied to the shapes around it">🔓 Disconnect this corner</button></div>' : ''}
-     <div class="zb">${z.kind === 'unit' ? '<button class="go" id="zFit">⤢ Fit rooms to this outline</button>' : (z.kind !== 'area' ? '<button id="zFit1">⤢ Fit to its unit</button>' : '')}<button id="zSq">∟ Square up corners</button></div>
-     <div class="zb"><button id="zEd">✎ Edit details</button><button id="zMv" class="${PV.moveZone ? 'go' : ''}">${PV.moveZone ? '✓ Move mode on (drag inside the shape)' : '✥ Move'}</button>
-     ${z.kind === 'unit' ? '<button class="go" id="zCopyU">⧉ Copy these rooms into other units…</button><button id="zRenU">✎ Rename unit (and its rooms)…</button><button id="zCopyDrag">⧉ Copy and drag it myself</button>' : '<button id="zDup">⧉ Duplicate</button>'}<button class="warn" id="zDel">🗑 Delete${z.kind === 'unit' ? ' outline' : ''}</button></div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
+     <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? `<div class="zacts two"><button class="zact warn" id="zDelV">${ico('cut', '#b3261e')}<span>Delete corner</span></button><button class="zact" id="zFreeV" title="Stop this corner being tied to the shapes around it">${ico('unlock')}<span>Disconnect</span></button></div>` : ''}
+     ${z.kind === 'unit' ? `<div class="zb"><button class="go big" id="zCopyU">${ico('copyto', COL.unit)} Copy these rooms into other units…</button></div>` : ''}
+     <div class="zacts">
+       ${z.kind === 'unit' ? `<button class="zact" id="zFit">${ico('fit')}<span>Fit rooms in</span></button>` : (z.kind !== 'area' ? `<button class="zact" id="zFit1">${ico('fit')}<span>Fit to unit</span></button>` : '')}
+       <button class="zact" id="zSq">${ico('square')}<span>Square up</span></button>
+       <button class="zact" id="zEd">${ico('edit')}<span>Details</span></button>
+       <button class="zact ${PV.moveZone ? 'on' : ''}" id="zMv">${ico('move')}<span>${PV.moveZone ? 'Moving' : 'Move'}</span></button>
+       ${z.kind === 'unit' ? `<button class="zact" id="zRenU">${ico('rename')}<span>Rename unit</span></button><button class="zact" id="zCopyDrag">${ico('dup')}<span>Copy &amp; drag</span></button>` : `<button class="zact" id="zDup">${ico('dup')}<span>Duplicate</span></button>`}
+       <button class="zact warn" id="zDel">${ico('del', '#b3261e')}<span>Delete</span></button>
+     </div></div>` : '<p class="hint">Tap a shape to select it.</p>'}`}
   ${(PV.hideKinds && PV.hideKinds.size) ? `<div class="zwarn">${[...PV.hideKinds].map(k => ({ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' })[k]).join(', ')} are hidden, so they cannot be tapped. <button id="zShowAll">Show everything</button></div>` : ''}
   <div class="zlab">Show</div><div class="zb layers">${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}${faceGuides(ZE.plan).length ? `<label class="opt" title="The red dashed lines showing where the elevations sit on this plan"><input type="checkbox" id="zShowG" ${ZE.showGuides === false ? '' : 'checked'}> <span>Elevation lines</span></label>` : ''}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
@@ -650,6 +666,8 @@ function panel() {
   if ($('zPick')) $('zPick').onchange = e => { const q = ZE.zones.find(x => x.id === e.target.value); if (q) { PV.setMode('zones'); PV.selectZone(q); panel(); } };
   on('zDone', async () => { if (ZE.dirty) await save(); close(); });
   if ($('zRect')) $('zRect').onchange = e => { ZE.rect = e.target.checked; S.local.zoneRect = ZE.rect; saveLocal(); };
+  if ($('zSnap')) $('zSnap').onchange = e => { PV.snapOff = !e.target.checked; S.local.zoneSnapOff = PV.snapOff; saveLocal(); };
+  if (PV.snapOff == null) PV.snapOff = !!S.local.zoneSnapOff; if ($('zSnap')) $('zSnap').checked = !PV.snapOff;
   if ($('zShowG')) $('zShowG').onchange = e => { ZE.showGuides = e.target.checked; ZE0guides(PV, ZE.plan); PV._drawZones(); };
   if ($('zJoin')) $('zJoin').onchange = e => { ZE.join = e.target.checked; PV.join = ZE.join; S.local.zoneJoin = ZE.join; saveLocal(); };
   if (ZE.join == null) ZE.join = S.local.zoneJoin !== false; PV.join = ZE.join; if ($('zJoin')) $('zJoin').checked = ZE.join;
