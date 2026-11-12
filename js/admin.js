@@ -520,7 +520,7 @@ function fitToUnit(unit, members) {
           if ((a[1] - p[1]) * (b[1] - p[1]) <= 0 && a[1] !== b[1]) { const x = a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0]); cand.push({ d: Math.abs(x - p[0]) * W, pt: [x, p[1]] }); }
           if ((a[0] - p[0]) * (b[0] - p[0]) <= 0 && a[0] !== b[0]) { const y = a[1] + (p[0] - a[0]) / (b[0] - a[0]) * (b[1] - a[1]); cand.push({ d: Math.abs(y - p[1]) * H, pt: [p[0], y] }); } }
         cand.sort((x, y) => x.d - y.d); const ax = cand[0] && cand[0].d < nr.d * 2.5 ? cand[0].pt : nr.pt; const c = unit.poly.find(q => Math.hypot((q[0] - ax[0]) * W, (q[1] - ax[1]) * H) < tol); return c ? [c[0], c[1]] : ax; }
-      if (nr.d < tol) { const c = unit.poly.find(q => Math.hypot((q[0] - nr.pt[0]) * W, (q[1] - nr.pt[1]) * H) < tol); return c ? [c[0], c[1]] : nr.pt; } return p; });
+      if (nr.d < tol && z.kind === 'room' && !ZE.PV.snapOff) { const c = unit.poly.find(q => Math.hypot((q[0] - nr.pt[0]) * W, (q[1] - nr.pt[1]) * H) < tol); return c ? [c[0], c[1]] : nr.pt; } return p; });
     z.poly = z.poly.filter((p, i, a) => { const q = a[(i + 1) % a.length]; return Math.hypot((p[0] - q[0]) * W, (p[1] - q[1]) * H) > 1; });
     z.unit = unit.unit; z.block = unit.block || z.block; z.level = unit.level || z.level; rep.n++; if (out) rep.trimmed.push(z.name || z.kind); });
   return rep; }
