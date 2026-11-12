@@ -181,10 +181,23 @@ table.t{width:100%;border-collapse:collapse;font-size:13px}
 table.t th{text-align:left;background:var(--grey);padding:6px;font-size:11px;text-transform:uppercase;color:var(--muted)}
 table.t td{padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
 table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border-radius:5px;max-width:100%}
-.planrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0}
-.planrow img{width:90px;height:64px;object-fit:contain;background:#f6f7f8;border-radius:4px}
-.planrow .pi{flex:1 1 320px;min-width:260px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px}.planrow>div:last-child{flex:0 1 auto;max-width:100%}.planrow .pi input{min-width:0}
-.planrow input{padding:5px 6px;border:1px solid var(--line);border-radius:5px;width:100%}
+.psect{margin:14px 0 6px}.psect h3{margin:0 0 2px;font-size:16px;color:var(--navy)}.psect .note{margin:0 0 6px}
+.planrow{display:flex;gap:10px;align-items:stretch;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;background:#fff}
+.planrow.over{outline:2px dashed var(--teal,#2aa5b8);outline-offset:1px;background:#f2fbfc}.planrow.dragging{opacity:.45}
+.planrow>img{width:96px;height:68px;object-fit:contain;background:#f6f7f8;border-radius:6px;align-self:center;flex:0 0 auto}
+.pmove{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:0 0 auto}
+.phandle{cursor:grab;font-size:18px;color:#8a97a5;line-height:1;padding:2px 4px;user-select:none}.pmv{border:0;background:none;color:#5b6b7b;font-size:11px;padding:2px 6px;cursor:pointer;border-radius:4px}.pmv:hover:not(:disabled){background:#eef2f5}.pmv:disabled{opacity:.25;cursor:default}
+.pmain{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px;justify-content:center}
+.planrow .pi{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1.3fr) minmax(0,.9fr) minmax(0,.9fr) minmax(0,1fr);gap:6px}
+.planrow[data-g=elev] .pi{grid-template-columns:minmax(0,2.2fr) minmax(0,1.3fr) minmax(0,1fr)}
+.pf{display:flex;flex-direction:column;gap:1px;min-width:0}.pf span{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:#6b7a89}
+.planrow input,.planrow select{padding:5px 6px;border:1px solid var(--line);border-radius:5px;width:100%;min-width:0;font:inherit;font-size:13.5px;background:#fff}
+.pline{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.plabel{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:#6b7a89;margin-right:2px}.pgrow{flex:1 1 auto}
+.chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:14px;padding:2px 9px;font-size:12.5px;background:#f6f8fa;white-space:nowrap}
+.chip.base{background:#e9eef3;color:#44525f}.chip.warn{background:#fff4e5;border-color:#f0c27a;color:#8a5a00}.chip button{border:0;background:none;cursor:pointer;color:#8a97a5;padding:0 0 0 2px;font-size:12px}.chip button:hover{color:#c0392b}
+.chip.add{cursor:pointer;border-style:dashed;background:#fff;color:var(--navy);font-weight:600}.chip.add:hover{background:#f2fbfc}
+.pdel{border:0;background:none;cursor:pointer;font-size:16px;align-self:center;opacity:.55;padding:6px;flex:0 0 auto}.pdel:hover{opacity:1}
+.ptsep{display:inline-block;width:1px;align-self:stretch;background:var(--line);margin:4px 6px}
 .codebox{font-family:Consolas,monospace;font-size:12px;background:var(--grey);padding:8px;border-radius:6px;word-break:break-all;user-select:all}
 /* markup */
 #mk{position:fixed;inset:0;background:#111;z-index:50;display:none;flex-direction:column}
@@ -257,7 +270,7 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
   .zoombar{bottom:90px}
   .zpanel{left:6px;right:6px;width:auto;top:auto;bottom:6px;max-height:55%}
   #listToggle{display:none}
-  .planrow{flex-wrap:wrap}.planrow .pi{grid-template-columns:1fr 1fr}
+  .planrow{flex-wrap:wrap}.planrow .pi,.planrow[data-g=elev] .pi{grid-template-columns:1fr 1fr}.planrow>img{width:64px;height:48px}.pmain{flex-basis:60%}
 }
 #dropov{position:fixed;inset:0;background:rgba(1,28,53,.55);z-index:90;display:none;align-items:center;justify-content:center;pointer-events:none}
 #dropov.show{display:flex}
@@ -314,3 +327,4 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 .zsvg polygon.zb{fill:rgba(0,102,204,.14);stroke:#06c;stroke-dasharray:none}.zsvg polygon.zbro{fill:rgba(0,102,204,.04);stroke:#8ab;stroke-dasharray:6 4;pointer-events:none}.zsvg text.zbt{fill:#06c;font-weight:700}.zsvg text.zbrot{fill:#8ab;font-weight:700}
 .zeditor .viewbar,.zeditor .vbtoggle,.zeditor .pinfab{display:none!important}
 .pin.dragging{opacity:.75;filter:drop-shadow(0 6px 6px rgba(0,0,0,.4));z-index:9}
+.psheets{display:block}.pf span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

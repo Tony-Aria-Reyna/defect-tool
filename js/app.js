@@ -209,7 +209,9 @@ function renderPins() {
 let placing = null;
 function renderPlanTabs() {
   const pt = $('plantabs');
-  pt.innerHTML = S.plans.map(p => `<button data-p="${esc(p.id)}" class="${p.id === S.curPlan ? 'on' : ''}">${esc(p.name)}</button>`).join('') +
+  const gOf = p => p.kind === 'elevation' ? 'elev' : (p.group || (/site|landscape|locality|survey/i.test(p.name || '') ? 'site' : 'floor')); let lastG = null;
+  const gr = { floor: 0, site: 1, elev: 2 };
+  pt.innerHTML = S.plans.slice().sort((a, b) => gr[gOf(a)] - gr[gOf(b)]).map(p => { const g = gOf(p), sep = lastG && g !== lastG ? '<span class="ptsep"></span>' : ''; lastG = g; return `${sep}<button data-p="${esc(p.id)}" class="pt-${g}${p.id === S.curPlan ? ' on' : ''}">${g === 'elev' ? '📐 ' : g === 'site' ? '🗺 ' : ''}${esc(p.name)}</button>`; }).join('') +
     (S.plans.length ? '' : (can.admin() ? '<span class="muted small">No plans yet.</span><button class="act" id="bUpPlan">Upload plans</button>' : '<span class="muted small">No plans uploaded for this project yet.</span>'));
   let pinBtn = $('bPin'); if (!pinBtn) { pinBtn = document.createElement('button'); pinBtn.id = 'bPin'; pinBtn.className = 'pinfab'; $('planPane').appendChild(pinBtn); } pinBtn.textContent = '📍 Add pin'; pinBtn.classList.remove('on'); pinBtn.style.display = S.plans.length && can.edit() ? '' : 'none';
   pt.querySelectorAll('[data-p]').forEach(b => b.onclick = () => showPlan(b.dataset.p));
@@ -256,7 +258,7 @@ export function planViews(p) {
   (p.views || []).forEach(x => v.push(x));
   return v;
 }
-export const VIEW_TYPES = [['ceiling', 'Ceiling plan (RCP)', 'Ceiling'], ['walls', 'Wall plan / internal elevations', 'Wall'], ['cladding', 'Cladding / external elevations', 'Exterior cladding'], ['roof', 'Roof plan', 'Roof'], ['services', 'Services plan', 'Services'], ['joinery', 'Joinery / fit-out plan', 'Joinery']];
+export const VIEW_TYPES = [['ceiling', 'Ceiling plan (RCP)', 'Ceiling'], ['walls', 'Wall plan / internal elevations', 'Wall'], ['cladding', 'Cladding / external elevations', 'Exterior cladding'], ['framing', 'Framing plan', 'Wall'], ['roof', 'Roof plan', 'Roof'], ['services', 'Services plan', 'Services'], ['joinery', 'Joinery / fit-out plan', 'Joinery']];
 // Elevation -> floor plan mapping. An elevation plan carries link = { planId, a:[x,y], b:[x,y], ea, eb }: points a and b on the floor
 // plan are the two ends of the building face, ea/eb the same two points as x fractions on the elevation image.
 export function elevToFloor(ep, ex, ey) {
