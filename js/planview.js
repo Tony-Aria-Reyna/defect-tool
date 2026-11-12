@@ -75,6 +75,25 @@ export class PlanView {
   // Snap a plan-normalised point to an existing corner, or onto an existing boundary line (a new shared corner is added to that line).
   // Snap a whole shape after a move: the corner that lands closest to something snaps, and the shape shifts with it.
   setMulti(ids) { this.multi = new Set(ids || []); this._drawZones(); }
+  // Weld a group to what surrounds it: every corner of the group that sits close to a corner (or a wall) of a shape outside the
+  // group is moved onto it, so there are no slivers left between them. Returns how many corners were joined.
+  weldGroup(tolPx) {
+    const W = this.plan.w, H = this.plan.h, ids = this.multi, tol = (tolPx || 18) / this.pv.s; let n = 0;
+    const outside = this.zones.filter(z => z.poly && z.poly.length > 1 && !ids.has(z.id) && z.kind !== 'face' && z.kind !== 'band' && z.kind !== 'bandro');
+    ids.forEach(id => { const z = this.zones.find(q => q.id === id); if (!z || !z.poly) return;
+      z.poly.forEach((p, i) => {
+        let best = null;
+        outside.forEach(o => o.poly.forEach(q => { const d = Math.hypot((q[0] - p[0]) * W, (q[1] - p[1]) * H); if (d < tol && d > 1e-9 && (!best || d < best.d)) best = { d, pt: [q[0], q[1]] }; }));
+        if (!best) outside.forEach(o => { const P = o.poly; for (let k = 0; k < P.length - (o.kind === 'face' ? 1 : 0); k++) { const a = P[k], b = P[(k + 1) % P.length], ax = a[0] * W, ay = a[1] * H, bx = b[0] * W, by = b[1] * H, px = p[0] * W, py = p[1] * H, l2 = (bx - ax) ** 2 + (by - ay) ** 2; if (!l2) continue; const t = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / l2)); const sx = ax + t * (bx - ax), sy = ay + t * (by - ay), d = Math.hypot(px - sx, py - sy); if (d < tol && d > 1e-9 && (!best || d < best.d)) best = { d, pt: [sx / W, sy / H], zone: o, after: k, t }; } });
+        if (!best) return;
+        // corners of the group that sat on this one travel with it, so the group stays joined up inside as well
+        const old = [p[0], p[1]];
+        ids.forEach(jd => { const q = this.zones.find(x => x.id === jd); if (!q || !q.poly) return; q.poly.forEach((r, j) => { if (Math.abs((r[0] - old[0]) * W) < 1 && Math.abs((r[1] - old[1]) * H) < 1) q.poly[j] = [best.pt[0], best.pt[1]]; }); });
+        if (best.zone && best.t > 0.02 && best.t < 0.98) best.zone.poly.splice(best.after + 1, 0, [best.pt[0], best.pt[1]]);   // the wall gains a shared corner
+        n++; }); });
+    if (n) this._drawZones();
+    return n;
+  }
   _snapGroup() {
     const W = this.plan.w, H = this.plan.h, ids = this.multi; let best = null;
     ids.forEach(id => { const z = this.zones.find(q => q.id === id); if (!z) return; z.poly.forEach(p => { const sn = this._snapTo({ x: p[0], y: p[1] }, ids); if (sn) { const d = Math.hypot((sn.x - p[0]) * W, (sn.y - p[1]) * H); if (!best || d < best.d) best = { d, dx: sn.x - p[0], dy: sn.y - p[1] }; } }); });

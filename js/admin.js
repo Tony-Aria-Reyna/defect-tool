@@ -493,7 +493,7 @@ export async function zoneEditor(PV) {
     onVertexAdded: z => { toast('Corner added. Drag it to fit.', 1800); },
     onVertexSelect: i => { panel(); },
     onMultiChange: ids => { panel(); },
-    onGroupMoved: ids => { ZE.dirty = true; if (ZE.pendingGroup && ids.length && ids.every(id => ZE.pendingGroup.includes(id))) { const g = ZE.pendingGroup; ZE.pendingGroup = null; groupDetails(g, true); } else panel(); },
+    onGroupMoved: ids => { ZE.dirty = true; const w = PV.weldGroup(18); if (w) toast(`${w} corner${w === 1 ? '' : 's'} joined to the shapes around it`, 2500); if (ZE.pendingGroup && ids.length && ids.every(id => ZE.pendingGroup.includes(id))) { const g = ZE.pendingGroup; ZE.pendingGroup = null; groupDetails(g, true); } else panel(); },
     onZoneEdit: (z, kind, dx, dy) => { ZE.dirty = true; if (kind === 'z' && ZE.members) ZE.members.forEach(({ m, orig }) => m.poly = orig.map(p => [p[0] + dx, p[1] + dy])); },
   });
   panel();
@@ -550,7 +550,7 @@ function panel() {
   <div class="zb"><button id="zU">⬚ Draw unit outline</button><button id="zR">⬠ Draw room</button><button id="zA">⬡ Draw common area</button><button id="zI">▣ Draw item (kitchen unit, WC, vanity…)</button></div>
   <div class="zb"><button id="zMulti" class="${PV.marquee ? 'go' : ''}">${PV.marquee ? '✓ Selecting several (tap shapes or drag a box)' : '☐ Select several…'}</button></div>
   ${(PV.multi && PV.multi.size) ? `<div class="zsel"><b>${PV.multi.size} shapes selected</b><p class="hint">Drag any selected shape to move the group; it snaps to neighbours and walls on drop. Tap a shape to add or remove it.</p>
-     <div class="zb"><button class="go" id="zgCopy">⧉ Copy group</button><button id="zgClip">📋 Copy to another plan</button><button id="zgMirH">⇄ Mirror east-west</button><button id="zgMirV">⇅ Mirror north-south</button></div>
+     <div class="zb"><button id="zgWeld" title="Move every corner of the selection that is close to a neighbouring boundary onto it, so no slivers are left">🔗 Connect to neighbours</button><button class="go" id="zgCopy">⧉ Copy group</button><button id="zgClip">📋 Copy to another plan</button><button id="zgMirH">⇄ Mirror east-west</button><button id="zgMirV">⇅ Mirror north-south</button></div>
      <div class="zb"><button id="zgUnit">✎ Rename: unit number, block, level…</button><button class="warn" id="zgDel">🗑 Delete group</button><button id="zgClear">Clear selection</button></div></div>` : ''}
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
      <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? '<div class="zb"><button class="warn" id="zDelV">✂ Delete this corner</button></div>' : ''}
@@ -588,6 +588,7 @@ function panel() {
   on('zgDel', async () => { if (!(await confirmBox(`Delete ${PV.multi.size} shapes?`, 'Delete'))) return; snap(); ZE.zones = ZE.zones.filter(q => !PV.multi.has(q.id)); PV.setMulti([]); PV.setZones(ZE.zones); ZE.dirty = true; panel(); });
   on('zgCopy', () => { snap(); const ids = [...PV.multi], copies = []; ZE.zones.forEach(q => { if (ids.includes(q.id)) copies.push(copyZone(q, 0.015, 0.015, null)); });   // array order kept, so layers stay in order
     copies.forEach(c => { c._srcUnit = c.unit; ZE.zones.push(c); }); ZE.pendingGroup = copies.map(c => c.id); PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel(); toast('Copy made. Drag it into place; when you drop it you will be asked for the unit number.', 5000); });
+  on('zgWeld', () => { snap(); const n = PV.weldGroup(34); if (!n) return toast('Nothing close enough to join to. Move the group nearer first.', 4000); ZE.dirty = true; panel(); toast(`${n} corner${n === 1 ? '' : 's'} joined to the shapes around it`, 3500); });
   on('zgClip', () => { const ids = [...PV.multi]; const zs = ZE.zones.filter(q => ids.includes(q.id)); if (!zs.length) return; CLIP = { n: zs.length, from: ZE.plan.name, w: ZE.plan.w, h: ZE.plan.h, zones: JSON.parse(JSON.stringify(zs)) }; toast(`${zs.length} shapes copied. Switch to the other plan (Plan list above) and press Paste.`, 5000); panel(); });
   on('zPaste', () => { if (!CLIP) return; snap(); const sx = (CLIP.w / CLIP.h) / (ZE.plan.w / ZE.plan.h); const copies = CLIP.zones.map(z => { const c = copyZone(z, 0, 0, null); if (Math.abs(sx - 1) > 0.01) c.poly = c.poly.map(p => [p[0], p[1]]); c.block = ZE.plan.block || c.block; c.level = ZE.plan.level || c.level; c._srcUnit = c.unit; return c; });
     copies.forEach(c => ZE.zones.push(c)); ZE.pendingGroup = copies.map(c => c.id); PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel(); toast('Pasted at the same position. Drag the group into place; on drop you will be asked for the unit number.', 6000); });
