@@ -50,6 +50,7 @@ async function route(files) {
   if (w === 'asset') return X.FM.dropDocs(files, X.FM.assetDropTarget());
   if (w === 'plans') { if (!can.admin()) return toast('Only project admins can add plans'); closeModal(); return X.Admin.uploadPlans(files.filter(f => ext(f) === 'pdf' || isImg(f))); }
   const json = files.filter(f => ext(f) === 'json'), sheets = files.filter(f => ['xlsx', 'xls', 'csv'].includes(ext(f)));
+  if (!folder && json.length > 1 && json.length === files.length) return toast('Drop these .json files one at a time, so each one can show you what it will change. Nothing was loaded.', 9000);
   if (!folder && files.length === 1 && json.length === 1) { if (!can.edit()) return toast('Your role cannot import'); return X.Admin.importJson(json[0]); }
   if (w === 'defects' && !folder) {
     if (files.length === 1 && sheets.length === 1) { if (!can.edit()) return toast('Your role cannot import'); return X.Admin.importSheet(sheets[0]); }
