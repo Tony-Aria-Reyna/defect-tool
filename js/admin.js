@@ -5,6 +5,7 @@ import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, compress
 import { aiCall } from './ai.js';
 import * as Nav from './nav.js';
 import * as Faces from './faces.js';
+import * as AF from './autofit.js';
 
 let X = {};   // callbacks from app.js
 export function init(ctx) { X = ctx; }
@@ -575,40 +576,63 @@ const ico = (n, col) => `<svg class="zic" viewBox="0 0 24 24" fill="none" stroke
 const COL = { unit: '#0057ff', room: '#0f9d8c', area: '#8a5cd1', item: '#e07b2a', elev: '#d64545' };
 // The elevation lines sit where they do on a compass: north at the top, east to the right, south at the bottom, west to the left.
 // The rose in the middle shows which way north runs on this sheet, which is not always up.
-// Copy one finished unit's rooms and items into other unit outlines on this plan: pick the source, tick the units to fill, done.
-// No dragging: each target outline is the frame, and the rooms are scaled into it and given that unit's number.
-function copyUnitInto(src) {
-  const PV = ZE.PV, members = membersOf(src); if (!members.length) return toast('Draw the rooms in this unit first, then copy them into the others', 5000);
-  const box = poly => ({ x0: Math.min(...poly.map(p => p[0])), x1: Math.max(...poly.map(p => p[0])), y0: Math.min(...poly.map(p => p[1])), y1: Math.max(...poly.map(p => p[1])) });
-  const targets = ZE.zones.filter(q => q.kind === 'unit' && q !== src).map(q => ({ z: q, n: membersOf(q).length })).sort((a, b) => String(a.z.unit).localeCompare(String(b.z.unit), undefined, { numeric: true }));
-  if (!targets.length) return toast('Draw the other unit outlines first, then copy into them', 5000);
-  const empty = targets.filter(t => !t.n).length;
-  modal(`<h2>Copy Unit ${esc(src.unit || '')} into other units</h2>
-    <p>${members.length} rooms and items are copied into each unit you tick. Each one is stretched to fit that unit's own outline and takes its number, so nothing has to be dragged.</p>
-    <div class="cuList">${targets.map((t, i) => `<label class="opt cuRow"><input type="checkbox" data-cu="${i}" ${t.n ? '' : 'checked'}> <span><b>Unit ${esc(t.z.unit || '?')}</b> ${t.n ? `<span class="muted small">has ${t.n} rooms already, they will be replaced</span>` : '<span class="muted small">empty</span>'}</span></label>`).join('')}</div>
-    <div class="zb opts" style="margin-top:8px"><label class="opt"><input type="checkbox" id="cuMir"> <span>Mirror left to right</span></label><label class="opt"><input type="checkbox" id="cuFlip"> <span>Flip top to bottom</span></label></div>
-    <p class="note">Tick both for a unit that is turned right around, as the rows facing each other across a corridor usually are. Run the copy once for each arrangement.</p>
-    <div class="act"><button id="cuX">Cancel</button><button id="cuEmpty">Tick the ${empty} empty ones</button><button class="go" id="cuGo">Copy</button></div>`, false);
+// Fill the other units from one finished unit. Pick the finished unit, tick the units to fill (on this plan and the other floor
+// plans), and the app does the rest: it works out which way round each unit is, lines the rooms up against the walls on the
+// drawing, lines each fixture up on its own lines, and shows the result for a yes or no.
+let FILL_BACKUP = null;
+async function copyUnitInto(src) {
+  const members = membersOf(src); if (!members.length) return toast('Draw the rooms and items in this unit first, then fill the others from it', 5000);
+  if (ZE.dirty) await save();
+  const srcPlan = ZE.plan, floors = S.plans.filter(p => p.kind !== 'elevation' && (p.zones || []).some(z => z.kind === 'unit'));
+  const inside = (z, u) => AF.inPoly(AF.cen(z.poly), u.poly);
+  const groups = floors.map(p => ({ p, units: p.zones.filter(z => z.kind === 'unit' && !(p.id === srcPlan.id && z.id === src.id)).map(u => ({ u, n: p.zones.filter(z => z.kind !== 'unit' && z.kind !== 'area' && inside(z, u)).length })).sort((a, b) => String(a.u.unit).localeCompare(String(b.u.unit), undefined, { numeric: true })) })).filter(g => g.units.length);
+  if (!groups.length) return toast('Draw the other unit outlines first (just the outline of each unit), then fill them from this one', 6000);
+  const flat = groups.flatMap(g => g.units.map(t => ({ ...t, p: g.p }))), empty = flat.filter(t => !t.n).length;
+  modal(`<h2>Fill other units from Unit ${esc(src.unit || '')}</h2>
+    <p>Unit ${esc(src.unit || '')} has ${members.filter(m => m.kind !== 'item').length} rooms and ${members.filter(m => m.kind === 'item').length} items. Tick the units that are the same type. Each one is worked out for you: which way round it is, lined up against the walls on the drawing, and every fixture placed on its own lines.</p>
+    <div class="cuList">${groups.map(g => `<div class="cuPlan">${esc(g.p.name)}</div>` + g.units.map(t => { const i = flat.findIndex(f => f.u === t.u); return `<label class="opt cuRow"><input type="checkbox" data-cu="${i}" ${t.n ? '' : 'checked'}> <span><b>Unit ${esc(t.u.unit || '?')}</b> ${t.n ? `<span class="muted small">has ${t.n} rooms and items already, they will be replaced</span>` : '<span class="muted small">empty</span>'}</span></label>`; }).join('')).join('')}</div>
+    <div class="act"><button id="cuX">Cancel</button><button id="cuEmpty">Tick the ${empty} empty ones</button><button id="cuAll">Tick all</button><button class="go" id="cuGo">Fill the ticked units</button></div>`, false);
   $('cuX').onclick = closeModal;
-  $('cuEmpty').onclick = () => document.querySelectorAll('[data-cu]').forEach((c, i) => c.checked = !targets[i].n);
+  $('cuEmpty').onclick = () => document.querySelectorAll('[data-cu]').forEach((c, i) => c.checked = !flat[i].n);
+  $('cuAll').onclick = () => document.querySelectorAll('[data-cu]').forEach(c => c.checked = true);
   $('cuGo').onclick = async () => {
-    const pick = [...document.querySelectorAll('[data-cu]')].filter(c => c.checked).map(c => targets[+c.dataset.cu]); if (!pick.length) return toast('Tick at least one unit');
-    const mir = $('cuMir').checked, flip = $('cuFlip').checked; closeModal(); snap();
-    const sb = box(src.poly); let made = 0;
-    pick.forEach(({ z: tgt }) => {
-      ZE.zones = ZE.zones.filter(q => !(q.kind !== 'unit' && pointInPoly(...centroid(q.poly), tgt.poly)));   // clear what was in there
-      const tb = box(tgt.poly), sx = (tb.x1 - tb.x0) / ((sb.x1 - sb.x0) || 1), sy = (tb.y1 - tb.y0) / ((sb.y1 - sb.y0) || 1);
-      members.forEach(m => { const c = copyZone(m, 0, 0, null);
-        c.poly = c.poly.map(p => { const x = mir ? tb.x1 - (p[0] - sb.x0) * sx : tb.x0 + (p[0] - sb.x0) * sx, y = flip ? tb.y1 - (p[1] - sb.y0) * sy : tb.y0 + (p[1] - sb.y0) * sy; return [x, y]; });
-        if (mir !== flip) c.poly.reverse();   // one reflection turns the shape inside out, two put it back
-        c.unit = tgt.unit || ''; c.block = tgt.block || ZE.plan.block || ''; c.level = tgt.level || ZE.plan.level || ''; delete c._srcUnit;
-        ZE.zones.push(c); });
-      made++;
-    });
-    PV.setZones(ZE.zones); PV.setMulti([]); PV.marquee = false; PV.selectZone(null); ZE.dirty = true; panel();
-    await save(); toast(`${members.length} rooms copied into ${made} unit${made === 1 ? '' : 's'}${mir || flip ? ' (' + [mir && 'mirrored', flip && 'flipped'].filter(Boolean).join(' and ') + ')' : ''}. Check them on the plan; Undo puts it all back.`, 7000);
+    const pick = [...document.querySelectorAll('[data-cu]')].filter(c => c.checked).map(c => flat[+c.dataset.cu]); if (!pick.length) return toast('Tick at least one unit');
+    closeModal(); const b = busy('Reading the drawings…'); const results = [];
+    try {
+      const maps = {}, tw = Math.max(...src.poly.map(q => q[0])) - Math.min(...src.poly.map(q => q[0]));
+      for (const t of pick) {
+        if (!maps[t.p.id]) { b.set && b.set(`Reading ${t.p.name}…`); const im = await loadImage(await S.store.resolveUrl(t.p.img)); maps[t.p.id] = AF.distanceMap(im, t.p.w, t.p.h); await new Promise(r => setTimeout(r, 10)); }
+        b.set && b.set(`Fitting Unit ${t.u.unit}…`);
+        // true size: the template keeps its size in pixels unless the two outlines clearly differ in width
+        const gw = Math.max(...t.u.poly.map(q => q[0])) - Math.min(...t.u.poly.map(q => q[0])), r = (gw * t.p.w) / (tw * srcPlan.w), kpx = Math.abs(r - 1) < 0.04 ? 1 : r;
+        const fit = AF.fitUnit(maps[t.p.id], src.poly, members, t.u.poly, { scale: srcPlan.w / t.p.w * kpx, aspect: (srcPlan.h / t.p.h) / (srcPlan.w / t.p.w) });
+        results.push({ ...t, fit }); await new Promise(r => setTimeout(r, 0));
+      }
+    } catch (e) { b.done(); console.error(e); return toast('Could not read the drawing: ' + e.message, 7000); }
+    b.done();
+    // a poor wall fit holds a unit back until it is ticked; smaller things are notes and the unit is still filled
+    const flag = r => [r.fit.score > 2.5 && 'walls do not line up well: is this unit the same type?'].filter(Boolean);
+    const note = r => [r.fit.outside > 9 && `a room corner sits ${Math.round(r.fit.outside)} px outside the outline`, r.fit.itemsAfter > 1.6 && 'check the fixtures'].filter(Boolean);
+    const bad = results.filter(r => flag(r).length).length;
+    modal(`<h2>${results.length} unit${results.length === 1 ? '' : 's'} fitted${bad ? `, ${bad} held back to check` : ''}</h2>
+      <p>Each unit was lined up against its own drawing. "Fit" is how far the room lines sit from the drawn walls on average, in pixels: under 2 is a good fit.</p>
+      <div class="cuList"><table class="t"><tr><th>Plan</th><th>Unit</th><th>Placed</th><th>Fit</th><th>Fixtures</th><th></th></tr>${results.map((r, i) => `<tr class="${flag(r).length ? 'afbad' : ''}"><td>${esc(r.p.name)}</td><td><b>${esc(r.u.unit || '?')}</b></td><td>${AF.TURN_LABEL[r.fit.turn]}</td><td>${r.fit.score.toFixed(1)} px</td><td>${r.fit.itemsAfter.toFixed(1)} px</td><td>${flag(r).length ? '<label class="opt"><input type="checkbox" data-afk="' + i + '"> <span class="small">' + esc(flag(r).join('; ')) + '. Tick to fill anyway</span></label>' : (note(r).length ? '<span class="small afnote">✓ ' + esc(note(r).join('; ')) + '</span>' : '✓')}</td></tr>`).join('')}</table></div>
+      <div class="act"><button id="afX">Cancel, change nothing</button><button class="go" id="afGo">Apply</button></div>`, true);
+    $('afX').onclick = closeModal;
+    $('afGo').onclick = async () => {
+      const keep = results.filter((r, i) => !flag(r).length || (document.querySelector(`[data-afk="${i}"]`) || {}).checked); if (!keep.length) return toast('Nothing ticked to apply');
+      const b2 = busy('Saving…'); FILL_BACKUP = {}; const byPlan = {}; keep.forEach(r => (byPlan[r.p.id] = byPlan[r.p.id] || []).push(r));
+      try { for (const [pid, rs] of Object.entries(byPlan)) { const p = S.plans.find(q => q.id === pid); FILL_BACKUP[pid] = JSON.parse(JSON.stringify(p.zones || []));
+          let zones = (p.zones || []).filter(z => z.kind === 'unit' || z.kind === 'area' || !rs.some(r => inside(z, r.u)));
+          rs.forEach(r => r.fit.zones.forEach(z => zones.push({ id: uid(), kind: z.kind, name: z.name, ...(z.room ? { room: z.room } : {}), unit: r.u.unit || '', block: r.u.block || p.block || '', level: r.u.level || p.level || '', poly: z.poly })));
+          await S.store.savePlan(S.project.id, { ...p, zones }); }
+        closeModal(); const cur = srcPlan.id; ZE.dirty = false; await close(true); await X.reloadProject(); await X.showPlan(cur); await zoneEditor(X.PV); b2.done();
+        toast(`${keep.length} unit${keep.length === 1 ? '' : 's'} filled from Unit ${src.unit || ''}. "Undo the last fill" in the panel puts them back.`, 8000);
+      } catch (e) { b2.done(); toast('Stopped: ' + e.message, 7000); }
+    };
   };
 }
+async function undoFill() { if (!FILL_BACKUP) return; const b = busy('Putting the boundaries back…'); try { for (const [pid, zones] of Object.entries(FILL_BACKUP)) { const p = S.plans.find(q => q.id === pid); if (p) await S.store.savePlan(S.project.id, { ...p, zones }); } FILL_BACKUP = null; const cur = ZE.plan.id; ZE.dirty = false; await close(true); await X.reloadProject(); await X.showPlan(cur); await zoneEditor(X.PV); toast('The last fill has been undone'); } finally { b.done(); } }
 function compassTiles(fg) {
   const cell = { top: [], bottom: [], left: [], right: [], none: [] };
   const ring = ['top', 'right', 'bottom', 'left'], order = { north: 0, east: 1, south: 2, west: 3 };
@@ -648,7 +672,7 @@ function panel() {
      <div class="zb"><button id="zgUnit">✎ Rename: unit number, block, level…</button><button class="warn" id="zgDel">🗑 Delete group</button><button class="go" id="zgClear">✓ Done selecting (back to editing)</button></div></div>` : ''}
   ${z ? `<div class="zsel"><b>${esc(z.kind === 'unit' ? 'Unit ' + (z.unit || '?') : z.name || '(no name)')}</b> <span class="muted small">${esc(kindName[z.kind] || '')}${z.kind !== 'unit' && z.unit ? ', unit ' + esc(z.unit) : ''}</span>
      <p class="hint">Drag a red dot to move that corner; tap a dot to select it${PV.selVertex != null ? ' (corner selected: press Delete or the button below)' : ''}. Tap an edge to add a corner. Corners shared with neighbouring rooms move together.</p>${PV.selVertex != null ? `<div class="zacts two"><button class="zact warn" id="zDelV">${ico('cut', '#b3261e')}<span>Delete corner</span></button><button class="zact" id="zFreeV" title="Stop this corner being tied to the shapes around it">${ico('unlock')}<span>Disconnect</span></button></div>` : ''}
-     ${z.kind === 'unit' ? `<div class="zb"><button class="go big" id="zCopyU">${ico('copyto', COL.unit)} Copy these rooms into other units…</button></div>` : ''}
+     ${z.kind === 'unit' ? `<div class="zb"><button class="go big" id="zCopyU">${ico('copyto', COL.unit)} Fill the other units from this one…</button></div>` : ''}
      <div class="zacts">
        ${z.kind === 'unit' ? `<button class="zact" id="zFit">${ico('fit')}<span>Fit rooms in</span></button>` : (z.kind !== 'area' ? `<button class="zact" id="zFit1">${ico('fit')}<span>Fit to unit</span></button>` : '')}
        <button class="zact" id="zSq">${ico('square')}<span>Square up</span></button>
@@ -661,6 +685,7 @@ function panel() {
   <div class="zlab">Show</div><div class="zb layers">${['unit', 'room', 'area', 'item'].map(k => `<label class="opt"><input type="checkbox" data-layer="${k}" ${(PV.hideKinds || new Set()).has(k) ? '' : 'checked'}> <span>${{ unit: 'Units', room: 'Rooms', area: 'Common areas', item: 'Items' }[k]}</span></label>`).join('')}${faceGuides(ZE.plan).length ? `<label class="opt" title="The red dashed lines showing where the elevations sit on this plan"><input type="checkbox" id="zShowG" ${ZE.showGuides === false ? '' : 'checked'}> <span>Elevation lines</span></label>` : ''}</div>
   <select id="zPick" style="width:100%;margin:4px 0"><option value="">Select a boundary by name…</option>${[...ZE.zones].sort((a, b) => (a.kind === 'unit' ? 'Unit ' + a.unit : (a.unit ? 'Unit ' + a.unit + ' › ' : '') + (a.name || '')).localeCompare(b.kind === 'unit' ? 'Unit ' + b.unit : (b.unit ? 'Unit ' + b.unit + ' › ' : '') + (b.name || ''), undefined, { numeric: true })).map(q => `<option value="${esc(q.id)}" ${z && z.id === q.id ? 'selected' : ''}>${esc(q.kind === 'unit' ? 'Unit ' + (q.unit || '?') + ' (outline)' : (q.unit ? 'Unit ' + q.unit + ' › ' : '') + (q.name || '(no name)'))}</option>`).join('')}</select>
   ${facesOnPlan().length ? `<div class="zlab">Elevation lines on this plan</div>${compassTiles(facesOnPlan())}` : ''}
+  ${FILL_BACKUP ? `<div class="zb"><button id="zUndoFill">↶ Undo the last fill</button></div>` : ''}
   ${CLIP && CLIP.n ? `<div class="zb"><button class="go" id="zPaste">📋 Paste ${CLIP.n} shapes from ${esc(CLIP.from)}</button><button id="zPasteX">Forget copy</button></div>` : ''}
   <p class="muted small">${ZE.zones.filter(q => q.kind === 'unit').length} units, ${ZE.zones.filter(q => q.kind === 'room').length} rooms, ${ZE.zones.filter(q => q.kind === 'area').length} common areas on this plan${ZE.dirty ? ' · <b>unsaved changes</b>' : ''}</p>
   <div class="zb"><button id="zUndo2" ${(ZE.undo || []).length ? '' : 'disabled'}>↶ Undo</button><button id="zRedo2" ${(ZE.redo || []).length ? '' : 'disabled'}>↷ Redo</button></div>
@@ -690,6 +715,7 @@ function panel() {
     copies.forEach(c => { c._srcUnit = c.unit; ZE.zones.push(c); }); ZE.pendingGroup = copies.map(c => c.id);
     PV.selectZone(null); PV.marquee = false; PV.setZones(ZE.zones); PV.setMulti(ZE.pendingGroup); ZE.dirty = true; panel();
     toast('Step 1 of 3 done: the copy is made. Now drag it over the next apartment and drop it on that unit outline.', 7000); });
+  on('zUndoFill', undoFill);
   on('zFreeV', () => { snap(); const n = PV.disconnectCorner(); if (!n) return toast('This corner is not tied to anything, or the neighbouring shapes need it', 4000); ZE.dirty = true; panel(); toast(`Disconnected from ${n} neighbouring corner${n === 1 ? '' : 's'}`, 3000); });
   on('zFit', () => { const u = PV.selZone; if (!u) return; snap(); squareUp(u); const rep = fitToUnit(u); PV.setZones(ZE.zones); PV.selectZone(u); ZE.dirty = true; panel(); toast(rep.n ? fitMsg(u, rep) : 'No rooms sit inside this outline yet', 6000); });
   on('zFit1', () => { const r = PV.selZone, u = r && unitAround(r); if (!u) return toast('This shape is not inside a unit outline. Draw or move the unit outline around it first.', 5000); snap(); const rep = fitToUnit(u, [r]); PV.setZones(ZE.zones); PV.selectZone(r); ZE.dirty = true; panel(); toast(fitMsg(u, rep), 5000); });

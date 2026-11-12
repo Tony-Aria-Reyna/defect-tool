@@ -385,3 +385,5 @@ button,.btn,.chip,label.opt{transition:transform .08s ease,filter .08s ease,back
 .zpanel .zact.warn{color:#b3261e;border-color:#f0c4bf}
 .zpanel button.big{display:flex;align-items:center;justify-content:center;gap:8px;text-align:center}
 .zpanel button.big .zic{width:18px;height:18px;stroke:#fff}
+.cuPlan{font-weight:700;color:var(--navy);font-size:12.5px;margin:8px 0 2px;text-transform:uppercase;letter-spacing:.03em}.cuList table.t{width:100%;font-size:13px}.cuList tr.afbad td{background:#fff7ec}
+.afnote{color:#8a5a00}
