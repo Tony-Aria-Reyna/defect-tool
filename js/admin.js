@@ -934,6 +934,28 @@ export async function importJson(file) {
     $('hiGo').onclick = async () => { $('hiGo').disabled = true; let n = 0; try { for (const x of have) { $('hiSt').textContent = `Updating ${++n} of ${have.length}…`; const d = S.defects.find(q => q.id === x.id); const old = JSON.stringify((d.history || []).map(h => [h.t, h.who, h.txt])); const add = x.history.filter(h => !old.includes(JSON.stringify([h.t, h.who, h.txt]))); if (add.length) await S.store.updateDefect(S.project.id, x.id, { historyImported: j.id }, add); } await S.store.updateProject(S.project.id, { historyPacks: [...(S.project.historyPacks || []), j.id] }); S.project.historyPacks = [...(S.project.historyPacks || []), j.id]; closeModal(); toast('History added to ' + have.length + ' defects', 5000); } catch (e) { $('hiSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('hiGo').disabled = false; } };
     return;
   }
+  if (j.type === 'pins' && Array.isArray(j.items)) {
+    if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
+    const planFor = c => S.plans.find(p => String(p.code || '').replace(/\D/g, '').startsWith(String(c))) || S.plans.find(p => String(p.name || '').replace(/[\s-]/g, '').includes(String(c)));
+    const rows = j.items.map(it => { const d = S.defects.find(q => q.id === it.id), pl = it.code ? planFor(it.code) : null; return { it, d, pl, has: !!(d && d.plan && d.x != null), ok: !!d && (it.x != null ? !!pl : true) }; });
+    const ok = rows.filter(r => r.ok), has = ok.filter(r => r.has), noD = rows.filter(r => !r.d), noP = rows.filter(r => r.d && !r.ok);
+    modal(`<h2>${esc(j.title || 'Pin locations')}</h2><p>${esc(j.note || '')}</p><p><b>${ok.length} of ${rows.length}</b> items in this file match a defect and a plan in this project.${noD.length ? ` ${noD.length} are not in this project.` : ''}${noP.length ? ` ${noP.length} point at a drawing that is not loaded as a plan (${esc([...new Set(noP.map(r => 'A-' + r.it.code))].join(', '))}).` : ''}</p>${has.length ? `<label class="chk"><input type="checkbox" id="pnRep"> ${has.length} already have a pin. Tick to move them to the location in this file (otherwise they are left alone)</label>` : ''}<p class="note">Each pin is placed exactly as if you had tapped the plan: elevation pins also land on the floor plan, and unit and room are filled in where they are empty. Nothing else on the defect changes.</p><p class="note" id="pnSt"></p><div class="act"><button id="pnX">Cancel</button><button class="go" id="pnGo">Place pins</button></div>`);
+    $('pnX').onclick = closeModal;
+    $('pnGo').onclick = async () => {
+      $('pnGo').disabled = true; const rep = $('pnRep') && $('pnRep').checked; let n = 0, skip = 0, miss = []; const t = new Date().toISOString();
+      try {
+        for (const r of ok) {
+          if (r.has && !rep) { skip++; continue; }
+          const patch = X.pinPatch(r.d, r.pl ? r.pl.id : null, r.it.x ?? null, r.it.y ?? null, r.it.room); if (!patch) { miss.push(r.it.id); continue; }
+          $('pnSt').textContent = `Placing ${n + 1}…`;
+          await S.store.updateDefect(S.project.id, r.d.id, patch, [{ t, who: S.user.name, txt: 'Pin placed from file: ' + (r.it.note || j.title || 'pin locations') }]); Object.assign(r.d, patch); n++;
+        }
+        closeModal(); X.render();
+        modal(`<h2>Pins placed</h2><p><b>${n}</b> pin${n === 1 ? '' : 's'} placed.${skip ? ` ${skip} left alone because they already had a pin.` : ''}${miss.length ? ` ${miss.length} could not be placed because no matching room boundary was found (${esc(miss.join(', '))}).` : ''}</p><p class="note">Open the Plan tab to see them. Drag any pin to adjust it.</p><div class="act"><button class="go" id="pnOk">Done</button></div>`); $('pnOk').onclick = closeModal;
+      } catch (e) { $('pnSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('pnGo').disabled = false; }
+    };
+    return;
+  }
   if (j.type === 'zones-export' && Array.isArray(j.plans)) { j = { ...j, type: 'zones', numbering: 'new', title: 'Boundaries backup' + (j.exported ? ' from ' + String(j.exported).slice(0, 10) : ''), note: 'This is a boundaries export. Restoring it puts the boundaries on each plan back to how they were when it was exported.', plans: j.plans.filter(p => p.kind !== 'elevation' && (p.zones || []).length).map(p => ({ key: p.id, name: p.name, zones: p.zones })) }; }
   if (j.type === 'zones' && Array.isArray(j.plans)) {
     if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change boundaries');

@@ -331,6 +331,16 @@ function applyZone(d, x, y, planId) {
   if (hit) { if (hit.unit) d.unit = hit.unit; if (hit.room) d.room = hit.room; if (hit.item) d.item = hit.item; else if (hit.room) d.item = d.item || ''; d.block = hit.block || p.block || d.block; d.level = hit.level || p.level || d.level; d.autoLoc = { unit: d.unit || '', room: d.room || '', item: hit.item || '' }; d.zoneHit = [hit.unit && 'Unit ' + hit.unit, hit.room, hit.item, d.surface].filter(Boolean).join(', '); }
   else { d.block = p.block || d.block; d.level = p.level || d.level; d.zoneHit = ''; }
 }
+// Pins handed in from a file (for example a consultant's plan markups located on the drawings). Uses the same rules as dropping a pin by hand:
+// an elevation pin also lands on the floor plan, unit and room are filled where empty, and hand-typed location text is kept.
+export function pinPatch(d, planId, x, y, room) {
+  let spot = null; if (x == null) { const z = findZone(d.unit, room || d.room); if (!z) return null; spot = z; planId = z.plan.id; x = z.x; y = z.y; }
+  const w = JSON.parse(JSON.stringify(d)), auto = d.autoLoc || {}; w.item = ''; applyZone(w, x, y, planId);
+  const patch = { plan: planId, x, y, plan2: w.plan2 || null, x2: w.x2 ?? null, y2: w.y2 ?? null, autoLoc: w.autoLoc || null, surface: w.surface || d.surface || '', zoneHit: w.zoneHit || '' };
+  if (!d.unit || String(d.unit) === String(auto.unit || '')) patch.unit = w.unit || ''; if (!d.room || d.room === (auto.room || '')) patch.room = w.room || '';
+  if (!d.block && w.block) patch.block = w.block; if (!d.level && w.level) patch.level = w.level; if (w.item && !d.item) patch.item = w.item;
+  return patch;
+}
 async function onPlace(x, y) {
   const pl = placing; stopPlacing();
   if (pl.mode === 'pick') { toast('✓ Point recorded', 1200); pl.resolve({ x, y }); return; }
@@ -653,7 +663,7 @@ function openMenu() {
 /* ================================================================ wiring */
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, onPinMoved: movePin });
-  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins });
+  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch });
   FM.init({ render, getBytes });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
