@@ -581,26 +581,27 @@ function copyUnitInto(src) {
   modal(`<h2>Copy Unit ${esc(src.unit || '')} into other units</h2>
     <p>${members.length} rooms and items are copied into each unit you tick. Each one is stretched to fit that unit's own outline and takes its number, so nothing has to be dragged.</p>
     <div class="cuList">${targets.map((t, i) => `<label class="opt cuRow"><input type="checkbox" data-cu="${i}" ${t.n ? '' : 'checked'}> <span><b>Unit ${esc(t.z.unit || '?')}</b> ${t.n ? `<span class="muted small">has ${t.n} rooms already, they will be replaced</span>` : '<span class="muted small">empty</span>'}</span></label>`).join('')}</div>
-    <label class="opt" style="margin-top:8px"><input type="checkbox" id="cuMir"> <span>Mirror left to right (for the units that face the other way)</span></label>
+    <div class="zb opts" style="margin-top:8px"><label class="opt"><input type="checkbox" id="cuMir"> <span>Mirror left to right</span></label><label class="opt"><input type="checkbox" id="cuFlip"> <span>Flip top to bottom</span></label></div>
+    <p class="note">Tick both for a unit that is turned right around, as the rows facing each other across a corridor usually are. Run the copy once for each arrangement.</p>
     <div class="act"><button id="cuX">Cancel</button><button id="cuEmpty">Tick the ${empty} empty ones</button><button class="go" id="cuGo">Copy</button></div>`, false);
   $('cuX').onclick = closeModal;
   $('cuEmpty').onclick = () => document.querySelectorAll('[data-cu]').forEach((c, i) => c.checked = !targets[i].n);
   $('cuGo').onclick = async () => {
     const pick = [...document.querySelectorAll('[data-cu]')].filter(c => c.checked).map(c => targets[+c.dataset.cu]); if (!pick.length) return toast('Tick at least one unit');
-    const mir = $('cuMir').checked; closeModal(); snap();
+    const mir = $('cuMir').checked, flip = $('cuFlip').checked; closeModal(); snap();
     const sb = box(src.poly); let made = 0;
     pick.forEach(({ z: tgt }) => {
       ZE.zones = ZE.zones.filter(q => !(q.kind !== 'unit' && pointInPoly(...centroid(q.poly), tgt.poly)));   // clear what was in there
       const tb = box(tgt.poly), sx = (tb.x1 - tb.x0) / ((sb.x1 - sb.x0) || 1), sy = (tb.y1 - tb.y0) / ((sb.y1 - sb.y0) || 1);
       members.forEach(m => { const c = copyZone(m, 0, 0, null);
-        c.poly = c.poly.map(p => { const x = mir ? tb.x1 - (p[0] - sb.x0) * sx : tb.x0 + (p[0] - sb.x0) * sx; return [x, tb.y0 + (p[1] - sb.y0) * sy]; });
-        if (mir) c.poly.reverse();
+        c.poly = c.poly.map(p => { const x = mir ? tb.x1 - (p[0] - sb.x0) * sx : tb.x0 + (p[0] - sb.x0) * sx, y = flip ? tb.y1 - (p[1] - sb.y0) * sy : tb.y0 + (p[1] - sb.y0) * sy; return [x, y]; });
+        if (mir !== flip) c.poly.reverse();   // one reflection turns the shape inside out, two put it back
         c.unit = tgt.unit || ''; c.block = tgt.block || ZE.plan.block || ''; c.level = tgt.level || ZE.plan.level || ''; delete c._srcUnit;
         ZE.zones.push(c); });
       made++;
     });
     PV.setZones(ZE.zones); PV.setMulti([]); PV.marquee = false; PV.selectZone(null); ZE.dirty = true; panel();
-    await save(); toast(`${members.length} rooms copied into ${made} unit${made === 1 ? '' : 's'}. Check them on the plan; Undo puts it all back.`, 7000);
+    await save(); toast(`${members.length} rooms copied into ${made} unit${made === 1 ? '' : 's'}${mir || flip ? ' (' + [mir && 'mirrored', flip && 'flipped'].filter(Boolean).join(' and ') + ')' : ''}. Check them on the plan; Undo puts it all back.`, 7000);
   };
 }
 function compassTiles(fg) {
