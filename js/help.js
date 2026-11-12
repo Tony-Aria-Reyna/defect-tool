@@ -45,7 +45,8 @@ Photos
 
 Status and severity
 - Status: Open, In progress, Ready for review, Closed, Disputed. Only editors and admins can close.
-- Severity: "Major - prevents PC" stops practical completion. "To triage" means not yet assessed (the Maynard Marks items start this way).
+- Severity: "Major - prevents PC" stops practical completion. "To triage" means not yet assessed. A project can use a consultant's category scheme instead (for example Maynard Marks A to D); the field is then called Category and the counts at the top show open items in each category.
+- Pins on the plans start with a letter for who raised the item: R for items raised in this app, M for Maynard Marks items.
 - The chips at the top of the list filter by status; tap to toggle. Filters: block, level, unit, severity, trade, responsible. Sort by ID, last updated, location or severity.
 
 Exports (Export button)

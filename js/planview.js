@@ -213,7 +213,7 @@ export class PlanView {
   setPins(pins) { this.pins = pins; this._drawPins(); }
   _drawPins() {
     if (!this.plan) { this.pinsEl.innerHTML = ''; return; }
-    this.pinsEl.innerHTML = this.pins.map(p => `<div class="pin${p.sel ? ' sel' : ''}" data-id="${esc(p.id)}" style="left:${p.x * this.plan.w}px;top:${p.y * this.plan.h}px" title="${esc(p.title || p.id)}">${PIN(p.colour)}<span>${esc(p.label)}</span></div>`).join('');
+    this.pinsEl.innerHTML = this.pins.map(p => `<div class="pin${p.sel ? ' sel' : ''}" data-id="${esc(p.id)}" style="left:${p.x * this.plan.w}px;top:${p.y * this.plan.h}px" title="${esc(p.title || p.id)}">${PIN(p.colour)}<span${String(p.label).length >= 5 ? ' class="l5"' : String(p.label).length === 4 ? ' class="l4"' : ''}>${esc(p.label)}</span></div>`).join('');
   }
   setZonesVisible(v) { this.showZones = v; this._drawZones(); }
   _drawZones(marq) {

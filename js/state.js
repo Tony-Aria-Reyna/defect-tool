@@ -39,3 +39,18 @@ export function unitList(p) {
   });
   return out;
 }
+
+// Severity / category scheme. A project may rename the field (for example "Category" when a consultant's A-D scheme is adopted),
+// say which values count as serious (shown as the headline count and exported as high priority) and which is the default for new items.
+export const sevLabel = p => (p && p.sevLabel) || 'Severity';
+export const sevMajorList = p => (p && Array.isArray(p.sevMajor) && p.sevMajor.length) ? p.sevMajor : ((p && p.severities) || []).filter(s => /^Major/.test(s));
+export const isMajor = (d, p) => sevMajorList(p || S.project).includes(d.severity || '') || /^Major/.test(d.severity || '');
+export const sevDefault = p => (p.sevDefault && p.severities.includes(p.sevDefault)) ? p.sevDefault : (p.severities.includes('Minor defect') ? 'Minor defect' : p.severities[0]);
+export const sevCode = s => { const m = /^([A-Za-z0-9]{1,2})\s*[-:.]\s/.exec(String(s || '')); return m ? m[1].toUpperCase() : ''; };
+// Find the project's value for a severity or category written another way ("C", "C - Rework", "Major - prevents PC").
+export function sevMatch(p, v) {
+  const t = String(v || '').trim(); if (!t) return ''; const L = p.severities; if (L.includes(t)) return t;
+  const lc = t.toLowerCase(), ex = L.find(s => s.toLowerCase() === lc); if (ex) return ex;
+  const c = sevCode(t) || (/^[A-Za-z]$/.test(t) ? t.toUpperCase() : ''); if (c) { const h = L.find(s => sevCode(s) === c); if (h) return h; }
+  if (/^Major/i.test(t)) return sevMajorList(p)[0] || ''; return '';
+}

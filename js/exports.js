@@ -4,7 +4,10 @@ import { STATUS_COLOURS as SCOL, APP } from './config.js';
 
 const LIB = { pdflib: 'lib/pdf-lib.min.js', jszip: 'lib/jszip.min.js', xlsx: 'lib/xlsx.bundle.js' };
 export const locText = d => { const a = []; if (d.block) a.push(/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block); if (d.level) a.push(/^(ground|first|second|third|basement|level)/i.test(d.level) && !/floor|level/i.test(d.level) ? d.level + ' floor' : d.level); if (d.unit) a.push('Unit ' + d.unit); if (d.room) a.push(d.room); if (d.surface && d.surface !== 'Floor') a.push(d.surface); if (d.item) a.push(d.item); return a.join(', '); };
-export const pinLabel = d => String(d.id).replace(/^[A-Z]+-0*/, '') || d.id;
+// Pin label: a letter for who raised it, then the number. Items raised in this app carry the project's own ID prefix and show R (Resero);
+// imported consultant items show the first letter of their prefix (MM-308 shows M308).
+let OWN_PREFIX = 'D', PRJ = {}; export const setProjectCtx = p => { PRJ = p || {}; OWN_PREFIX = String(PRJ.idPrefix || 'D').toUpperCase(); };
+export const pinLabel = d => { const m = /^([A-Za-z]+)-0*(.*)$/.exec(String(d.id)); if (!m) return String(d.id); return (m[1].toUpperCase() === OWN_PREFIX ? 'R' : m[1][0].toUpperCase()) + (m[2] || '0'); };
 
 function clean(s) { return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/—/g, ', ').replace(/→/g, '->').replace(/[^\n\x20-\x7e\xa0-\xff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–˜™š›œžŸ]/g, ''); }
 const hex = h => { const n = parseInt(h.slice(1), 16); return PDFLib.rgb((n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255); };
@@ -40,7 +43,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   const tbl = (rows, x, yy, w) => { rows.forEach((r, i) => { const ry = yy - 14 * (i + 1); if (i === 0) pg.drawRectangle({ x, y: ry - 3, width: w, height: 14, color: NAVY }); else pg.drawRectangle({ x, y: ry - 3, width: w, height: 14, borderColor: LINE, borderWidth: 0.5 }); txt(pg, r[0], x + 5, ry + 1, 8.5, i ? f : fb, i ? undefined : P.rgb(1, 1, 1)); txt(pg, String(r[1]), x + w - 30, ry + 1, 8.5, i ? f : fb, i ? undefined : P.rgb(1, 1, 1)); }); return yy - 14 * rows.length; };
   const statuses = pr.statuses, sevs = pr.severities;
   const y1 = tbl([['Status', 'Items'], ...statuses.map(s => [s, L.filter(d => d.status === s).length]).filter(r => r[1])], M, y, 200);
-  const y2 = tbl([['Severity', 'Items'], ...sevs.map(s => [s, L.filter(d => d.severity === s).length]).filter(r => r[1])], M + 220, y, 230);
+  const y2 = tbl([[pr.sevLabel || 'Severity', 'Items'], ...sevs.map(s => [s, L.filter(d => d.severity === s).length]).filter(r => r[1])], M + 220, y, 230);
   y = Math.min(y1, y2) - 18;
   txt(pg, 'How to use this schedule', M, y, 11, fb, NAVY); y -= 14;
   wrap(o.intro, f, 9, W - 2 * M).forEach(l => { txt(pg, l, M, y, 9); y -= 12; });
@@ -48,7 +51,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   // ---- schedule table
   st('Writing the schedule…');
   const hasDetail = d => o.photos && ((d.photos && d.photos.some(p => p.url)) || (d.plan && d.x != null));
-  const cols = [['ID', 48], ['Location', 120], ['Defect', 300], ['Severity', 82], ['Responsible', 78], ['Target', 58], ['Status', 84]];
+  const cols = [['ID', 48], ['Location', 120], ['Defect', 300], [pr.sevLabel || 'Severity', 82], ['Responsible', 78], ['Target', 58], ['Status', 84]];
   const tw = cols.reduce((a, c) => a + c[1], 0), sc = (W - 2 * M) / tw; cols.forEach(c => c[1] *= sc);
   const rowRefs = {}; let tpg = null;
   const head = () => { tpg = newPage('Schedule'); y = H - M - HEAD - 4; let x = M; tpg.drawRectangle({ x: M, y: y - 5, width: W - 2 * M, height: 16, color: NAVY }); cols.forEach(c => { txt(tpg, c[0], x + 4, y, 8.5, fb, P.rgb(1, 1, 1)); x += c[1]; }); y -= 16; };
@@ -87,7 +90,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
       dpg.drawRectangle({ x: M, y: top - 14, width: W - 2 * M, height: 20, color: hex('#f2f4f6') }); txt(dpg, d.id + '  ' + (d.title || ''), M + 8, top - 8, 11, fb, NAVY);
       const sw = fb.widthOfTextAtSize(clean(d.status), 8); dpg.drawRectangle({ x: W - M - sw - 16, y: top - 11, width: sw + 10, height: 13, color: hex(SCOL[d.status] || '#666') }); txt(dpg, d.status, W - M - sw - 11, top - 7.5, 8, fb, P.rgb(1, 1, 1));
       ty = top - 30; const colW = 300;
-      [['Location', locText(d) || '-'], ['Element', d.element || '-'], ['Severity', d.severity], ['Type / trade', [d.type, d.trade].filter(Boolean).join(' / ')], ['Responsible', (d.responsible || '') + (d.targetDate ? ', by ' + nzDate(d.targetDate) : '')], ['Raised', (nzDate(d.dateRaised) || '-') + ' (' + (d.source || '') + (d.extRef ? ' ref ' + d.extRef : '') + ')']].forEach(([k, v]) => { txt(dpg, k, M + 8, ty, 8, fb, GREY); const ls = wrap(v || '-', f, 8.5, colW - 90); ls.slice(0, 2).forEach((l, i) => txt(dpg, l, M + 90, ty - i * 10, 8.5)); ty -= 10 * Math.min(2, ls.length) + 3; });
+      [['Location', locText(d) || '-'], ['Element', d.element || '-'], [pr.sevLabel || 'Severity', d.severity], ['Type / trade', [d.type, d.trade].filter(Boolean).join(' / ')], ['Responsible', (d.responsible || '') + (d.targetDate ? ', by ' + nzDate(d.targetDate) : '')], ['Raised', (nzDate(d.dateRaised) || '-') + ' (' + (d.source || '') + (d.extRef ? ' ref ' + d.extRef : '') + ')']].forEach(([k, v]) => { txt(dpg, k, M + 8, ty, 8, fb, GREY); const ls = wrap(v || '-', f, 8.5, colW - 90); ls.slice(0, 2).forEach((l, i) => txt(dpg, l, M + 90, ty - i * 10, 8.5)); ty -= 10 * Math.min(2, ls.length) + 3; });
       ty -= 4; wrap(d.desc || '', f, 8.5, colW).slice(0, 9).forEach(l => { txt(dpg, l, M + 8, ty, 8.5); ty -= 10.5; });
       if (d.action) { ty -= 3; wrap('Action: ' + d.action, fb, 8.5, colW).slice(0, 4).forEach(l => { txt(dpg, l, M + 8, ty, 8.5, fb); ty -= 10.5; }); }
       const ph = (d.photos || []).filter(p => p.url).slice(0, 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
@@ -123,7 +126,7 @@ export const COLS = [['ID', 'id'], ['Title', 'title'], ['Description', 'desc'], 
 export async function buildXlsx(L, ctx) {
   if (!window.XLSX) await loadScript(LIB.xlsx);
   const val = (d, f) => typeof f === 'function' ? f(d) : f === 'plan' ? ((ctx.plans.find(p => p.id === d.plan) || {}).name || '') : (d[f] == null ? '' : d[f]);
-  const head = COLS.map(c => c[0]), data = L.map(d => COLS.map(c => val(d, c[1])));
+  const head = COLS.map(c => c[0] === 'Severity' ? (ctx.project.sevLabel || 'Severity') : c[0]), data = L.map(d => COLS.map(c => val(d, c[1])));
   const ws = XLSX.utils.aoa_to_sheet([[`${ctx.project.name} - Defects Register`], [`Exported ${nzDate(new Date().toISOString())} by ${ctx.me}. ${L.length} defects. Prepared by ${APP.company}${ctx.project.client ? ' for ' + ctx.project.client : ''}.`], [], head, ...data]);
   ws['!cols'] = COLS.map(c => ({ wch: { desc: 60, action: 40, title: 34 }[c[1]] || (typeof c[1] === 'function' ? 28 : 14) }));
   ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + data.length, c: head.length - 1 } }) };
@@ -133,7 +136,7 @@ export async function buildXlsx(L, ctx) {
   const si = COLS.findIndex(c => c[1] === 'status');
   data.forEach((row, r) => row.forEach((_, c) => { const a = XLSX.utils.encode_cell({ r: 4 + r, c }); if (ws[a]) ws[a].s = { alignment: { wrapText: true, vertical: 'top' }, ...(c === si && SCOL[row[c]] ? { fill: { fgColor: { rgb: SCOL[row[c]].slice(1).toUpperCase() } }, font: { color: { rgb: 'FFFFFF' }, bold: true } } : {}) }; }));
   const pr = ctx.project;
-  const sum = [['Summary by status'], ['Status', 'Count'], ...pr.statuses.map(s => [s, L.filter(d => d.status === s).length]), [], ['Summary by severity'], ['Severity', 'Count'], ...pr.severities.map(s => [s, L.filter(d => d.severity === s).length]), [], ['Open items by trade'], ['Trade', 'Count'], ...pr.trades.map(t => [t, L.filter(d => d.trade === t && d.status !== 'Closed').length]).filter(r => r[1]), [], ['Open items by responsible party'], ['Responsible', 'Count'], ...[...new Set(L.map(d => d.responsible))].map(t => [t, L.filter(d => d.responsible === t && d.status !== 'Closed').length]).filter(r => r[1])];
+  const sum = [['Summary by status'], ['Status', 'Count'], ...pr.statuses.map(s => [s, L.filter(d => d.status === s).length]), [], ['Summary by ' + (pr.sevLabel || 'severity').toLowerCase()], [pr.sevLabel || 'Severity', 'Count'], ...pr.severities.map(s => [s, L.filter(d => d.severity === s).length]), [], ['Open items by trade'], ['Trade', 'Count'], ...pr.trades.map(t => [t, L.filter(d => d.trade === t && d.status !== 'Closed').length]).filter(r => r[1]), [], ['Open items by responsible party'], ['Responsible', 'Count'], ...[...new Set(L.map(d => d.responsible))].map(t => [t, L.filter(d => d.responsible === t && d.status !== 'Closed').length]).filter(r => r[1])];
   const ws2 = XLSX.utils.aoa_to_sheet(sum); ws2['!cols'] = [{ wch: 30 }, { wch: 10 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Defects'); XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
   return new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -141,7 +144,7 @@ export async function buildXlsx(L, ctx) {
 export function buildCsv(L) {
   const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const rows = [['Title', 'Description', 'Status', 'Location', 'Trade', 'Assignee', 'Due Date', 'Type', 'Priority', 'Reference'].map(q).join(',')];
-  L.forEach(d => rows.push([d.id + ' ' + (d.title || ''), (d.desc || '') + (d.action ? ' ACTION: ' + d.action : ''), d.status === 'Closed' ? 'Closed' : d.status === 'Ready for review' ? 'Ready for Review' : 'Open', locText(d), d.trade, d.responsible, d.targetDate, d.type, /^Major/.test(d.severity || '') ? 'High' : 'Medium', d.extRef || d.source].map(q).join(',')));
+  L.forEach(d => rows.push([d.id + ' ' + (d.title || ''), (d.desc || '') + (d.action ? ' ACTION: ' + d.action : ''), d.status === 'Closed' ? 'Closed' : d.status === 'Ready for review' ? 'Ready for Review' : 'Open', locText(d), d.trade, d.responsible, d.targetDate, d.type, (/^Major/.test(d.severity || '') || (PRJ.sevMajor || []).includes(d.severity)) ? 'High' : 'Medium', d.extRef || d.source].map(q).join(',')));
   return new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv' });
 }
 export async function buildZip(L, o, ctx, st) {

@@ -75,6 +75,7 @@ main{flex:1;display:flex;min-height:0}
 .pin{position:absolute;transform:translate(-50%,-100%) scale(var(--inv,1));transform-origin:50% 100%;width:28px;height:36px;cursor:pointer}
 .pin svg{width:100%;height:100%;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
 .pin span{position:absolute;top:5px;left:-4px;width:36px;text-align:center;color:#fff;font-size:9.5px;font-weight:700}
+.pin span.l4{font-size:8px;top:6px;letter-spacing:-.2px}.pin span.l5{font-size:7px;top:7px;letter-spacing:-.3px}
 .pin.sel svg{filter:drop-shadow(0 0 4px #ffeb3b) drop-shadow(0 0 2px #ffeb3b)}
 .zsvg polygon{fill:rgba(59,175,190,.10);stroke:#1e8a99}
 .zsvg polygon.zu{fill:rgba(0,87,255,.04);stroke:#0057ff;stroke-linejoin:miter}

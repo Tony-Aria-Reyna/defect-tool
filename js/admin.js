@@ -1,5 +1,5 @@
 // Admin areas: project settings, users, plans, room boundaries, import, Gemini settings.
-import { S, can, saveLocal, withDefaults, unitList } from './state.js';
+import { S, can, saveLocal, withDefaults, unitList, sevLabel, sevMatch, sevDefault } from './state.js';
 import { DEFAULTS, ROLES, ROLE_HELP, APP } from './config.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, compressImage, dataUrlToBlob, natural, todayISO, loadScript, centroid, pointInPoly, polyArea, loadImage, download } from './util.js';
 import { aiCall } from './ai.js';
@@ -35,7 +35,10 @@ export function projectSettings(p) {
   <div class="grid">
     <label class="f">Responsible parties<textarea id="psResp" rows="5">${esc(lines(p.responsible.map(r => r === 'Main contractor' && p.contractor ? p.contractor : r)))}</textarea></label>
     <label class="f">Sources<textarea id="psSrc" rows="5">${esc(lines(p.sources))}</textarea></label>
-    <label class="f">Severities (first is the default for imports)<textarea id="psSev" rows="5">${esc(lines(p.severities))}</textarea></label>
+    <label class="f">${esc(sevLabel(p))} list (one per line)<textarea id="psSev" rows="5">${esc(lines(p.severities))}</textarea></label>
+    <label class="f">Name of that field (Severity, Category…)<input id="psSevL" value="${esc(sevLabel(p))}"></label>
+    <label class="f">Default for new items<input id="psSevD" value="${esc(p.sevDefault || '')}" placeholder="first in the list"></label>
+    <label class="f">Counted as serious (one per line; shown red, exported as high priority)<textarea id="psSevM" rows="2">${esc(lines(p.sevMajor || []))}</textarea></label>
     <label class="f">Types<textarea id="psTyp" rows="5">${esc(lines(p.types))}</textarea></label>
     <label class="f">Trades<textarea id="psTr" rows="5">${esc(lines(p.trades))}</textarea></label>
     <label class="f">Room names<textarea id="psRooms" rows="5">${esc(lines(p.rooms))}</textarea></label>
@@ -56,7 +59,7 @@ export function projectSettings(p) {
   $('psOk').onclick = async () => {
     const name = $('psName').value.trim(); if (!name) return toast('Enter the project name');
     const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
-      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), severities: fromLines($('psSev').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
+      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
     if ($('psArch')) data.archived = $('psArch').checked;
     const b = busy('Saving…');
     try {
@@ -899,7 +902,7 @@ export async function importSheet(file) {
       <div class="grid"><label class="f">ID prefix for these items<input id="isP" value="${esc((file.name.match(/maynard|mm/i) ? 'MM' : 'EXT'))}" maxlength="4"></label><label class="f">Source<input id="isSrc" value="${esc(/maynard/i.test(file.name) ? 'Maynard Marks' : 'Consultant inspection')}" list="isSrcL"></label></div>
       <datalist id="isSrcL">${S.project.sources.map(s => `<option>${esc(s)}</option>`).join('')}</datalist>
       <div class="opt"><input type="checkbox" id="isSkip" checked><label for="isSkip">Skip rows whose status is Closed</label></div>
-      <div class="opt"><input type="checkbox" id="isTri" checked><label for="isTri">Set severity to "To triage" (keep their category in the notes)</label></div>
+      <div class="opt"><input type="checkbox" id="isTri" checked><label for="isTri">${S.project.severities.includes('To triage') ? 'Set severity to "To triage" (keep their category in the notes)' : 'Leave the ' + esc(sevLabel(S.project).toLowerCase()) + ' at the default where their category does not match this project\'s list'}</label></div>
       <p class="note">Photos embedded in Excel are not imported. Add them to the items afterwards, or ask for a converted file with photos.</p>
       <div class="act"><button id="isX">Cancel</button><button class="go" id="isGo">Import</button></div>`, true);
       $('isX').onclick = closeModal;
@@ -914,7 +917,7 @@ export async function importSheet(file) {
           const ref = g(r, 'extRef') || String(i + 1); const loc = parseLoc(g(r, 'location'));
           const ext = {}; MAP_FIELDS.forEach(([k, l]) => { const v = g(r, k); if (v && !['title', 'desc', 'extRef'].includes(k)) ext[l] = v; });
           const desc = g(r, 'desc'), title = g(r, 'title') || desc.split(/[.,;]/)[0].slice(0, 60);
-          out.push({ id: pre + '-' + (/^\d+$/.test(ref) ? ref.padStart(3, '0') : ref.replace(/[^\w-]/g, '')), extRef: ref, source: src, dateRaised: toISO(g(r, 'dateRaised')) || todayISO(), title, desc, action: '', element: g(r, 'title'), unit: g(r, 'unit') || loc.unit, room: g(r, 'room') || [loc.room, g(r, 'elevation') && g(r, 'elevation') + ' elevation'].filter(Boolean).join(', '), block: loc.block, level: '', type: S.project.types[0], severity: tri ? 'To triage' : (S.project.severities.find(s => s.toLowerCase() === g(r, 'severity').toLowerCase()) || S.project.severities[0]), trade: S.project.trades.find(x => x.toLowerCase() === g(r, 'trade').toLowerCase()) || guessTrade(title + ' ' + desc), responsible: g(r, 'responsible') || S.project.responsible[0], targetDate: '', status: st, plan: '', x: null, y: null, photos: [], ext, history: [{ t, who: S.user.name, txt: `Imported from ${file.name} (${sheet}, row ${cur.hi + 2 + i}).` }].concat(g(r, 'action') ? [{ t, who: src || 'Import', txt: 'Resolution note: ' + g(r, 'action') }] : []), created: t, updated: t, createdBy: S.user.email, updatedBy: S.user.email });
+          out.push({ id: pre + '-' + (/^\d+$/.test(ref) ? ref.padStart(3, '0') : ref.replace(/[^\w-]/g, '')), extRef: ref, source: src, dateRaised: toISO(g(r, 'dateRaised')) || todayISO(), title, desc, action: '', element: g(r, 'title'), unit: g(r, 'unit') || loc.unit, room: g(r, 'room') || [loc.room, g(r, 'elevation') && g(r, 'elevation') + ' elevation'].filter(Boolean).join(', '), block: loc.block, level: '', type: S.project.types[0], severity: sevMatch(S.project, g(r, 'severity')) && (!tri || !S.project.severities.includes('To triage')) ? sevMatch(S.project, g(r, 'severity')) : (tri && S.project.severities.includes('To triage') ? 'To triage' : sevDefault(S.project)), trade: S.project.trades.find(x => x.toLowerCase() === g(r, 'trade').toLowerCase()) || guessTrade(title + ' ' + desc), responsible: g(r, 'responsible') || S.project.responsible[0], targetDate: '', status: st, plan: '', x: null, y: null, photos: [], ext, history: [{ t, who: S.user.name, txt: `Imported from ${file.name} (${sheet}, row ${cur.hi + 2 + i}).` }].concat(g(r, 'action') ? [{ t, who: src || 'Import', txt: 'Resolution note: ' + g(r, 'action') }] : []), created: t, updated: t, createdBy: S.user.email, updatedBy: S.user.email });
         });
         await saveImported(out);
       };
@@ -932,6 +935,25 @@ export async function importJson(file) {
     modal(`<h2>${esc(j.title || 'Import history')}</h2>${done ? '<p class="note"><b>Already applied to this project.</b> Applying again adds nothing new (identical lines are not duplicated).</p>' : ''}<p>${have.length} of ${j.items.length} items match defects in this project; ${lines} dated history lines will be added to their comment trails, oldest first. Existing history is kept.</p><p class="note" id="hiSt"></p><div class="act"><button id="hiX">Cancel</button><button class="go" id="hiGo">Add history</button></div>`);
     $('hiX').onclick = closeModal;
     $('hiGo').onclick = async () => { $('hiGo').disabled = true; let n = 0; try { for (const x of have) { $('hiSt').textContent = `Updating ${++n} of ${have.length}…`; const d = S.defects.find(q => q.id === x.id); const old = JSON.stringify((d.history || []).map(h => [h.t, h.who, h.txt])); const add = x.history.filter(h => !old.includes(JSON.stringify([h.t, h.who, h.txt]))); if (add.length) await S.store.updateDefect(S.project.id, x.id, { historyImported: j.id }, add); } await S.store.updateProject(S.project.id, { historyPacks: [...(S.project.historyPacks || []), j.id] }); S.project.historyPacks = [...(S.project.historyPacks || []), j.id]; closeModal(); toast('History added to ' + have.length + ' defects', 5000); } catch (e) { $('hiSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('hiGo').disabled = false; } };
+    return;
+  }
+  if (j.type === 'categories' && Array.isArray(j.list)) {
+    if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change the category scheme');
+    const np = { ...S.project, severities: j.list, sevMajor: j.serious || [] }, map = j.map || {};
+    const target = d => { const c = (d.ext && (d.ext.Category || d.ext.category)) || (d.mm && d.mm.category) || ''; return sevMatch(np, c) || (j.list.includes(d.severity) ? d.severity : (map[d.severity] || '')); };
+    const rows = S.defects.map(d => ({ d, to: target(d) })), ch = rows.filter(r => r.to && r.to !== r.d.severity), left = rows.filter(r => !r.to);
+    const cnt = {}; ch.forEach(r => { const k = (r.d.severity || '(blank)') + ' → ' + r.to; cnt[k] = (cnt[k] || 0) + 1; }); const lc = {}; left.forEach(r => { lc[r.d.severity || '(blank)'] = (lc[r.d.severity || '(blank)'] || 0) + 1; });
+    modal(`<h2>${esc(j.title || 'Category scheme')}</h2><p>${esc(j.note || '')}</p><table class="t"><tr><th>${esc(j.label || 'Severity')}</th><th></th></tr>${j.list.map(s => `<tr><td>${esc(s)}</td><td>${(j.serious || []).includes(s) ? 'counted as serious' : ''}${j.default === s ? 'default for new items' : ''}</td></tr>`).join('')}</table><h3 class="sec">Existing defects</h3>${ch.length ? `<table class="t"><tr><th>Change</th><th>Items</th></tr>${Object.entries(cnt).map(([k, n]) => `<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join('')}</table>` : '<p class="note">No existing defects need changing.</p>'}${left.length ? `<p class="note"><b>${left.length} item${left.length === 1 ? '' : 's'} will keep the old value</b> because there is no clear match (${esc(Object.entries(lc).map(([k, n]) => k + ': ' + n).join(', '))}). Set these by hand; they stay visible under their old value.</p>` : ''}<p class="note" id="ctSt"></p><div class="act"><button id="ctX">Cancel</button><button class="go" id="ctGo">Adopt this scheme</button></div>`, true);
+    $('ctX').onclick = closeModal;
+    $('ctGo').onclick = async () => {
+      $('ctGo').disabled = true; const t = new Date().toISOString(); let n = 0;
+      try {
+        const patch = { severities: j.list, sevLabel: j.label || '', sevMajor: j.serious || [], sevDefault: j.default || '' }; if (j.aiText) patch.aiContext = j.aiText;
+        await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch);
+        for (const r of ch) { $('ctSt').textContent = `Updating ${++n} of ${ch.length}…`; await S.store.updateDefect(S.project.id, r.d.id, { severity: r.to }, [{ t, who: S.user.name, txt: `${j.label || 'Severity'} set to "${r.to}" (was "${r.d.severity || '-'}") when the ${j.title || 'category scheme'} was adopted.` }]); r.d.severity = r.to; }
+        closeModal(); await X.reloadProject(); X.render(); toast(`${j.label || 'Severity'} scheme adopted; ${n} defect${n === 1 ? '' : 's'} updated${j.aiText ? '; Gemini knowledge updated' : ''}`, 7000);
+      } catch (e) { $('ctSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('ctGo').disabled = false; }
+    };
     return;
   }
   if (j.type === 'pins' && Array.isArray(j.items)) {

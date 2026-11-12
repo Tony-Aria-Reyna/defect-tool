@@ -1,5 +1,5 @@
 // Facility management modules: dashboard, assets and warranties, maintenance, compliance (BWoF), documents.
-import { S, can } from './state.js';
+import { S, can, isMajor } from './state.js';
 import { STATUS_COLOURS as SCOL } from './config.js';
 import * as Pack from './pack.js';
 import * as Nav from './nav.js';
@@ -67,7 +67,7 @@ const sel = (label, id, html, full) => `<label class="f${full ? ' full' : ''}">$
 /* ================================================================ DASHBOARD */
 function dash() {
   const A = fm().assets, T = fm().tasks, Dd = fm().docs, SY = fm().systems, D = S.defects, p = S.project;
-  const open = D.filter(d => d.status !== 'Closed'), maj = open.filter(d => /^Major/.test(d.severity || ''));
+  const open = D.filter(d => d.status !== 'Closed'), maj = open.filter(d => isMajor(d));
   const overdue = T.filter(t => days(t.nextDue) < 0), due30 = T.filter(t => { const d = days(t.nextDue); return d != null && d >= 0 && d <= 30; });
   const exp = A.flatMap(a => (a.warranties || []).map(w => ({ a, w, e: warrantyExpiry(w) }))).filter(x => x.e);
   const exp90 = exp.filter(x => { const d = days(x.e); return d != null && d >= 0 && d <= 90; }), expired = exp.filter(x => days(x.e) < 0);

@@ -2,12 +2,12 @@
 import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
-import { S, can, withDefaults, unitList, saveLocal } from './state.js';
+import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
-import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel } from './exports.js';
+import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel, setProjectCtx } from './exports.js';
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
@@ -167,7 +167,7 @@ function initFilters() {
   const units = [...new Set([...unitList(p), ...D.map(d => d.unit).filter(Boolean).map(String)])].sort(natural);
   fillSel('fBlock', 'All blocks', blocks, F.block); fillSel('fLevel', 'All levels', levels, F.level);
   $('fUnit').innerHTML = '<option value="">All units</option><option value="-">Common / no unit</option>' + units.map(u => `<option ${u === F.unit ? 'selected' : ''}>${esc(u)}</option>`).join('');
-  fillSel('fSev', 'All severities', p.severities, F.sev); fillSel('fTrade', 'All trades', p.trades, F.trade);
+  setProjectCtx(p); const sl = sevLabel(p); fillSel('fSev', sl === 'Severity' ? 'All severities' : 'All ' + sl.toLowerCase().replace(/y$/, 'ie') + 's', p.severities, F.sev); const so = document.querySelector('#sort option[value=sev]'); if (so) so.textContent = 'Sort: ' + sl.toLowerCase(); fillSel('fTrade', 'All trades', p.trades, F.trade);
   fillSel('fResp', 'All responsible', [...new Set([...p.responsible, ...D.map(d => d.responsible).filter(Boolean)])], F.resp);
 }
 let filtersDirty = true;
@@ -185,13 +185,13 @@ export async function render() {
   if (!S.project) return;
   if (filtersDirty) { initFilters(); filtersDirty = false; }
   const D = S.defects, c = {}; S.project.statuses.forEach(s => c[s] = 0); D.forEach(d => c[d.status] = (c[d.status] || 0) + 1);
-  const maj = D.filter(d => d.status !== 'Closed' && /^Major/.test(d.severity || '')).length, tri = D.filter(d => d.status !== 'Closed' && d.severity === 'To triage').length;
+  const maj = D.filter(d => d.status !== 'Closed' && isMajor(d)).length, codes = S.project.severities.map(sevCode), coded = codes.every(Boolean), byCat = coded ? S.project.severities.map((s, i) => [codes[i], D.filter(d => d.status !== 'Closed' && d.severity === s).length, s]) : null, tri = D.filter(d => d.status !== 'Closed' && d.severity === 'To triage').length;
   const pend = D.filter(d => d.aiPending).length, rev = D.filter(d => d.aiReview).length, toRev = D.filter(d => d.status === 'Ready for review' && !can.contractor() && (d.createdBy === S.user.email || can.admin())).length;
-  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt">Major <b>${maj}</b>${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '') + (toRev || S.F.toReview ? `<button class="cnt chk ${S.F.toReview ? 'on' : ''}" data-tr="1">🔎 For me to inspect <b>${toRev}</b></button>` : '');
+  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt" title="Open items by ${esc(sevLabel(S.project).toLowerCase())}">${byCat ? byCat.map(c => `<span title="${esc(c[2])}">${esc(c[0])} <b>${c[1]}</b></span>`).join(' · ') : `Major <b>${maj}</b>`}${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '') + (toRev || S.F.toReview ? `<button class="cnt chk ${S.F.toReview ? 'on' : ''}" data-tr="1">🔎 For me to inspect <b>${toRev}</b></button>` : '');
   $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } if (b.dataset.tr) { S.F.toReview = !S.F.toReview; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
   const L = filtered();
   $('lmeta').textContent = L.length + ' of ' + D.length + ' shown';
-  $('list').innerHTML = L.length ? L.map(d => { const sev = /^Major/.test(d.severity || '') ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
+  $('list').innerHTML = L.length ? L.map(d => { const sev = isMajor(d) ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
     return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? `<span class="tag loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</span>` : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
   $('list').querySelectorAll('.tag.loc').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
   $('list').querySelectorAll('[data-pick]').forEach(cb => { cb.onclick = e => e.stopPropagation(); cb.onchange = () => { cb.checked ? S.bulk.add(cb.dataset.pick) : S.bulk.delete(cb.dataset.pick); cb.closest('.card').classList.toggle('picked', cb.checked); bulkBar(); }; });
@@ -374,7 +374,7 @@ let ED = null;
 const FIELDS = ['source', 'dateRaised', 'block', 'level', 'unit', 'room', 'surface', 'item', 'element', 'title', 'desc', 'type', 'severity', 'trade', 'responsible', 'action', 'targetDate', 'status'];
 async function newDefect() {
   const p = S.project;
-  return { id: '', isNew: true, source: S.local.source || p.sources[0], dateRaised: todayISO(), raisedBy: S.user.name, block: '', level: '', unit: '', room: '', element: '', title: '', desc: '', type: p.types[0], severity: p.severities.includes('Minor defect') ? 'Minor defect' : p.severities[0], trade: p.trades[0], responsible: p.responsible[0], action: '', targetDate: '', status: 'Open', plan: '', x: null, y: null, photos: [], history: [], transcript: '' };
+  return { id: '', isNew: true, source: S.local.source || p.sources[0], dateRaised: todayISO(), raisedBy: S.user.name, block: '', level: '', unit: '', room: '', element: '', title: '', desc: '', type: p.types[0], severity: sevDefault(p), trade: p.trades[0], responsible: p.responsible[0], action: '', targetDate: '', status: 'Open', plan: '', x: null, y: null, photos: [], history: [], transcript: '' };
 }
 export function openEditor(d, isNew, isDraft) {
   const w = isDraft ? d : JSON.parse(JSON.stringify(d)); const p = S.project;
@@ -414,7 +414,7 @@ export function openEditor(d, isNew, isDraft) {
   <h3 class="sec">Classification</h3>
   <div class="grid">
     <label class="f">Status<select name="status" ${ro ? 'disabled' : ''}>${opts(stat, w.status)}</select></label>
-    <label class="f">Severity<select name="severity" ${dis}>${opts(p.severities, w.severity)}</select></label>
+    <label class="f">${esc(sevLabel(p))}<select name="severity" ${dis}>${opts(p.severities, w.severity)}</select></label>
     <label class="f">Type<select name="type" ${dis}>${opts(p.types, w.type)}</select></label>
     <label class="f">Trade<select name="trade" ${dis}>${opts(p.trades, w.trade)}</select></label>
     <label class="f">Responsible<select name="responsible" ${dis}>${opts(p.responsible, w.responsible)}</select></label>
@@ -627,7 +627,7 @@ function openExport() {
     <button id="xZip">🗂 Every file (zip)<small>PDF, Excel, CSV and photos</small></button>
   </div><p class="note" id="xSt"></p><div class="act"><button id="xX">Close</button></div>`);
   const sel = () => { const v = $('xScope').value; const r = v === 'f' ? filtered() : v === 'o' ? S.defects.filter(d => d.status !== 'Closed') : S.defects.slice(); return r.sort((a, b) => natural(a.id, b.id)); };
-  const o = () => ({ title: $('xTitle').value, sub: $('xSub').value, photos: $('xPh').checked, plans: $('xPl').checked, sig: $('xSig').checked, intro: p.pdfIntro || 'Each item has a reference (ID). Click a blue ID to go to its detail page with photos, and click a pin on a plan to go to that item. Items with a "Major" severity must be closed before practical completion can be certified; all other open items are to be completed within the agreed timeframes and in any case within the Defects Notification Period.' });
+  const o = () => ({ title: $('xTitle').value, sub: $('xSub').value, photos: $('xPh').checked, plans: $('xPl').checked, sig: $('xSig').checked, intro: p.pdfIntro || 'Each item has a reference (ID). Click a blue ID to go to its detail page with photos, and click a pin on a plan to go to that item. Items with ' + ((p.sevMajor || []).length ? 'a ' + sevLabel(p).toLowerCase() + ' of "' + p.sevMajor.join('" or "') + '"' : 'a "Major" severity') + ' must be closed before practical completion can be certified; all other open items are to be completed within the agreed timeframes and in any case within the Defects Notification Period.' });
   const ctx = () => ({ project: p, plans: S.plans, getBytes, logoResero: 'img/resero-navy.png', me: S.user.name });
   const st = t => $('xSt').textContent = t, nm = safeName(p.name);
   const run = async fn => { document.querySelectorAll('#mbox .btnlist button').forEach(b => b.disabled = true); try { await fn(); } catch (e) { console.error(e); st(''); toast(/fetch|Failed to fetch|CORS/i.test(e.message) ? 'Photos or plans could not be read for the export. Check the storage CORS setting (README step 6).' : e.message, 6000); } finally { document.querySelectorAll('#mbox .btnlist button').forEach(b => b.disabled = false); } };
@@ -706,7 +706,7 @@ function typicalPicker() {
     const tag = x => x.used ? `used ${x.used}× on this project` : x.src === 'library' ? 'Resero library' : x.src === 'project' ? 'this project' : '';
     $('tpList').innerHTML = L.length ? L.map((x, i) => `<button class="tp" data-i="${list.indexOf(x)}"><b>${esc(x.t)}</b><small>${esc(x.tr)} · ${esc(x.s)}${tag(x) ? ' · ' + esc(tag(x)) : ''}</small></button>`).join('') : '<p class="muted">Nothing matches. Type it in the title instead.</p>';
     $('tpList').querySelectorAll('.tp').forEach(b => b.onclick = () => { const x = list[+b.dataset.i]; const body = $('edBody'), set = (n, v) => { const el = body.querySelector(`[name=${n}]`); if (!el || v == null) return; if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === v)) { const o = document.createElement('option'); o.textContent = v; el.appendChild(o); } el.value = v; el.classList.add('aifill'); };
-      set('title', x.t); set('desc', x.d); set('action', x.a); set('trade', x.tr); set('type', x.ty); set('severity', x.s); set('element', x.el); if (x.r && !cur.room) set('room', x.r); collect(); Nav.refit(body); closeModal(); toast('Filled from typical defect; adjust as needed'); }); };
+      set('title', x.t); set('desc', x.d); set('action', x.a); set('trade', x.tr); set('type', x.ty); set('severity', sevMatch(S.project, x.s) || (S.project.severities.includes(x.s) ? x.s : null)); set('element', x.el); if (x.r && !cur.room) set('room', x.r); collect(); Nav.refit(body); closeModal(); toast('Filled from typical defect; adjust as needed'); }); };
   modal(`<h2>Typical defects</h2><input id="tpQ" placeholder="Search, e.g. paint, door, sealant" style="width:100%;margin-bottom:8px"><div class="btnlist" id="tpList" style="max-height:55vh;overflow:auto"></div><p class="note">Titles used two or more times on this project appear here automatically. ${cur.title ? '<a href="#" id="tpAdd">Save the current defect as a typical for all Resero projects</a>' : ''}</p><div class="act"><button id="tpX">Close</button></div>`);
   $('tpX').onclick = closeModal;
   if ($('tpAdd')) $('tpAdd').onclick = async ev => { ev.preventDefault(); const t = templateFrom(cur); try { await S.store.addToLibrary('typicals', t); (S.lib = S.lib || []).push(t); toast('Added "' + t.t + '" to the Resero typical defects library'); draw($('tpQ').value); } catch (e) { toast('Could not save to the library: ' + e.message, 5000); } }; $('tpQ').oninput = e => draw(e.target.value); draw(''); setTimeout(() => $('tpQ').focus(), 50);
