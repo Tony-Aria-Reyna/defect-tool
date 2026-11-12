@@ -562,11 +562,15 @@ const COL = { unit: '#0057ff', room: '#0f9d8c', area: '#8a5cd1', item: '#e07b2a'
 // The rose in the middle shows which way north runs on this sheet, which is not always up.
 function compassTiles(fg) {
   const cell = { top: [], bottom: [], left: [], right: [], none: [] };
-  const byName = { north: 'top', east: 'right', south: 'bottom', west: 'left' };
-  fg.forEach((f, i) => { const d = (/(north|south|east|west)/i.exec(f.l.face || '') || [])[1]; cell[(d && byName[d.toLowerCase()]) || (d ? null : f.l.side) || 'none'].push({ f, i }); });
+  const ring = ['top', 'right', 'bottom', 'left'], order = { north: 0, east: 1, south: 2, west: 3 };
+  // which way north points on the drawings: the project's own setting, else worked out from the faces already linked
+  const guess = (() => { const n = fg.find(f => /north/i.test(f.l.face || '')); return n && ring.includes(n.l.side) ? n.l.side : null; })();
+  const north = (S.project && S.project.north) || guess || 'top', rot = ring.indexOf(north); if (ZE) ZE.northShown = north;
+  fg.forEach((f, i) => { const d = (/(north|south|east|west)/i.exec(f.l.face || '') || [])[1];
+    cell[d ? ring[(order[d.toLowerCase()] + rot) % 4] : (ring.includes(f.l.side) ? f.l.side : 'none')].push({ f, i }); });
   const btn = ({ f, i }) => `<button class="ztile te" data-fe2="${i}" title="${esc(f.ep.name)}">${ico('elev', COL.elev)}<span>${esc(f.l.face || 'face')}</span></button>`;
-  const north = fg.find(f => /north/i.test(f.l.face || '')), deg = { top: 0, right: 90, bottom: 180, left: 270 }[north && north.l.side] ?? null;
-  const rose = `<div class="zrose" title="${deg == null ? 'Which way north runs on this sheet is not known' : 'North points this way on the drawing'}"><span style="transform:rotate(${deg || 0}deg)">${deg == null ? '?' : '↑'}</span><b>N</b></div>`;
+  const deg = rot * 90;
+  const rose = `<button class="zrose" id="zRose" title="North points ${north === 'top' ? 'up' : north === 'right' ? 'right' : north === 'bottom' ? 'down' : 'left'} on these drawings. Tap to turn it a quarter turn."><span style="transform:rotate(${deg}deg)">↑</span><b>N</b></button>`;
   return `<div class="zcompass">
     <div class="cc ct">${cell.top.map(btn).join('')}</div>
     <div class="cc cl">${cell.left.map(btn).join('')}</div><div class="cc cm">${rose}</div><div class="cc cr">${cell.right.map(btn).join('')}</div>
@@ -617,6 +621,10 @@ function panel() {
   if (ZE.join == null) ZE.join = S.local.zoneJoin !== false; PV.join = ZE.join; if ($('zJoin')) $('zJoin').checked = ZE.join;
   if ($('zOrtho')) $('zOrtho').onchange = e => { ZE.ortho = e.target.checked; PV.ortho = ZE.ortho; S.local.zoneOrtho = ZE.ortho; saveLocal(); };
   if (ZE.ortho == null) ZE.ortho = S.local.zoneOrtho !== false; PV.ortho = ZE.ortho; if ($('zOrtho')) $('zOrtho').checked = ZE.ortho;
+  on('zRose', async () => { const ring = ['top', 'right', 'bottom', 'left']; const cur = (ZE && ZE.northShown) || (S.project && S.project.north) || ring[0];
+    const next = ring[(ring.indexOf(cur) + 1) % 4]; S.project.north = next; panel();
+    try { await S.store.updateProject(S.project.id, { north: next }); } catch (e) {}
+    toast(`North points ${{ top: 'up', right: 'right', bottom: 'down', left: 'left' }[next]} on this project's drawings`, 3000); });
   document.querySelectorAll('[data-fe2]').forEach(bt => bt.onclick = async () => { const f = facesOnPlan()[+bt.dataset.fe2]; if (ZE.dirty) await save(); await editFace(f.ep, f.idx, 'line', 'plan'); });
   on('zCopyU', () => { const u = PV.selZone; if (!u || u.kind !== 'unit') return; snap();
     const group = [u, ...membersOf(u)], copies = []; ZE.zones.forEach(q => { if (group.includes(q)) copies.push(copyZone(q, 0.015, 0.015, null)); });
