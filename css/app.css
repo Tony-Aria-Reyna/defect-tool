@@ -181,9 +181,9 @@ table.t{width:100%;border-collapse:collapse;font-size:13px}
 table.t th{text-align:left;background:var(--grey);padding:6px;font-size:11px;text-transform:uppercase;color:var(--muted)}
 table.t td{padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
 table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border-radius:5px;max-width:100%}
-.planrow{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0}
+.planrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0}
 .planrow img{width:90px;height:64px;object-fit:contain;background:#f6f7f8;border-radius:4px}
-.planrow .pi{flex:1;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px}
+.planrow .pi{flex:1 1 320px;min-width:260px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px}.planrow>div:last-child{flex:0 1 auto;max-width:100%}.planrow .pi input{min-width:0}
 .planrow input{padding:5px 6px;border:1px solid var(--line);border-radius:5px;width:100%}
 .codebox{font-family:Consolas,monospace;font-size:12px;background:var(--grey);padding:8px;border-radius:6px;word-break:break-all;user-select:all}
 /* markup */
