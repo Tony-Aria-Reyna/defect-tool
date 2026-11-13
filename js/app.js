@@ -153,9 +153,20 @@ export async function openProject(pid, quiet) {
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
     try { Sync.autoStart(); } catch (e) {}
+    applyDeepLink();
     S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar).then(processPendingAI); }, e => toast('Sync problem: ' + friendly(e), 5000));
     FM.start(pid); setTab('list'); b && b.done(); return true;
   } catch (e) { b && b.done(); console.error(e); if (!quiet) toast('Could not open the project: ' + friendly(e), 5000); return false; }
+}
+// Links from the summary email: #sub=TGW shows that subcontractor's open items, #unit=27 that unit's, #id=MC-012 opens the item.
+function applyDeepLink() {
+  const h = new URLSearchParams(String(location.hash || '').replace(/^#/, '')); if (![...h.keys()].length) return;
+  const sub = h.get('sub'), unit = h.get('unit'), id = h.get('id'); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  const go = () => { if (id) { const d = S.defects.find(q => q.id === id); if (d) openEditor(d); return; }
+    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']);
+    if (sub) { const m = [...new Set(S.defects.map(d => d.subcontractor).filter(Boolean))].find(n => n.toLowerCase() === sub.toLowerCase()); if (m) S.F.sub = m; else S.F.q = sub; }
+    if (unit) S.F.unit = unit; filtersDirty = true; if (S.F.q) $('q').value = S.F.q; setTab('list'); render(); toast(sub ? 'Showing open items for ' + sub : 'Showing open items for Unit ' + unit, 5000); };
+  setTimeout(go, 2500);   // after the defects have loaded
 }
 export async function reloadProject() { const p = await S.store.getProject(S.project.id); S.project = withDefaults(p); S.plans = await S.store.listPlans(p.id); if (!S.plans.find(x => x.id === S.curPlan)) S.curPlan = S.plans[0] ? S.plans[0].id : null; applyProjectChrome(); initFilters(); renderPlanTabs(); await showPlan(S.curPlan); render(); }
 function applyProjectChrome() {

@@ -32,6 +32,10 @@ function doPost(e) {
     } finally { lock.releaseLock(); }
     return out({ ok: true, set, skipped, added });
   }
+  // ---- daily summary email: who gets it and when is set from the app ----
+  if (b.action === 'summaryGet') { try { return out({ ok: true, cfg: summaryConfig_() }); } catch (x) { return out({ error: 'Summary needs authorising: run authoriseHelper in the script editor (' + x.message + ')' }); } }
+  if (b.action === 'summarySet') { try { return out({ ok: true, cfg: summarySet_(b) }); } catch (x) { return out({ error: 'Could not save the summary settings: ' + x.message }); } }
+  if (b.action === 'summaryTest') { try { const to = (b.to || []).map(x => String(x).trim()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 5); return out({ ok: true, stats: summaryRun_(to, true), to: to }); } catch (x) { return out({ error: 'Could not send the test: ' + x.message }); } }
   const gk = props.getProperty('GEMINI_KEY'); if (!gk) return out({ error: 'nokey' });
   const parts = [{ text: String(b.prompt || '').slice(0, 60000) }];
   if (b.file && b.file.data) parts.push({ inline_data: { mime_type: b.file.mime || 'image/jpeg', data: b.file.data } });
@@ -53,11 +57,12 @@ function doPost(e) {
 // Reads the register Google Sheet each afternoon, compares it with the previous day's snapshot and emails a summary:
 // what was added, what was completed, what each subcontractor still has open, and a suggested way to tackle it.
 // Run sendSummaryTest once (goes to SUMMARY_TEST_TO only), then setupDailySummary to switch on the daily email.
-const SUMMARY_TO = ['tony@reseroproperty.co.nz', 'eddietongalahi20@gmail.com'];
-const SUMMARY_TEST_TO = ['tony@reseroproperty.co.nz'];
-const SUMMARY_HOUR = 16;                      // 4 pm
 const SUMMARY_TZ = 'Pacific/Auckland';
-const SUMMARY_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/script.scriptapp'];
+const APP_URL = 'https://tony-aria-reyna.github.io/defect-tool/';
+const ALL_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request'];
+// Who gets the summary and when is set from the app (menu > Update the contractor's spreadsheet > Daily summary email) and kept in Script properties.
+function summaryConfig_() { const p = PropertiesService.getScriptProperties(); let to = []; try { to = JSON.parse(p.getProperty('SUMMARY_TO') || '[]'); } catch (e) {} return { to: to, hour: parseInt(p.getProperty('SUMMARY_HOUR') || '16', 10), on: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailySummary') }; }
+function summarySet_(b) { const p = PropertiesService.getScriptProperties(); const to = (b.to || []).map(x => String(x).trim().toLowerCase()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 20); const hour = Math.max(0, Math.min(23, parseInt(b.hour == null ? 16 : b.hour, 10) || 0)); p.setProperty('SUMMARY_TO', JSON.stringify(to)); p.setProperty('SUMMARY_HOUR', String(hour)); ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailySummary').forEach(t => ScriptApp.deleteTrigger(t)); if (b.on && to.length) ScriptApp.newTrigger('dailySummary').timeBased().everyDays(1).atHour(hour).nearMinute(0).inTimezone(SUMMARY_TZ).create(); return summaryConfig_(); }
 
 function registerRows_(values) {
   const rows = [];
@@ -85,42 +90,41 @@ function buildSummary_(rows, prev, opt) {
   const units = Object.keys(byUnit).filter(u => /^\d+$/.test(u)), unitsDone = units.filter(u => byUnit[u].open === 0), nearly = units.filter(u => byUnit[u].open > 0 && byUnit[u].open <= 2).sort(natural), heavy = units.filter(u => byUnit[u].open > 0).sort((a, b) => byUnit[b].open - byUnit[a].open).slice(0, 6);
   const whereText = U => { const nums = U.filter(u => /^\d+$/.test(u)), other = U.filter(u => !/^\d+$/.test(u)); return [nums.length ? (nums.length === 1 ? 'Unit ' : 'Units ') + nums.slice(0, 24).join(', ') + (nums.length > 24 ? ' +' + (nums.length - 24) + ' more' : '') : '', other.join(', ')].filter(Boolean).join('; '); };
   const pct = rows.length ? Math.round(100 * done.length / rows.length) : 0;
-  // suggested approach, from the numbers only
-  const plan = []; const top = subList.filter(s => s.name !== 'Not assigned')[0];
-  if (top) { const tu = top.units.slice().sort((a, b) => top.unitCount[b] - top.unitCount[a]).slice(0, 5).map(unitLabel).join(', '); plan.push('<b>Biggest load: ' + esc(top.name) + '</b> with ' + top.n + ' open item' + (top.n === 1 ? '' : 's') + ' across ' + top.units.length + ' location' + (top.units.length === 1 ? '' : 's') + '. Book them for a block-by-block sweep, starting where they have the most to do: ' + esc(tu) + '.'); }
-  const quick = subList.filter(s => s.n <= 3 && s.name !== 'Not assigned'); if (quick.length) plan.push('<b>Quick wins:</b> ' + quick.length + ' subcontractor' + (quick.length === 1 ? ' has' : 's have') + ' 3 items or fewer (' + esc(quick.map(s => s.name + ' ' + s.n).join(', ')) + '). One visit each clears ' + quick.reduce((a, s) => a + s.n, 0) + ' items and takes ' + quick.length + ' name' + (quick.length === 1 ? '' : 's') + ' off the list.');
-  if (nearly.length) plan.push('<b>Units closest to finished:</b> ' + esc(nearly.slice(0, 12).map(unitLabel).join(', ')) + (nearly.length > 12 ? ' and ' + (nearly.length - 12) + ' more' : '') + (nearly.length === 1 ? ' has' : ' have') + ' 1 or 2 items left. Clearing ' + (nearly.length === 1 ? 'it' : 'those') + ' completes ' + nearly.length + ' more unit' + (nearly.length === 1 ? '' : 's') + (unitsDone.length ? ' (' + unitsDone.length + ' already complete).' : '.'));
-  const extOpen = open.filter(r => /^ext/i.test(r.ie)); if (extOpen.length) { const es = {}; extOpen.forEach(r => { const k = ((r.sub || 'Not assigned').split('/')[0].trim() || 'Not assigned').toLowerCase(), n = subName[k] || k; es[n] = (es[n] || 0) + 1; }); plan.push('<b>Exterior work:</b> ' + extOpen.length + ' open item' + (extOpen.length === 1 ? '' : 's') + ' are outside and depend on weather and access. Group them by trade for one dry day: ' + esc(Object.keys(es).sort((a, b) => es[b] - es[a]).slice(0, 5).map(n => n + ' ' + es[n]).join(', ')) + '.'); }
-  if (subs['not assigned']) plan.push('<b>No one assigned:</b> ' + subs['not assigned'].n + ' open item' + (subs['not assigned'].n === 1 ? ' has' : 's have') + ' no contractor in the register. Assign these first so they are not missed.');
-  if (reopened.length) plan.push('<b>Reopened:</b> ' + reopened.length + ' item' + (reopened.length === 1 ? ' was' : 's were') + ' marked complete before and ' + (reopened.length === 1 ? 'is' : 'are') + ' open again. Check these with the subcontractor before anything else.');
-  const th = 'style="text-align:left;padding:6px 10px;background:#0b1f33;color:#fff;font-size:13px"', td = 'style="padding:6px 10px;border-bottom:1px solid #e3e7ec;font-size:14px;vertical-align:top"';
-  const list = (L, max) => L.length ? '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%"><tr><th ' + th + '>Where</th><th ' + th + '>Item</th><th ' + th + '>Subcontractor</th></tr>' + L.slice(0, max).map(r => '<tr><td ' + td + ' nowrap>' + esc(unitLabel(r.unit)) + '</td><td ' + td + '>' + esc(r.desc) + '</td><td ' + td + '>' + esc(r.sub || '-') + '</td></tr>').join('') + '</table>' + (L.length > max ? '<p style="font-size:13px;color:#667">and ' + (L.length - max) + ' more in the register.</p>' : '') : '<p style="color:#667;margin:4px 0 0">None.</p>';
-  const box = (n, label, col) => '<td style="padding:12px 14px;background:' + col + ';border-radius:10px;text-align:center"><div style="font-size:26px;font-weight:700;color:#0b1f33">' + n + '</div><div style="font-size:12px;color:#445">' + label + '</div></td>';
-  const h2 = t => '<h2 style="font-size:16px;color:#0b1f33;margin:22px 0 8px">' + t + '</h2>';
-  const html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733;max-width:720px">'
-    + '<h1 style="font-size:20px;color:#0b1f33;margin:0 0 4px">' + esc(opt.title || 'Register summary') + '</h1><p style="margin:0 0 14px;color:#667">' + esc(opt.dateText || '') + (opt.test ? ' · TEST, sent to you only' : '') + '</p>'
-    + '<table cellspacing="8" cellpadding="0" style="width:100%"><tr>' + box(open.length, 'still open', '#fde8e8') + box(prev ? closed.length : '-', 'completed today', '#e6f6ec') + box(prev ? added.length : '-', 'added today', '#fff3c4') + box(pct + '%', 'of ' + rows.length + ' complete', '#e8f1fb') + '</tr></table>'
-    + (prev ? '' : '<p style="font-size:13px;color:#667">This is the first summary, so "today" counts start from tomorrow.</p>')
-    + h2('How to tackle what is left') + (plan.length ? '<ol style="margin:0;padding-left:20px;line-height:1.5;font-size:14px">' + plan.map(p => '<li style="margin-bottom:6px">' + p + '</li>').join('') + '</ol>' : '<p>Nothing left open.</p>')
-    + h2('Who still has what') + '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%"><tr><th ' + th + '>Subcontractor</th><th ' + th + '>Open</th><th ' + th + '>Inside / outside</th><th ' + th + '>Where</th></tr>' + subList.map(s => '<tr><td ' + td + '><b>' + esc(s.name) + '</b></td><td ' + td + '>' + s.n + '</td><td ' + td + ' nowrap>' + s.int + ' / ' + s.ext + '</td><td ' + td + ' style="font-size:13px">' + esc(whereText(s.units)) + '</td></tr>').join('') + '</table><p style="font-size:12px;color:#667">An item shared between two firms (for example "MCL / TGW") is counted under both.</p>'
-    + (heavy.length ? h2('Units with the most left') + '<p style="margin:0;font-size:14px">' + esc(heavy.map(u => unitLabel(u) + ' (' + byUnit[u].open + ')').join(' · ')) + '</p>' : '')
-    + (prev ? h2('Completed today (' + closed.length + ')') + list(closed, 40) + h2('Added today (' + added.length + ')') + list(added, 40) + (reopened.length ? h2('Reopened (' + reopened.length + ')') + list(reopened, 20) : '') : '')
-    + '<p style="margin-top:22px;font-size:13px;color:#667">Register: <a href="' + esc(opt.url || '#') + '">' + esc(opt.name || 'open the sheet') + '</a>. Marking a row completed in the sheet closes it in the Resero Defects app, and closing it in the app ticks it off in the sheet, within about five minutes while the app is open somewhere.</p></div>';
+  const link = (href, text) => '<a href="' + esc(href) + '" style="color:#0b63c5;text-decoration:none">' + text + '</a>';
+  const appSub = n => (opt.app || '') + '#sub=' + encodeURIComponent(n), appUnit = u => (opt.app || '') + '#unit=' + encodeURIComponent(u), rowLink = r => (opt.url || '').replace(/[#?].*$/, '') + '#gid=' + (opt.gid || 0) + '&range=A' + r.row + ':E' + r.row;
+  // three short pointers, from the numbers only
+  const plan = [], named = subList.filter(s => s.name !== 'Not assigned'), top = named[0], quick = named.filter(s => s.n <= 3);
+  if (top) plan.push('<b>' + esc(top.name) + '</b> holds ' + top.n + ' of ' + open.length + ' open (' + Math.round(100 * top.n / Math.max(1, open.length)) + '%). Start there.');
+  if (quick.length) plan.push(quick.length + ' subcontractor' + (quick.length === 1 ? '' : 's') + ' with 3 or fewer: ' + quick.reduce((a, s) => a + s.n, 0) + ' items, one visit each.');
+  if (nearly.length) plan.push(nearly.length + ' unit' + (nearly.length === 1 ? '' : 's') + ' within 2 items of finished: ' + nearly.slice(0, 10).map(u => link(appUnit(u), u)).join(', ') + (nearly.length > 10 ? ' +' + (nearly.length - 10) : '') + '.');
+  if (subs['not assigned']) plan.push(subs['not assigned'].n + ' open with no subcontractor assigned.');
+  if (reopened.length) plan.push(reopened.length + ' reopened after being marked complete.');
+  const th = 'style="text-align:left;padding:6px 10px;background:#0b1f33;color:#fff;font-size:12px"', thr = 'style="text-align:right;padding:6px 10px;background:#0b1f33;color:#fff;font-size:12px"', td = 'style="padding:6px 10px;border-bottom:1px solid #e3e7ec;font-size:14px"', tdr = 'style="padding:6px 10px;border-bottom:1px solid #e3e7ec;font-size:14px;text-align:right"';
+  const bar = n => '<div style="background:#e9eef4;border-radius:4px;height:8px;width:120px"><div style="background:#d64545;border-radius:4px;height:8px;width:' + Math.max(3, Math.round(120 * n / Math.max(1, subList[0] ? subList[0].n : 1))) + 'px"></div></div>';
+  const list = (L, max) => L.length ? '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%">' + L.slice(0, max).map(r => '<tr><td ' + td + ' nowrap>' + esc(unitLabel(r.unit)) + '</td><td ' + td + '>' + link(rowLink(r), esc(r.desc.length > 70 ? r.desc.slice(0, 67) + '…' : r.desc)) + '</td><td ' + td + ' nowrap>' + esc(r.sub || '-') + '</td></tr>').join('') + '</table>' + (L.length > max ? '<p style="font-size:12px;color:#667;margin:4px 0 0">+ ' + (L.length - max) + ' more in the ' + link(opt.url || '#', 'register') + '</p>' : '') : '';
+  const box = (n, label, col) => '<td style="padding:12px 8px;background:' + col + ';border-radius:10px;text-align:center;width:25%"><div style="font-size:26px;font-weight:700;color:#0b1f33">' + n + '</div><div style="font-size:12px;color:#445">' + label + '</div></td>';
+  const h2 = t => '<h2 style="font-size:15px;color:#0b1f33;margin:20px 0 8px">' + t + '</h2>';
+  const html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733;max-width:640px">'
+    + '<h1 style="font-size:19px;color:#0b1f33;margin:0 0 2px">' + esc(opt.title || 'Register summary') + '</h1><p style="margin:0 0 12px;color:#667;font-size:13px">' + esc(opt.dateText || '') + (opt.test ? ' · TEST' : '') + '</p>'
+    + '<table cellspacing="6" cellpadding="0" style="width:100%"><tr>' + box(open.length, 'open', '#fde8e8') + box(prev ? closed.length : '–', 'completed today', '#e6f6ec') + box(prev ? added.length : '–', 'added today', '#fff3c4') + box(pct + '%', 'complete', '#e8f1fb') + '</tr></table>'
+    + '<p style="margin:10px 0 0;font-size:13px;color:#445">' + unitsDone.length + ' of ' + units.length + ' units complete' + (heavy.length ? ' · most left: ' + heavy.slice(0, 5).map(u => link(appUnit(u), 'Unit ' + u) + ' (' + byUnit[u].open + ')').join(', ') : '') + '</p>'
+    + (plan.length ? h2('Where to start') + '<ul style="margin:0;padding-left:18px;line-height:1.5;font-size:14px">' + plan.slice(0, 4).map(p => '<li>' + p + '</li>').join('') + '</ul>' : '')
+    + h2('Open by subcontractor') + '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%"><tr><th ' + th + '>Subcontractor</th><th ' + thr + '>Open</th><th ' + th + '></th><th ' + thr + '>Inside</th><th ' + thr + '>Outside</th><th ' + thr + '>Units</th></tr>' + subList.map(s => '<tr><td ' + td + '>' + (s.name === 'Not assigned' ? '<i>Not assigned</i>' : link(appSub(s.name), '<b>' + esc(s.name) + '</b>')) + '</td><td ' + tdr + '><b>' + s.n + '</b></td><td ' + td + '>' + bar(s.n) + '</td><td ' + tdr + '>' + s.int + '</td><td ' + tdr + '>' + s.ext + '</td><td ' + tdr + '>' + s.units.length + '</td></tr>').join('') + '</table>'
+    + (prev && closed.length ? h2('Completed today · ' + closed.length) + list(closed, 8) : '') + (prev && added.length ? h2('Added today · ' + added.length) + list(added, 8) : '') + (prev && reopened.length ? h2('Reopened · ' + reopened.length) + list(reopened, 8) : '')
+    + '<p style="margin-top:20px;font-size:13px">' + link(opt.app || '#', 'Open Resero Defects') + ' &nbsp;·&nbsp; ' + link(opt.url || '#', 'Open the register') + '</p>'
+    + '<p style="font-size:11px;color:#889;margin:6px 0 0">A subcontractor name opens their open items in the app. An item opens its row in the register. Shared items (for example "MCL / TGW") count under both firms.' + (prev ? '' : ' Today counts start from the next summary.') + '</p></div>';
   return { subject: (opt.test ? 'TEST: ' : '') + (opt.title || 'Register summary') + ': ' + open.length + ' open' + (prev ? ', ' + closed.length + ' completed today, ' + added.length + ' added' : ''), html: html, snapshot: snapshot, stats: { open: open.length, done: done.length, added: added.length, closed: closed.length, reopened: reopened.length, subs: subList.length } };
 }
 function summaryRun_(to, test) {
   const props = PropertiesService.getScriptProperties(), id = props.getProperty('REGISTER_SHEET'); if (!id) throw new Error('No register sheet is linked yet. Link it from the app first.');
   const ss = SpreadsheetApp.openById(id), sh = ss.getSheets()[0], n = sh.getLastRow(), rows = registerRows_(n ? sh.getRange(1, 1, n, 5).getDisplayValues() : []);
   let prev = null; try { const parts = []; for (let i = 0; i < 20; i++) { const p = props.getProperty('SNAP_' + i); if (p == null) break; parts.push(p); } if (parts.length) prev = JSON.parse(parts.join('')); } catch (e) { prev = null; }
-  const out = buildSummary_(rows, prev, { title: 'Miles pre-settlement register: daily summary', dateText: Utilities.formatDate(new Date(), SUMMARY_TZ, 'EEEE d MMMM yyyy, h:mm a'), url: ss.getUrl(), name: ss.getName(), test: test });
+  const out = buildSummary_(rows, prev, { title: (props.getProperty('SUMMARY_TITLE') || 'Miles register') + ': daily summary', dateText: Utilities.formatDate(new Date(), SUMMARY_TZ, 'EEEE d MMMM yyyy'), url: ss.getUrl(), gid: sh.getSheetId(), name: ss.getName(), app: APP_URL, test: test });
+  if (!to || !to.length) throw new Error('No one is set to receive the summary yet.');
   MailApp.sendEmail({ to: to.join(','), subject: out.subject, htmlBody: out.html, name: 'Resero Defects' });
   if (!test) { const s = JSON.stringify(out.snapshot); for (let i = 0; i < 20; i++) props.deleteProperty('SNAP_' + i); for (let i = 0, k = 0; i < s.length; i += 8000, k++) props.setProperty('SNAP_' + k, s.slice(i, i + 8000)); }
   return out.stats;
 }
-// 1. Run this first: sends one summary to SUMMARY_TEST_TO only, and changes nothing.
-function sendSummaryTest() { ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SUMMARY_SCOPES); Logger.log('Test summary sent to ' + SUMMARY_TEST_TO.join(', ') + ': ' + JSON.stringify(summaryRun_(SUMMARY_TEST_TO, true))); }
-// 2. Run this once to switch on the daily email to SUMMARY_TO at SUMMARY_HOUR. Run it again after changing the people or the time.
-function setupDailySummary() { ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, SUMMARY_SCOPES); ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailySummary').forEach(t => ScriptApp.deleteTrigger(t)); ScriptApp.newTrigger('dailySummary').timeBased().everyDays(1).atHour(SUMMARY_HOUR).nearMinute(0).inTimezone(SUMMARY_TZ).create(); Logger.log('Daily summary is on: about ' + SUMMARY_HOUR + ':00 ' + SUMMARY_TZ + ' to ' + SUMMARY_TO.join(', ')); }
-// 3. To stop the daily email.
-function stopDailySummary() { ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailySummary').forEach(t => ScriptApp.deleteTrigger(t)); Logger.log('Daily summary is off.'); }
-function dailySummary() { summaryRun_(SUMMARY_TO, false); }
+function dailySummary() { summaryRun_(summaryConfig_().to, false); }
+// Run this once from the editor after any update to this script, so Google asks for every permission the helper needs.
+function authoriseHelper() { ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, ALL_SCOPES); Logger.log('All permissions are in place. Daily summary: ' + JSON.stringify(summaryConfig_())); }

@@ -398,3 +398,5 @@ button,.btn,.chip,label.opt{transition:transform .08s ease,filter .08s ease,back
 .t.ts td{vertical-align:top;font-size:13px}.t.ts tr.tsyes{background:#eef8ee}.tsnote{color:#1b5fae;font-style:italic}.tsn{display:flex;gap:8px;align-items:flex-start;margin:6px 0}.tsn textarea{flex:1;min-height:44px}.tsn label{font-size:12px;display:flex;flex-direction:column;gap:2px;max-width:46%}.tsn select{max-width:100%}
 
 .sslist{max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;line-height:1.5}.sec label{display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px}
+
+.smppl{display:flex;flex-direction:column;gap:4px;margin:4px 0 8px}.smppl small{color:#667}
