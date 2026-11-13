@@ -71,8 +71,8 @@ export async function markup(src, onSave) {
   let im; try { im = await loadImage(src); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
   const c = $('mkc'); c.width = im.width; c.height = im.height;
   try { c.getContext('2d').drawImage(im, 0, 0); c.toDataURL(); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
-  MK = { im, strokes: [], tool: 'arrow', cur: null, sel: null, onSave, col: COLS[0], undo: [], redo: [] };
-  $('mkc').style.transform = ''; setTool('arrow'); draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
+  MK = { im, strokes: [], tool: 'poly', cur: null, sel: null, onSave, col: COLS[0], undo: [], redo: [] };
+  $('mkc').style.transform = ''; setTool('poly'); draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
 }
 const base = () => { const c = $('mkc'); return { lw: Math.max(4, c.width / 180), fs: Math.max(18, c.width / 32), tol: Math.max(16, c.width / 45) }; };
 const fsOf = s => base().fs * (s.fs || 1), lwOf = s => base().lw * (s.w || 1);
@@ -86,6 +86,7 @@ function bbox(s) {
 // Where the grab handles of a mark sit: the two ends of a line, the four corners of a shape, one corner of a text label.
 function handles(s) {
   if (s.tool === 'arrow' || s.tool === 'dim' || s.tool === 'line') return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }];
+  if (s.tool === 'poly') return s.p.map((q, i) => ({ k: i, p: q }));
   const b = bbox(s); if (s.tool === 'text') return [{ k: 'se', p: [b.x1, b.y1] }];
   return [{ k: 'nw', p: [b.x0, b.y0] }, { k: 'ne', p: [b.x1, b.y0] }, { k: 'sw', p: [b.x0, b.y1] }, { k: 'se', p: [b.x1, b.y1] }];
 }
@@ -95,6 +96,10 @@ function draw() {
   [...MK.strokes, MK.cur].filter(Boolean).forEach(s => {
     const col = s.col || COLS[0], lw = lwOf(s); x.lineWidth = lw; x.strokeStyle = col; x.fillStyle = col; x.beginPath();
     if (s.tool === 'pen') { s.p.forEach((q, j) => j ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1])); x.stroke(); return; }
+    if (s.tool === 'poly') { // straight-sided shape: closed, or left open for an angle or a run of lines
+      s.p.forEach((q, j) => j ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1])); if (s === MK.cur && MK.hover) x.lineTo(MK.hover[0], MK.hover[1]); if (s.closed) x.closePath(); x.stroke();
+      if (s === MK.cur) { const r = Math.max(8, c.width / 100); s.p.forEach((q, j) => { x.beginPath(); x.arc(q[0], q[1], j ? r * 0.7 : r * 1.25, 0, 7); x.fillStyle = j ? col : '#fff'; x.fill(); x.lineWidth = Math.max(3, c.width / 350); x.strokeStyle = j ? '#fff' : col; x.stroke(); }); }
+      return; }
     const a = s.p[0], b = s.p[s.p.length - 1];
     if (s.tool === 'text') { const t = textBox(s); x.font = `bold ${t.fs}px sans-serif`; x.textBaseline = 'top'; x.textAlign = 'start'; x.save(); x.globalAlpha = 0.85; x.fillStyle = col === '#ffffff' ? '#111' : '#fff'; x.fillRect(t.x - 6, t.y - 4, t.w + 12, t.h + 8); x.restore(); lines(s).forEach((ln, i) => x.fillText(ln, t.x, t.y + i * t.fs * 1.2)); return; }
     if (s.tool === 'circle') { x.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2 + 1, Math.abs(b[1] - a[1]) / 2 + 1, 0, 0, 7); x.stroke(); return; }
@@ -121,7 +126,7 @@ function hit(pt) {
   for (let i = MK.strokes.length - 1; i >= 0; i--) {
     const s = MK.strokes[i], a = s.p[0], b = s.p[s.p.length - 1];
     if (s.tool === 'text') { const q = bbox(s); if (pt[0] >= q.x0 && pt[0] <= q.x1 && pt[1] >= q.y0 && pt[1] <= q.y1) return s; continue; }
-    if (s.tool === 'pen') { for (let j = 1; j < s.p.length; j++) if (segD(pt, s.p[j - 1], s.p[j]) < tol) return s; continue; }
+    if (s.tool === 'pen' || s.tool === 'poly') { for (let j = 1; j < s.p.length; j++) if (segD(pt, s.p[j - 1], s.p[j]) < tol) return s; if (s.tool === 'poly' && s.closed && segD(pt, s.p[s.p.length - 1], s.p[0]) < tol) return s; continue; }
     if (s.tool === 'circle') { const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, rx = Math.abs(b[0] - a[0]) / 2 + 1, ry = Math.abs(b[1] - a[1]) / 2 + 1; const d = Math.hypot((pt[0] - cx) / rx, (pt[1] - cy) / ry); if (Math.abs(d - 1) * Math.min(rx, ry) < tol || (s === MK.sel && d < 1)) return s; continue; }
     if (s.tool === 'rect') { const q = bbox(s), inX = pt[0] > q.x0 - tol && pt[0] < q.x1 + tol, inY = pt[1] > q.y0 - tol && pt[1] < q.y1 + tol; if (inX && inY && (Math.min(Math.abs(pt[0] - q.x0), Math.abs(pt[0] - q.x1), Math.abs(pt[1] - q.y0), Math.abs(pt[1] - q.y1)) < tol || s === MK.sel)) return s; continue; }
     if (segD(pt, a, b) < tol * 1.3) return s;
@@ -130,19 +135,30 @@ function hit(pt) {
 }
 const hitHandle = pt => { const s = MK.sel; if (!s) return null; const r = base().tol * 1.25; return handles(s).find(h => Math.hypot(pt[0] - h.p[0], pt[1] - h.p[1]) < r) || null; };
 const snap = () => { MK.undo.push(JSON.stringify(MK.strokes)); if (MK.undo.length > 60) MK.undo.shift(); MK.redo = []; };
-function setTool(t) { MK.tool = t; document.querySelectorAll('#mk [data-tool]').forEach(x => { const on = x.dataset.tool === t; x.classList.toggle('on', on); if (on) try { x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {} }); const hint = $('mkHint'); if (hint) hint.textContent = t === 'select' ? 'Tap a mark to select it. Drag it to move, drag a white dot to resize.' : t === 'text' ? 'Tap where the text should go.' : t === 'pen' ? 'Draw freehand. Tap Select when you are done.' : 'Drag on the photo to draw. It is then selected so you can adjust it.'; }
+function setTool(t) { MK.tool = t; document.querySelectorAll('#mk [data-tool]').forEach(x => { const on = x.dataset.tool === t; x.classList.toggle('on', on); if (on) try { x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {} }); const hint = $('mkHint'); if (hint) hint.textContent = t === 'select' ? 'Tap a mark to select it. Drag it to move, drag a white dot to resize.' : t === 'poly' ? 'Tap each corner. Tap the first (white) dot to close the shape, or Finish to leave it open.' : t === 'text' ? 'Tap where the text should go.' : t === 'pen' ? 'Draw freehand. Tap Select when you are done.' : 'Drag on the photo to draw. It is then selected so you can adjust it.'; }
 // The row of options for the selected mark (or the defaults for the next one).
 function props() {
   const el = $('mkProps'); if (!el || !MK) return; const s = MK.sel && MK.strokes.includes(MK.sel) ? MK.sel : null, cur = s ? (s.col || COLS[0]) : MK.col, hasText = s && (s.tool === 'text' || s.tool === 'dim');
-  const key = [s ? MK.strokes.indexOf(s) : -1, cur, hasText, MK.undo.length, MK.redo.length].join('|'); if (el.dataset.k === key) return; el.dataset.k = key;
-  el.innerHTML = COLS.map(c => `<button class="sw ${c === cur ? 'on' : ''}" data-col="${c}" style="background:${c}" title="Colour"></button>`).join('') + (s ? `<span class="sep"></span><button data-a="del" class="del">🗑 Delete</button>${hasText ? '<button data-a="edit">✎ Edit text</button>' : ''}<button data-a="smaller" title="Thinner or smaller">A−</button><button data-a="bigger" title="Thicker or bigger">A+</button><button data-a="dup">⧉ Copy</button>` : '<span class="muted small" style="color:#aaa;align-self:center;margin-left:6px">Colour for the next mark</span>');
+  const drawing = MK.cur && MK.cur.tool === 'poly' ? MK.cur.p.length : 0;
+  const key = [s ? MK.strokes.indexOf(s) : -1, cur, hasText, MK.undo.length, MK.redo.length, drawing, s && s.tool === 'poly' ? !!s.closed : ''].join('|'); if (el.dataset.k === key) return; el.dataset.k = key; el.scrollLeft = 0;
+  if (drawing) { el.innerHTML = `<button data-pg="close" ${drawing < 3 ? 'disabled style="opacity:.4"' : ''} class="pgo">⬠ Close shape</button><button data-pg="open" ${drawing < 2 ? 'disabled style="opacity:.4"' : ''}>✔ Finish (leave open)</button><button data-pg="back">↶ Last point</button><button data-pg="x">Cancel shape</button>`; el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => polyEnd(b.dataset.pg)); return; }
+  el.innerHTML = COLS.map(c => `<button class="sw ${c === cur ? 'on' : ''}" data-col="${c}" style="background:${c}" title="Colour"></button>`).join('') + (s ? `<span class="sep"></span><button data-a="del" class="del">🗑 Delete</button>${hasText ? '<button data-a="edit">✎ Edit text</button>' : ''}${s.tool === 'poly' ? `<button data-a="toggle">${s.closed ? 'Open shape' : 'Close shape'}</button>` : ''}<button data-a="smaller" title="Thinner or smaller">A−</button><button data-a="bigger" title="Thicker or bigger">A+</button><button data-a="dup">⧉ Copy</button>` : '<span class="muted small" style="color:#aaa;align-self:center;margin-left:6px">Colour for the next mark</span>');
   el.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { MK.col = b.dataset.col; if (s) { snap(); s.col = MK.col; } draw(); });
   el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => { const a = b.dataset.a;
     if (a === 'del') { snap(); MK.strokes = MK.strokes.filter(q => q !== s); MK.sel = null; }
     else if (a === 'dup') { snap(); const off = base().tol * 1.5, n = JSON.parse(JSON.stringify(s)); n.p = n.p.map(q => [q[0] + off, q[1] + off]); MK.strokes.push(n); MK.sel = n; }
+    else if (a === 'toggle') { snap(); s.closed = !s.closed; }
     else if (a === 'edit') { const t = await askText(s.tool === 'dim' ? 'Dimension' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; } }
     else { snap(); const k = a === 'bigger' ? 1.25 : 0.8; if (s.tool === 'text') s.fs = Math.max(0.4, Math.min(5, (s.fs || 1) * k)); else { s.w = Math.max(0.4, Math.min(4, (s.w || 1) * k)); if (s.tool === 'dim') s.fs = Math.max(0.4, Math.min(5, (s.fs || 1) * k)); } }
     draw(); });
+}
+// Finish, close, step back or abandon the straight-sided shape being drawn.
+function polyEnd(how) {
+  const s = MK.cur; if (!s || s.tool !== 'poly') return; MK.hover = null;
+  if (how === 'back') { s.p.pop(); if (!s.p.length) MK.cur = null; draw(); return; }
+  MK.cur = null;
+  if (how !== 'x' && s.p.length >= 2) { s.closed = how === 'close' && s.p.length >= 3; snap(); MK.strokes.push(s); MK.sel = s; setTool('select'); }
+  draw();
 }
 function askText(title, cur, multi) { return new Promise(res => { const d = document.createElement('div'); d.className = 'mkask'; d.innerHTML = `<div><b>${title}</b>${multi ? '<textarea id="mkTxt" rows="3" placeholder="e.g. Gap here. Press Enter for a new line."></textarea>' : '<input id="mkTxt" placeholder="e.g. 850 mm">'}<div class="act"><button id="mkTxtX">Cancel</button><button class="go" id="mkTxtOk">OK</button></div></div>`; $('mk').appendChild(d); const i = d.querySelector('#mkTxt'); i.value = cur || ''; setTimeout(() => i.focus(), 30); const done = v => { d.remove(); res(v); }; d.querySelector('#mkTxtOk').onclick = () => done(i.value.trim()); d.querySelector('#mkTxtX').onclick = () => done(null); i.onkeydown = e => { if (e.key === 'Enter' && (!multi || e.ctrlKey || e.metaKey)) { e.preventDefault(); done(i.value.trim()); } if (e.key === 'Escape') done(null); }; }); }
 export function initMarkup() {
@@ -153,7 +169,7 @@ export function initMarkup() {
   const applyV = () => { c.style.transform = `translate(${V.x}px,${V.y}px) scale(${V.s})`; };
   const resetV = () => { V.x = 0; V.y = 0; V.s = 1; applyV(); };
   c.style.transformOrigin = '0 0'; cv.style.overflow = 'hidden';
-  const undo = () => { if (!MK.undo.length) return; MK.redo.push(JSON.stringify(MK.strokes)); MK.strokes = JSON.parse(MK.undo.pop()); MK.sel = null; draw(); };
+  const undo = () => { if (MK.cur && MK.cur.tool === 'poly') { polyEnd('back'); return; } if (!MK.undo.length) return; MK.redo.push(JSON.stringify(MK.strokes)); MK.strokes = JSON.parse(MK.undo.pop()); MK.sel = null; draw(); };
   const redo = () => { if (!MK.redo.length) return; MK.undo.push(JSON.stringify(MK.strokes)); MK.strokes = JSON.parse(MK.redo.pop()); MK.sel = null; draw(); };
   const del = () => { if (MK.sel) { snap(); MK.strokes = MK.strokes.filter(s => s !== MK.sel); MK.sel = null; draw(); } };
   addEventListener('keydown', e => { if (!MK || document.querySelector('.mkask')) return; const k = e.key.toLowerCase();
@@ -162,10 +178,11 @@ export function initMarkup() {
     else if ((e.ctrlKey || e.metaKey) && k === 'd' && MK.sel) { e.preventDefault(); const b = document.querySelector('#mkProps [data-a=dup]'); if (b) b.click(); }
     else if (e.key === 'Delete' || e.key === 'Backspace') { if (MK.sel) { e.preventDefault(); del(); } }
     else if (e.key.startsWith('Arrow') && MK.sel) { e.preventDefault(); const st = (e.shiftKey ? 10 : 2) * c.width / 800, dx = e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, dy = e.key === 'ArrowUp' ? -st : e.key === 'ArrowDown' ? st : 0; snap(); MK.sel.p = MK.sel.p.map(q => [q[0] + dx, q[1] + dy]); draw(); }
-    if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; draw(); } else if (drag && drag.orig) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; drag = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
+    if (e.key === 'Enter' && MK.cur && MK.cur.tool === 'poly') { e.preventDefault(); polyEnd('open'); }
+    if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; MK.hover = null; draw(); } else if (drag && drag.orig) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; drag = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
   addEventListener('keyup', e => { if (e.key === ' ') space = false; });
   cv.addEventListener('wheel', e => { if (!MK) return; e.preventDefault(); const r = cv.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top, ns = Math.max(1, Math.min(8, V.s * Math.exp(-e.deltaY * 0.0015))); V.x = cx - (cx - V.x) * ns / V.s; V.y = cy - (cy - V.y) * ns / V.s; V.s = ns; if (V.s === 1) { V.x = 0; V.y = 0; } applyV(); }, { passive: false });
-  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur) { MK.cur = null; } if (drag && drag.orig && MK.sel) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; } drag = null; draw(); } });
+  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur && MK.cur.tool === 'poly') { if (MK.cur.p.length > 1) MK.cur.p.pop(); } else if (MK.cur) { MK.cur = null; } if (drag && drag.orig && MK.sel) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; } drag = null; draw(); } });
   cv.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], r = cv.getBoundingClientRect(), ns = Math.max(1, Math.min(8, pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, cx = pinch.cx - r.left, cy = pinch.cy - r.top; V.x = cx - (cx - pinch.x) * ns / pinch.s + (mx - pinch.cx); V.y = cy - (cy - pinch.y) * ns / pinch.s + (my - pinch.cy); V.s = ns; applyV(); } });
   const upV = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (V.s <= 1.001) resetV(); };
   cv.addEventListener('pointerup', upV); cv.addEventListener('pointercancel', upV);
@@ -177,6 +194,13 @@ export function initMarkup() {
     const h = hitHandle(p); if (h) { drag = { kind: 'h', k: h.k, from: p, orig: keep(MK.sel), moved: false }; return; }
     if (MK.tool === 'select') { const s = hit(p); MK.sel = s; drag = s ? { kind: 'm', from: p, orig: keep(s), moved: false } : null; draw(); return; }
     if (MK.tool === 'text') { const t = await askText('Text', '', true); if (t) { snap(); const n = { tool: 'text', p: [p], text: t, col: MK.col }; MK.strokes.push(n); MK.sel = n; setTool('select'); draw(); } return; }
+    if (MK.tool === 'poly') { // one tap per corner
+      const s = MK.cur, near = (q, k) => Math.hypot(p[0] - q[0], p[1] - q[1]) < base().tol * (k || 1.2);
+      if (!s || s.tool !== 'poly') { MK.sel = null; MK.cur = { tool: 'poly', p: [p], col: MK.col }; }
+      else if (s.p.length >= 3 && near(s.p[0], 1.5)) { polyEnd('close'); return; }
+      else if (s.p.length >= 2 && near(s.p[s.p.length - 1], 0.8)) { polyEnd('open'); return; }
+      else s.p.push(p);
+      MK.hover = null; draw(); return; }
     MK.sel = null; MK.cur = { tool: MK.tool, p: [p], col: MK.col }; draw();
   });
   c.addEventListener('pointermove', e => {
@@ -184,6 +208,7 @@ export function initMarkup() {
     if (drag && MK.sel) { const s = MK.sel, o = drag.orig, dx = p[0] - drag.from[0], dy = p[1] - drag.from[1];
       if (!drag.moved) { if (Math.hypot(dx, dy) < base().tol * 0.25) return; drag.moved = true; snap(); }
       if (drag.kind === 'm') s.p = o.p.map(q => [q[0] + dx, q[1] + dy]);
+      else if (typeof drag.k === 'number') { s.p = o.p.map(q => q.slice()); s.p[drag.k] = p; }
       else if (drag.k === 'a') s.p = [p, o.p[o.p.length - 1]]; else if (drag.k === 'b') s.p = [o.p[0], p];
       else if (s.tool === 'text') { const lh = base().fs * 1.2 * lines(s).length; s.fs = Math.max(0.4, Math.min(6, (p[1] - s.p[0][1] - 4) / lh)); }
       else { // a corner: the opposite corner stays where it is
@@ -192,18 +217,19 @@ export function initMarkup() {
         else s.p = [[fx, fy], p];
       }
       draw(); return; }
-    if (!MK.cur) return; if (MK.cur.tool === 'pen') MK.cur.p.push(p); else MK.cur.p = [MK.cur.p[0], p]; draw();
+    if (!MK.cur) return; if (MK.cur.tool === 'poly') { if (e.pointerType === 'mouse') { MK.hover = p; draw(); } return; } if (MK.cur.tool === 'pen') MK.cur.p.push(p); else MK.cur.p = [MK.cur.p[0], p]; draw();
   });
   const up = async () => {
     if (!MK) return; if (pan) { pan = null; c.style.cursor = ''; return; }
     if (drag) { const d = drag, s = MK.sel; drag = null;
       if (!d.moved && s && d.kind === 'm') { const now = Date.now(); if (lastTap.s === s && now - lastTap.t < 450 && (s.tool === 'text' || s.tool === 'dim')) { const t = await askText(s.tool === 'dim' ? 'Dimension' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; draw(); } lastTap = { t: 0, s: null }; } else lastTap = { t: now, s }; }
       return; }
+    if (MK.cur && MK.cur.tool === 'poly') return;
     if (MK.cur) { const s = MK.cur; MK.cur = null; if (s.p.length > 1 && (s.tool === 'pen' || Math.hypot(s.p[1][0] - s.p[0][0], s.p[1][1] - s.p[0][1]) > 6)) { if (s.tool === 'dim') { const t = await askText('Dimension (what you measured)', ''); if (t === null) { draw(); return; } s.text = t; } snap(); MK.strokes.push(s); if (s.tool !== 'pen') { MK.sel = s; setTool('select'); } } draw(); }
   };
-  c.addEventListener('pointerup', up); c.addEventListener('pointercancel', () => { if (MK && MK.cur) { MK.cur = null; draw(); } drag = null; });
-  document.querySelectorAll('#mk [data-tool]').forEach(b => b.onclick = () => { setTool(b.dataset.tool); if (MK.tool !== 'select') MK.sel = null; draw(); });
+  c.addEventListener('pointerup', up); c.addEventListener('pointercancel', () => { if (MK && MK.cur && MK.cur.tool !== 'poly') { MK.cur = null; draw(); } drag = null; });
+  document.querySelectorAll('#mk [data-tool]').forEach(b => b.onclick = () => { if (MK.cur && MK.cur.tool === 'poly') polyEnd('open'); setTool(b.dataset.tool); if (MK.tool !== 'select') MK.sel = null; draw(); });
   $('mkUndo').onclick = undo; $('mkRedo').onclick = redo;
   $('mkCancel').onclick = () => { $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); };
-  $('mkSave').onclick = () => { const m = MK; m.sel = null; draw(); $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); if (m.strokes.length) m.onSave(c.toDataURL('image/jpeg', 0.82)); };
+  $('mkSave').onclick = () => { if (MK.cur && MK.cur.tool === 'poly') polyEnd('open'); const m = MK; m.sel = null; draw(); $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); if (m.strokes.length) m.onSave(c.toDataURL('image/jpeg', 0.82)); };
 }

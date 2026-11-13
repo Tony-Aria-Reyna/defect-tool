@@ -563,3 +563,5 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 #mk .bar.row button,#mk .bar.row .sw{flex:none;white-space:nowrap}
 #mk .bar.props{height:44px;min-height:44px;box-sizing:content-box}
 #mk .mkhint{height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+#mk .bar .pgo{background:var(--teal);color:var(--navy);font-weight:700}
