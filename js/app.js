@@ -151,6 +151,7 @@ export async function openProject(pid, quiet) {
     S.curPlan = S.plans[0] ? S.plans[0].id : null;
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
+    try { Sync.autoStart(); } catch (e) {}
     S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar).then(processPendingAI); }, e => toast('Sync problem: ' + friendly(e), 5000));
     FM.start(pid); setTab('list'); b && b.done(); return true;
   } catch (e) { b && b.done(); console.error(e); if (!quiet) toast('Could not open the project: ' + friendly(e), 5000); return false; }
