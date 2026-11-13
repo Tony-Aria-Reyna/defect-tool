@@ -20,6 +20,7 @@ import { installDialog, maybeNag, canInstall } from './install.js';
 import { typicalList, templateFrom } from './typicals.js';
 import * as Search from './search.js';
 import * as Setup from './setup.js';
+import * as Try from './tryit.js';
 const SURFACES = ['Floor', 'Wall', 'Ceiling', 'Exterior cladding', 'Roof', 'Joinery', 'Services'];
 
 let PV;                // plan viewer
@@ -119,7 +120,7 @@ async function leaveTestMode() {
   try { const sb = S.store; cleanupProject(); S.store = S.realStore; S.user = S.realUser; S.testMode = false; S.viewAs = null; S.sup = await S.store.isSuper(); try { await sb.wipe(); } catch (e) {} await openProject(pid, true); viewAsBar(); bz.done(); toast('Back to the live project. The test copy has been discarded.'); }
   catch (e) { bz.done(); toast('Could not leave test mode cleanly: ' + e.message + '. Reload the app.', 8000); }
 }
-function viewAsBar() { let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } document.body.classList.toggle('testmode', !!S.testMode); if (S.testMode) { b.innerHTML = `🧪 <b>TEST MODE</b> · viewing as <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · nothing you do here is saved · <a href="#" id="vaStop">Leave test mode</a>`; b.classList.add('show'); $('vaStop').onclick = e => { e.preventDefault(); leaveTestMode(); }; } else b.classList.remove('show'); }
+function viewAsBar() { Try.chip(); let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } document.body.classList.toggle('testmode', !!S.testMode); if (S.testMode) { b.innerHTML = `🧪 <b>PRACTICE</b> · <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · ${isMobile() ? 'not saved' : 'nothing you do here is saved'} · <a href="#" id="vaStop">Leave</a>`; b.classList.add('show'); requestAnimationFrame(() => document.body.style.setProperty('--tb', (b.offsetHeight + 4) + 'px')); $('vaStop').onclick = e => { e.preventDefault(); leaveTestMode(); }; } else b.classList.remove('show'); }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; if (/wrong-password|invalid-credential|invalid-login/.test(c)) return 'Wrong email or password. If you have not set a password yet, tap "Create a password".'; if (/user-not-found/.test(c)) return 'No password set for this email yet. Tap "Create a password".'; if (/weak-password/.test(c)) return 'Choose a stronger password (at least 8 characters).'; if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes or use "Forgot password".'; if (/network-request-failed/.test(c)) return 'No connection. Sign-in needs data the first time; once signed in the app works offline.'; return (e && e.message) || String(e); }
 async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
 
@@ -164,6 +165,7 @@ export async function openProject(pid, quiet) {
 function applyDeepLink() {
   const h = new URLSearchParams(String(location.hash || '').replace(/^#/, '')); if (![...h.keys()].length) return;
   const sub = h.get('sub'), unit = h.get('unit'), id = h.get('id'); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  if (h.has('tryit')) { setTimeout(() => { if (S.project && !S.testMode) Try.start(); }, 1500); return; }
   const go = () => { if (id) { const d = S.defects.find(q => q.id === id); if (d) openEditor(d); return; }
     Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']);
     if (sub) { const m = [...new Set(S.defects.map(d => d.subcontractor).filter(Boolean))].find(n => n.toLowerCase() === sub.toLowerCase()); if (m) S.F.sub = m; else S.F.q = sub; }
@@ -838,12 +840,16 @@ function openMenu() {
     ${can.realAdmin() ? `<button id="mViewAs">👁 View as…<small>${S.viewAs ? 'Currently viewing as ' + esc(ROLES[S.viewAs] || S.viewAs) + ' (tap to change or stop)' : 'Test the app as an editor, contractor or viewer'}</small></button>` : ''}
     ${a ? '<button id="mTpl">📦 Save set-up as a template<small>Start the next project with the same categories, lists and rules</small></button>' : ''}
     <button id="mReload">🔄 Reload app<small>Get the latest version (v${APP.version} now)</small></button>
+    <button id="mTry">🧪 15-minute try-out<small>Practise on a throwaway copy, then tell us what you think</small></button>
+    <button id="mFb">💬 Send feedback<small>What works, what is confusing, what is missing</small></button>
+    ${a ? '<button id="mFbR">📊 Feedback received<small>What the team has said, and the try-out link to send people</small></button>' : ''}
     <button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>
     <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
     <button id="mProj">🗂 All projects<small>Switch project</small></button>
     <button id="mOut">⎋ Sign out<small>${esc(S.user.email)}</small></button>
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
+  on('mTry', Try.start); on('mFb', () => Try.feedback(false)); on('mFbR', Try.results);
   on('mFind', () => Search.open()); on('mCk', () => Setup.checklist()); on('mTpl', Setup.saveTemplate);
   on('mPinQ', pinQueue); on('mTick', Tick.start); on('mSync', Sync.start); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
   on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp);
@@ -881,6 +887,9 @@ function toolList() {
   t(true, '⟳', 'Maintenance', 'maintenance planned task schedule service due', ['⟳ Maintenance'], () => FM.setModule('maint'));
   t(true, '✓', 'Compliance', 'compliance bwof code compliance certificate ccc consent', ['✓ Compliance'], () => FM.setModule('comp'));
   t(true, '🗀', 'Documents', 'documents files o&m manual producer statement ps3 ps4 certificate handover', ['🗀 Documents'], () => FM.setModule('docs'));
+  t(true, '🧪', '15-minute try-out', 'practice practise test mode training learn demo sandbox try', [M, '🧪 15-minute try-out'], Try.start);
+  t(true, '💬', 'Send feedback', 'feedback suggestion complaint idea problem bug report comment', [M, '💬 Send feedback'], () => Try.feedback(false));
+  t(a, '📊', 'Feedback received', 'feedback results responses survey testers', [M, '📊 Feedback received'], Try.results);
   t(true, '🗂', 'All projects', 'switch change project other job list', ['‹ back arrow, top left'], showProjects);
   t(true, '⎋', 'Sign out', 'log out logout sign off account', [M, '⎋ Sign out'], () => S.store.signOut());
   return T;
@@ -897,6 +906,7 @@ function wire() {
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   Search.init({ tools: toolList, units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
+  Try.init({ enterTestMode, leaveTestMode, saveLocal });
   Setup.init({ openProject, zones: () => Admin.zoneEditor(PV), sync: Sync.start, siteCheck, saveLocal });
   $('bFind').onclick = () => Search.open();
   document.addEventListener('keydown', e => { if (!S.project || !$('scrWork').classList.contains('on')) return; const typing = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.target.isContentEditable; if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing)) { e.preventDefault(); Search.open(); } });

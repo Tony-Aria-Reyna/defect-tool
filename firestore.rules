@@ -100,6 +100,12 @@ service cloud.firestore {
           || (isContractor(pid) && changed().hasOnly(['lastDone', 'nextDue', 'history', 'updated', 'updatedBy']));
       }
 
+      // Feedback on the app itself: any member can send it, only admins read it
+      match /feedback/{id} {
+        allow create: if isMember(pid);
+        allow read, delete: if isAdmin(pid);
+      }
+
       match /private/{doc} {
         allow read: if canEdit(pid) || isContractor(pid);
         allow write: if isAdmin(pid);
