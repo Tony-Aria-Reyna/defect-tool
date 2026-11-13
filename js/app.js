@@ -3,7 +3,7 @@ import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
-import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, saveImage } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
@@ -303,10 +303,10 @@ function peekable(im, big) {
 }
 export async function gallery(photos, i, title) {
   photos = (photos || []).slice(); if (!photos.length) return; let n = i || 0, sx = null;
-  const g = document.createElement('div'); g.className = 'gal'; g.innerHTML = `<div class="galh"><span id="galT"></span><button id="galX" title="Close">✕</button></div><img id="galI" alt="" draggable="false"><button class="gnav l" id="galP">‹</button><button class="gnav r" id="galN">›</button>`; document.body.appendChild(g);
+  const g = document.createElement('div'); g.className = 'gal'; g.innerHTML = `<div class="galh"><span id="galT"></span><span class="galb"><button id="galD" title="Download this photo" aria-label="Download this photo">⤓</button><button id="galX" title="Close">✕</button></span></div><img id="galI" alt="" draggable="false"><button class="gnav l" id="galP">‹</button><button class="gnav r" id="galN">›</button>`; document.body.appendChild(g);
   const show = async () => { n = (n + photos.length) % photos.length; g.querySelector('#galT').textContent = (title ? title + ' · ' : '') + 'photo ' + (n + 1) + ' of ' + photos.length; g.querySelector('#galI').src = await photoSrc(photos[n]); g.querySelectorAll('.gnav').forEach(b => b.style.display = photos.length > 1 ? '' : 'none'); };
   const close = nav => { if (!g.isConnected) return; g.remove(); document.removeEventListener('keydown', key); if (nav !== true) Nav.closed('gallery'); }, key = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') { n++; show(); } if (e.key === 'ArrowLeft') { n--; show(); } };
-  Nav.open('gallery', () => close(true)); g.querySelector('#galX').onclick = () => close(); g.querySelector('#galP').onclick = e => { e.stopPropagation(); n--; show(); }; g.querySelector('#galN').onclick = e => { e.stopPropagation(); n++; show(); };
+  Nav.open('gallery', () => close(true)); g.querySelector('#galX').onclick = () => close(); g.querySelector('#galD').onclick = e => { e.stopPropagation(); saveImage(g.querySelector('#galI').src, (title || 'Photo') + ' photo ' + ((n % photos.length + photos.length) % photos.length + 1) + ' ' + todayISO()); }; g.querySelector('#galP').onclick = e => { e.stopPropagation(); n--; show(); }; g.querySelector('#galN').onclick = e => { e.stopPropagation(); n++; show(); };
   g.onclick = e => { if (e.target === g) close(); }; document.addEventListener('keydown', key);
   g.addEventListener('pointerdown', e => { sx = e.clientX; }); g.addEventListener('pointerup', e => { if (sx != null && Math.abs(e.clientX - sx) > 50 && photos.length > 1) { n += e.clientX < sx ? 1 : -1; show(); } sx = null; });
   show();
@@ -709,7 +709,7 @@ function stageGate() {
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
   $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew || !limited(w, ED.isNew)) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
-  $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
+  $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? gallery(w.photos, +im.dataset.i, w.id || 'New defect') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }, (w.id || 'New defect') + ' photo ' + (+im.dataset.i + 1)); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
   if ($('addph')) $('addph').onclick = () => addPhotoMenu($('addph'));
   if ($('addfile')) $('addfile').onclick = () => $('fAttach').click();

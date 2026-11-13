@@ -1,6 +1,6 @@
 // Photos: upload with an offline outbox, and markup (pen / arrow / circle).
 import { S } from './state.js';
-import { $, uid, compressImage, dataUrlToBlob, loadImage, toast } from './util.js';
+import { $, uid, compressImage, dataUrlToBlob, loadImage, toast, saveImage, todayISO } from './util.js';
 import * as Nav from './nav.js';
 
 /* ---- outbox: photos taken with no signal are kept on the device and uploaded later ---- */
@@ -67,11 +67,11 @@ export async function outboxCount() { try { return (await obAll()).length; } cat
    change its colour or size, edit its text, duplicate or delete it. Undo and redo cover every change. */
 let MK = null;
 const COLS = ['#ff2d2d', '#ffd400', '#1e88e5', '#111111', '#ffffff'];
-export async function markup(src, onSave) {
+export async function markup(src, onSave, name) {
   let im; try { im = await loadImage(src); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
   const c = $('mkc'); c.width = im.width; c.height = im.height;
   try { c.getContext('2d').drawImage(im, 0, 0); c.toDataURL(); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
-  MK = { im, strokes: [], tool: 'poly', cur: null, sel: null, onSave, col: COLS[0], undo: [], redo: [] };
+  MK = { im, strokes: [], tool: 'poly', cur: null, sel: null, onSave, col: COLS[0], undo: [], redo: [], name: name || 'Photo' };
   $('mkc').style.transform = ''; setTool('poly'); draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
 }
 const base = () => { const c = $('mkc'); return { lw: Math.max(4, c.width / 180), fs: Math.max(18, c.width / 32), tol: Math.max(16, c.width / 45) }; };
@@ -259,6 +259,7 @@ export function initMarkup() {
   c.addEventListener('pointerup', up); c.addEventListener('pointercancel', () => { if (MK && MK.cur && MK.cur.tool !== 'poly') { MK.cur = null; draw(); } drag = null; });
   document.querySelectorAll('#mk [data-tool]').forEach(b => b.onclick = () => { if (MK.cur && MK.cur.tool === 'poly') polyEnd('open'); setTool(b.dataset.tool); if (MK.tool !== 'select') MK.sel = null; draw(); });
   $('mkUndo').onclick = undo; $('mkRedo').onclick = redo;
+  $('mkDl').onclick = () => { if (!MK) return; if (MK.cur && MK.cur.tool === 'poly') polyEnd('open'); const keep = MK.sel; MK.sel = null; draw(); const u = c.toDataURL('image/jpeg', 0.9); MK.sel = keep; draw(); saveImage(u, MK.name + (MK.strokes.length ? ' marked up ' : ' ') + todayISO()); };
   $('mkCancel').onclick = () => { $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); };
   $('mkSave').onclick = () => { if (MK.cur && MK.cur.tool === 'poly') polyEnd('open'); const m = MK; m.sel = null; draw(); $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); if (m.strokes.length) m.onSave(c.toDataURL('image/jpeg', 0.82)); };
 }

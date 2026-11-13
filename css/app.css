@@ -216,7 +216,7 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 #busy.show{display:flex}#busy>div{background:#fff;border-radius:12px;padding:18px 22px;box-shadow:0 4px 20px rgba(0,0,0,.2);display:flex;gap:12px;align-items:center}
 .spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--navy);border-radius:50%;animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
 #toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#18232f;color:#fff;padding:9px 16px;border-radius:20px;z-index:80;display:none;max-width:90%;font-size:13px;text-align:center}
-#done{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.3);padding:12px;z-index:61;display:none;gap:8px;flex-wrap:wrap;width:min(420px,94%)}
+#done{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.3);padding:12px;z-index:1000;display:none;gap:8px;flex-wrap:wrap;width:min(420px,94%)}
 #done.show{display:flex}#done .m{flex:1 1 100%;font-size:13px}
 #done button{flex:1;padding:10px;border-radius:8px;border:1px solid var(--line);background:#fff;font-weight:600}#done button.go{background:var(--navy);color:#fff}
 #netbar{position:fixed;left:0;right:0;bottom:0;background:#e39b1b;color:#fff;text-align:center;font-size:12px;padding:3px;z-index:25;display:none}
@@ -571,3 +571,6 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 #mk .bar .ic{width:40px;padding:6px 0;display:flex;align-items:center;justify-content:center}#mk .bar .ic svg{width:20px;height:20px}
 #mk .bar.tools{gap:4px;overflow:visible}#mk .bar.tools button{flex:1 1 0;min-width:0;width:auto;max-width:56px;height:44px}
 #mk .bar.props{gap:4px}#mk .bar.props .ic{width:36px;flex:none;font-size:14px}#mk .bar.props .sw{flex:none}
+
+.galb{display:flex;gap:8px}
+#mkDl{font-size:20px;min-width:46px}

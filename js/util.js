@@ -68,6 +68,14 @@ export function loadScript(u) { return new Promise((res, rej) => { if (document.
 
 // Delivery: download on desktop, Share / Save on phones (as in the Site Plan Builder)
 export function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); }
+// Save a photo to the phone or computer. Photos held in storage are fetched as a file first; if that is blocked, the photo opens in a new tab to save from there.
+export async function saveImage(src, name) {
+  if (!src) return; let blob = null;
+  try { blob = src.startsWith('data:') ? await (await fetch(src)).blob() : await (await fetch(src, { mode: 'cors' })).blob(); } catch (e) {}
+  if (!blob) { window.open(src, '_blank'); toast('Opened the photo in a new tab. Press and hold it (or right-click) to save it.', 5000); return; }
+  const ext = /png/.test(blob.type) ? 'png' : 'jpg'; deliver(blob, safeFile(name) + '.' + ext, 'Photo');
+}
+const safeFile = n => String(n || 'photo').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'photo';
 export function deliver(blob, name, what) {
   if (!isMobile()) { download(blob, name); toast(what + ' saved to Downloads'); return; }
   let file = null, can = false; try { file = new File([blob], name, { type: blob.type }); can = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) {}
