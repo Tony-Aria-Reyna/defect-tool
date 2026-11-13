@@ -314,11 +314,12 @@ table.t select,table.t input{padding:4px 6px;border:1px solid var(--line);border
 /* phone: fold the sheet buttons behind one chip, keep the zoom bar clear of the fabs, offer full screen */
 .vbtoggle{display:none}
 @media(max-width:899px){
-  .viewbar,.elevbar{display:none!important;flex-direction:column;align-items:stretch;left:10px;right:auto;bottom:196px;max-width:70vw}
-  #planPane.vbopen .viewbar:not(.hidden),#planPane.vbopen .elevbar:not(.hidden){display:flex!important}
-  #planPane.vbopen .elevbar{bottom:196px}#planPane.vbopen .viewbar:not(.elevbar){bottom:196px;left:auto;right:10px}
-  .viewbar button{text-align:left;padding:8px 12px;font-size:14px}
-  .vbtoggle{display:block;position:absolute;left:10px;bottom:150px;z-index:7;background:#fff;border:1px solid var(--line);border-radius:20px;padding:8px 14px;font-weight:700;color:var(--navy);box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:14px}
+  .elevbar{display:none!important;flex-direction:column;align-items:stretch;left:10px;right:auto;bottom:196px;max-width:70vw}
+  .viewbar:not(.elevbar){left:10px;right:auto;bottom:150px;max-width:calc(100vw - 20px);overflow-x:auto}.viewbar:not(.elevbar) button{padding:7px 11px;font-size:13px;white-space:nowrap}
+  #planPane.vbopen .elevbar:not(.hidden){display:flex!important}
+  #planPane.vbopen .elevbar{bottom:246px}
+  .elevbar button{text-align:left;padding:8px 12px;font-size:14px}
+  .vbtoggle{display:block;position:absolute;left:10px;bottom:200px;z-index:7;background:#fff;border:1px solid var(--line);border-radius:20px;padding:8px 14px;font-weight:700;color:var(--navy);box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:14px}
   .vbtoggle.on{background:var(--navy);color:#fff}
   .zoombar{bottom:auto;top:50%;transform:translateY(-50%);right:6px}
   .zoombar button{width:40px;height:40px;opacity:.92}
@@ -400,3 +401,21 @@ button,.btn,.chip,label.opt{transition:transform .08s ease,filter .08s ease,back
 .sslist{max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;line-height:1.5}.sec label{display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px}
 
 .smppl{display:flex;flex-direction:column;gap:4px;margin:4px 0 8px}.smppl small{color:#667}
+
+.pinbig{background:var(--brand,#0b5cab);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;font-weight:600}
+.locbox.need{outline:2px solid #c0392b;outline-offset:4px;border-radius:8px}
+.mini.on{background:#e7f3e9;border-color:#2e7d32;color:#1b5e20}
+.dragtag{position:fixed;z-index:30;pointer-events:none;background:#111;color:#fff;font-size:12px;font-weight:600;padding:4px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-100%);box-shadow:0 2px 6px rgba(0,0,0,.35)}
+
+.plantabs .seg{display:inline-flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:18px;padding:2px;margin-right:4px;flex:none}
+.plantabs .seg em{font-style:normal;font-size:11px;color:var(--muted);padding:0 6px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.plantabs .seg button{border:0;border-radius:14px;min-width:34px;padding:6px 10px;font-weight:700;font-size:14px}
+.plantabs .ptsel{border:1px solid var(--line);border-radius:16px;padding:5px 8px;font-size:12px;background:#fff;flex:none;max-width:170px}
+.plantabs .ptsel.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.cnt.cats{gap:2px}.cnt.cats em{font-style:normal;color:var(--muted);font-size:11px;margin-right:4px}
+.catb{border:1px solid transparent;background:transparent;border-radius:10px;padding:2px 6px;font:inherit;color:inherit}
+.catb.on{background:var(--navy);color:#fff}
+
+.smdays{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:8px 0}
+.dayb input{position:absolute;opacity:0}.dayb span{display:inline-block;border:1px solid var(--line);border-radius:14px;padding:6px 10px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+.dayb input:checked+span{background:var(--navy);color:#fff;border-color:var(--navy)}

@@ -54,8 +54,8 @@ const SUMMARY_TZ = 'Pacific/Auckland';
 const APP_URL = 'https://tony-aria-reyna.github.io/defect-tool/';
 const ALL_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request'];
 // Who gets the summary and when is set from the app (menu > Update the contractor's spreadsheet > Daily summary email) and kept in Script properties.
-function summaryConfig_() { const p = PropertiesService.getScriptProperties(); let to = []; try { to = JSON.parse(p.getProperty('SUMMARY_TO') || '[]'); } catch (e) {} return { to: to, hour: parseInt(p.getProperty('SUMMARY_HOUR') || '16', 10), on: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailySummary') }; }
-function summarySet_(b) { const p = PropertiesService.getScriptProperties(); const to = (b.to || []).map(x => String(x).trim().toLowerCase()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 20); const hour = Math.max(0, Math.min(23, parseInt(b.hour == null ? 16 : b.hour, 10) || 0)); p.setProperty('SUMMARY_TO', JSON.stringify(to)); p.setProperty('SUMMARY_HOUR', String(hour)); ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailySummary').forEach(t => ScriptApp.deleteTrigger(t)); if (b.on && to.length) ScriptApp.newTrigger('dailySummary').timeBased().everyDays(1).atHour(hour).nearMinute(0).inTimezone(SUMMARY_TZ).create(); return summaryConfig_(); }
+function summaryConfig_() { const p = PropertiesService.getScriptProperties(); let to = []; try { to = JSON.parse(p.getProperty('SUMMARY_TO') || '[]'); } catch (e) {} return { to: to, hour: parseInt(p.getProperty('SUMMARY_HOUR') || '16', 10), days: summaryDays_(), on: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailySummary') }; }
+function summarySet_(b) { const p = PropertiesService.getScriptProperties(); const to = (b.to || []).map(x => String(x).trim().toLowerCase()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 20); const hour = Math.max(0, Math.min(23, parseInt(b.hour == null ? 16 : b.hour, 10) || 0)); p.setProperty('SUMMARY_TO', JSON.stringify(to)); p.setProperty('SUMMARY_HOUR', String(hour)); if (b.days) { const dd = b.days.map(Number).filter(x => x >= 1 && x <= 7); p.setProperty('SUMMARY_DAYS', JSON.stringify(dd.length ? dd : [1, 2, 3, 4, 5])); } ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailySummary').forEach(t => ScriptApp.deleteTrigger(t)); if (b.on && to.length) ScriptApp.newTrigger('dailySummary').timeBased().everyDays(1).atHour(hour).nearMinute(0).inTimezone(SUMMARY_TZ).create(); return summaryConfig_(); }
 
 function registerRows_(values) {
   const rows = [];
@@ -69,7 +69,7 @@ function registerRows_(values) {
 }
 function rowKey_(r) { const s = (r.unit + '|' + r.desc).toLowerCase().replace(/[^a-z0-9|]+/g, ' ').replace(/\s+/g, ' ').trim(); let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(36); }
 // prev = { key: 1 (done) | 0 (open) } from the last summary, or null the first time. Returns { subject, html, snapshot, stats }.
-function buildSummary_(rows, prev, opt) {
+function buildSummary_(rows, prev, opt) { const sp = (opt && opt.span) || 'today';
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const unitLabel = u => /^\d+$/.test(u) ? 'Unit ' + u : u, natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
   const snapshot = {}, seen = {}; rows.forEach(r => { let k = rowKey_(r); seen[k] = (seen[k] || 0) + 1; if (seen[k] > 1) k += '~' + seen[k]; r.key = k; snapshot[k] = r.done ? 1 : 0; });
@@ -99,25 +99,28 @@ function buildSummary_(rows, prev, opt) {
   const h2 = t => '<h2 style="font-size:15px;color:#0b1f33;margin:20px 0 8px">' + t + '</h2>';
   const html = '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733;max-width:640px">'
     + '<h1 style="font-size:19px;color:#0b1f33;margin:0 0 2px">' + esc(opt.title || 'Register summary') + '</h1><p style="margin:0 0 12px;color:#667;font-size:13px">' + esc(opt.dateText || '') + (opt.test ? ' · TEST' : '') + '</p>'
-    + '<table cellspacing="6" cellpadding="0" style="width:100%"><tr>' + box(open.length, 'open', '#fde8e8') + box(prev ? closed.length : '–', 'completed today', '#e6f6ec') + box(prev ? added.length : '–', 'added today', '#fff3c4') + box(pct + '%', 'complete', '#e8f1fb') + '</tr></table>'
+    + '<table cellspacing="6" cellpadding="0" style="width:100%"><tr>' + box(open.length, 'open', '#fde8e8') + box(prev ? closed.length : '–', 'completed ' + sp, '#e6f6ec') + box(prev ? added.length : '–', 'added ' + sp, '#fff3c4') + box(pct + '%', 'complete', '#e8f1fb') + '</tr></table>'
     + '<p style="margin:10px 0 0;font-size:13px;color:#445">' + unitsDone.length + ' of ' + units.length + ' units complete' + (heavy.length ? ' · most left: ' + heavy.slice(0, 5).map(u => link(appUnit(u), 'Unit ' + u) + ' (' + byUnit[u].open + ')').join(', ') : '') + '</p>'
     + (plan.length ? h2('Where to start') + '<ul style="margin:0;padding-left:18px;line-height:1.5;font-size:14px">' + plan.slice(0, 4).map(p => '<li>' + p + '</li>').join('') + '</ul>' : '')
     + h2('Open by subcontractor') + '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%"><tr><th ' + th + '>Subcontractor</th><th ' + thr + '>Open</th><th ' + th + '></th><th ' + thr + '>Inside</th><th ' + thr + '>Outside</th><th ' + thr + '>Units</th></tr>' + subList.map(s => '<tr><td ' + td + '>' + (s.name === 'Not assigned' ? '<i>Not assigned</i>' : link(appSub(s.name), '<b>' + esc(s.name) + '</b>')) + '</td><td ' + tdr + '><b>' + s.n + '</b></td><td ' + td + '>' + bar(s.n) + '</td><td ' + tdr + '>' + s.int + '</td><td ' + tdr + '>' + s.ext + '</td><td ' + tdr + '>' + s.units.length + '</td></tr>').join('') + '</table>'
-    + (prev && closed.length ? h2('Completed today · ' + closed.length) + list(closed, 8) : '') + (prev && added.length ? h2('Added today · ' + added.length) + list(added, 8) : '') + (prev && reopened.length ? h2('Reopened · ' + reopened.length) + list(reopened, 8) : '')
+    + (prev && closed.length ? h2('Completed ' + sp + ' · ' + closed.length) + list(closed, 8) : '') + (prev && added.length ? h2('Added ' + sp + ' · ' + added.length) + list(added, 8) : '') + (prev && reopened.length ? h2('Reopened · ' + reopened.length) + list(reopened, 8) : '')
     + '<p style="margin-top:20px;font-size:13px">' + link(opt.app || '#', 'Open Resero Defects') + ' &nbsp;·&nbsp; ' + link(opt.url || '#', 'Open the register') + '</p>'
     + '<p style="font-size:11px;color:#889;margin:6px 0 0">A subcontractor name opens their open items in the app. An item opens its row in the register. Shared items (for example "MCL / TGW") count under both firms.' + (prev ? '' : ' Today counts start from the next summary.') + '</p></div>';
-  return { subject: (opt.test ? 'TEST: ' : '') + (opt.title || 'Register summary') + ': ' + open.length + ' open' + (prev ? ', ' + closed.length + ' completed today, ' + added.length + ' added' : ''), html: html, snapshot: snapshot, stats: { open: open.length, done: done.length, added: added.length, closed: closed.length, reopened: reopened.length, subs: subList.length } };
+  return { subject: (opt.test ? 'TEST: ' : '') + (opt.title || 'Register summary') + ': ' + open.length + ' open' + (prev ? ', ' + closed.length + ' completed ' + sp + ', ' + added.length + ' added' : ''), html: html, snapshot: snapshot, stats: { open: open.length, done: done.length, added: added.length, closed: closed.length, reopened: reopened.length, subs: subList.length } };
 }
 function summaryRun_(to, test) {
   const props = PropertiesService.getScriptProperties(), id = props.getProperty('REGISTER_SHEET'); if (!id) throw new Error('No register sheet is linked yet. Link it from the app first.');
   const ss = SpreadsheetApp.openById(id), sh = ss.getSheets()[0], n = sh.getLastRow(), rows = registerRows_(n ? sh.getRange(1, 1, n, 5).getDisplayValues() : []);
   let prev = null; try { const parts = []; for (let i = 0; i < 20; i++) { const p = props.getProperty('SNAP_' + i); if (p == null) break; parts.push(p); } if (parts.length) prev = JSON.parse(parts.join('')); } catch (e) { prev = null; }
-  const out = buildSummary_(rows, prev, { title: (props.getProperty('SUMMARY_TITLE') || 'Miles register') + ': daily summary', dateText: Utilities.formatDate(new Date(), SUMMARY_TZ, 'EEEE d MMMM yyyy'), url: ss.getUrl(), gid: sh.getSheetId(), name: ss.getName(), app: APP_URL, test: test });
+  const out = buildSummary_(rows, prev, { title: (props.getProperty('SUMMARY_TITLE') || 'Miles register') + ': daily summary', dateText: Utilities.formatDate(new Date(), SUMMARY_TZ, 'EEEE d MMMM yyyy'), span: summarySpan_(props.getProperty('SUMMARY_LAST')), url: ss.getUrl(), gid: sh.getSheetId(), name: ss.getName(), app: APP_URL, test: test });
   if (!to || !to.length) throw new Error('No one is set to receive the summary yet.');
   MailApp.sendEmail({ to: to.join(','), subject: out.subject, htmlBody: out.html, name: 'Resero Defects' });
-  if (!test) { const s = JSON.stringify(out.snapshot); for (let i = 0; i < 20; i++) props.deleteProperty('SNAP_' + i); for (let i = 0, k = 0; i < s.length; i += 8000, k++) props.setProperty('SNAP_' + k, s.slice(i, i + 8000)); }
+  if (!test) { props.setProperty('SUMMARY_LAST', String(Date.now())); const s = JSON.stringify(out.snapshot); for (let i = 0; i < 20; i++) props.deleteProperty('SNAP_' + i); for (let i = 0, k = 0; i < s.length; i += 8000, k++) props.setProperty('SNAP_' + k, s.slice(i, i + 8000)); }
   return out.stats;
 }
-function dailySummary() { summaryRun_(summaryConfig_().to, false); }
+// Days are 1 = Monday to 7 = Sunday. Weekdays only unless changed in the app. A skipped day is rolled into the next summary.
+function summaryDays_() { try { const d = JSON.parse(PropertiesService.getScriptProperties().getProperty('SUMMARY_DAYS') || ''); if (d && d.length) return d; } catch (e) {} return [1, 2, 3, 4, 5]; }
+function summarySpan_(last) { const t = parseInt(last || '0', 10); if (!t || Date.now() - t < 30 * 3600 * 1000) return 'today'; return 'since ' + Utilities.formatDate(new Date(t), SUMMARY_TZ, 'EEE d MMM'); }
+function dailySummary() { const cfg = summaryConfig_(), day = parseInt(Utilities.formatDate(new Date(), SUMMARY_TZ, 'u'), 10); if (cfg.days.indexOf(day) < 0) return; summaryRun_(cfg.to, false); }
 // Run this once from the editor after any update to this script, so Google asks for every permission the helper needs.
 function authoriseHelper() { ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, ALL_SCOPES); Logger.log('All permissions are in place. Daily summary: ' + JSON.stringify(summaryConfig_())); }
