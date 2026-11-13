@@ -86,14 +86,24 @@ const lines = s => wrapText(s);
 function textBox(s) { const x = $('mkc').getContext('2d'), fs = fsOf(s), L = wrapText(s); x.font = `bold ${fs}px sans-serif`; const nat = Math.max(...L.map(t => x.measureText(t).width), fs), w = s.bw ? Math.max(s.bw, 0) : nat, h = L.length * fs * 1.2; return { x: s.p[0][0], y: s.p[0][1], w, h, fs, L }; }
 // A new label starts no wider than the photo allows, so long text wraps instead of running off the edge.
 function fitText(s) { const c = $('mkc'), x = c.getContext('2d'), fs = fsOf(s), m = c.width * 0.03; x.font = `bold ${fs}px sans-serif`; const nat = Math.max(...String(s.text || '').split('\n').map(t => x.measureText(t).width), fs); let px = Math.max(m, s.p[0][0]); const room = c.width - m - px, want = Math.min(nat, c.width * 0.7); if (room < Math.min(want, c.width * 0.4)) px = Math.max(m, c.width - m - want); s.bw = Math.ceil(Math.min(nat, c.width - m - px)) + 2; const h = wrapText(s).length * fs * 1.2; s.p = [[px, Math.max(m, Math.min(s.p[0][1], c.height - m - h))]]; }
+// Where a dimension's label sits. By default it lies along the line; once dragged away (s.lo, an offset from the middle of the line) it sits level and a dotted leader ties it back.
+function dimLabel(s) {
+  const x = $('mkc').getContext('2d'), a = s.p[0], b = s.p[s.p.length - 1], fs = fsOf(s), ang = Math.atan2(b[1] - a[1], b[0] - a[0]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  x.font = `bold ${fs}px sans-serif`; const w = x.measureText(s.text || '?').width + 12, h = fs + 6;
+  if (s.lo) return { cx: mx + s.lo[0], cy: my + s.lo[1], w, h, fs, rot: 0, mx, my, moved: true };
+  let r = ang; if (r > Math.PI / 2 || r < -Math.PI / 2) r += Math.PI; const off = fs * 0.8 + lwOf(s) * 2;
+  return { cx: mx + off * Math.sin(r), cy: my - off * Math.cos(r), w, h, fs, rot: r, mx, my, moved: false };
+}
+const inDimLabel = (s, pt) => { const L = dimLabel(s), dx = pt[0] - L.cx, dy = pt[1] - L.cy, c = Math.cos(-L.rot), n = Math.sin(-L.rot), lx = dx * c - dy * n, ly = dx * n + dy * c; return Math.abs(lx) <= L.w / 2 + 4 && Math.abs(ly) <= L.h / 2 + 4; };
 // The rectangle that contains a mark, in photo pixels.
 function bbox(s) {
   if (s.tool === 'text') { const b = textBox(s); return { x0: b.x - 6, y0: b.y - 4, x1: b.x + b.w + 6, y1: b.y + b.h + 4 }; }
-  const xs = s.p.map(q => q[0]), ys = s.p.map(q => q[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  const xs = s.p.map(q => q[0]), ys = s.p.map(q => q[1]); if (s.tool === 'dim') { const L = dimLabel(s), r = Math.max(L.w, L.h) / 2; xs.push(L.cx - r, L.cx + r); ys.push(L.cy - r, L.cy + r); } return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
 // Where the grab handles of a mark sit: the two ends of a line, the four corners of a shape, one corner of a text label.
 function handles(s) {
-  if (s.tool === 'arrow' || s.tool === 'dim' || s.tool === 'line') return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }];
+  if (s.tool === 'dim') { const L = dimLabel(s); return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }, { k: 'L', p: [L.cx, L.cy] }]; }
+  if (s.tool === 'arrow' || s.tool === 'line') return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }];
   if (s.tool === 'poly') return s.p.map((q, i) => ({ k: i, p: q }));
   const b = bbox(s); if (s.tool === 'text') return [{ k: 'w', p: [b.x0, (b.y0 + b.y1) / 2] }, { k: 'e', p: [b.x1, (b.y0 + b.y1) / 2] }, { k: 'se', p: [b.x1, b.y1] }];
   return [{ k: 'nw', p: [b.x0, b.y0] }, { k: 'ne', p: [b.x1, b.y0] }, { k: 'sw', p: [b.x0, b.y1] }, { k: 'se', p: [b.x1, b.y1] }];
@@ -112,11 +122,15 @@ function draw() {
     if (s.tool === 'text') { const t = textBox(s); x.font = `bold ${t.fs}px sans-serif`; x.textBaseline = 'top'; x.textAlign = 'start'; x.save(); x.globalAlpha = 0.85; x.fillStyle = col === '#ffffff' ? '#111' : '#fff'; x.fillRect(t.x - 6, t.y - 4, t.w + 12, t.h + 8); x.restore(); const al = s.al || 'l'; x.textAlign = al === 'c' ? 'center' : al === 'r' ? 'right' : 'left'; const tx = al === 'c' ? t.x + t.w / 2 : al === 'r' ? t.x + t.w : t.x; t.L.forEach((ln, i) => x.fillText(ln, tx, t.y + i * t.fs * 1.2)); x.textAlign = 'start'; return; }
     if (s.tool === 'circle') { x.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2 + 1, Math.abs(b[1] - a[1]) / 2 + 1, 0, 0, 7); x.stroke(); return; }
     if (s.tool === 'rect') { x.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); return; }
-    if (s.tool === 'dim') {   // dimension line: ticks at both ends, label centred
-      x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), t = lw * 3, fs = fsOf(s);
-      [a, b].forEach(q => { x.beginPath(); x.moveTo(q[0] - t * Math.sin(ang), q[1] + t * Math.cos(ang)); x.lineTo(q[0] + t * Math.sin(ang), q[1] - t * Math.cos(ang)); x.stroke(); });
-      const label = s.text || '?'; x.font = `bold ${fs}px sans-serif`; x.textBaseline = 'middle'; x.textAlign = 'center'; const w = x.measureText(label).width, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-      x.save(); x.translate(mx, my); let r = ang; if (r > Math.PI / 2 || r < -Math.PI / 2) r += Math.PI; x.rotate(r); x.globalAlpha = 0.9; x.fillStyle = '#fff'; x.fillRect(-w / 2 - 6, -fs * 0.8 - fs * 0.6, w + 12, fs + 6); x.globalAlpha = 1; x.fillStyle = col === '#ffffff' ? '#111' : col; x.fillText(label, 0, -fs * 0.8); x.restore(); x.textAlign = 'start'; return;
+    if (s.tool === 'dim') {   // dimension as drawn on plans: the line runs past a witness line at each end, with a 45 degree tick through each crossing
+      const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), ux = Math.cos(ang), uy = Math.sin(ang), nx = -uy, ny = ux, ext = lw * 3, wl = lw * 4.5, tk = lw * 3.2;
+      x.moveTo(a[0] - ux * ext, a[1] - uy * ext); x.lineTo(b[0] + ux * ext, b[1] + uy * ext); x.stroke();
+      [a, b].forEach(q => { x.beginPath(); x.moveTo(q[0] - nx * wl, q[1] - ny * wl); x.lineTo(q[0] + nx * wl, q[1] + ny * wl); x.stroke();
+        x.save(); x.lineWidth = lw * 1.5; x.beginPath(); x.moveTo(q[0] - (ux - nx) * tk, q[1] - (uy - ny) * tk); x.lineTo(q[0] + (ux - nx) * tk, q[1] + (uy - ny) * tk); x.stroke(); x.restore(); });
+      const L = dimLabel(s), label = s.text || '?';
+      if (L.moved) { x.save(); x.lineWidth = Math.max(2, lw * 0.6); x.setLineDash([lw * 1.6, lw * 1.6]); x.beginPath(); x.moveTo(L.mx, L.my); x.lineTo(L.cx, L.cy); x.stroke(); x.setLineDash([]); x.beginPath(); x.arc(L.mx, L.my, lw * 0.9, 0, 7); x.fill(); x.restore(); }
+      x.font = `bold ${L.fs}px sans-serif`; x.textBaseline = 'middle'; x.textAlign = 'center';
+      x.save(); x.translate(L.cx, L.cy); x.rotate(L.rot); x.globalAlpha = 0.9; x.fillStyle = '#fff'; x.fillRect(-L.w / 2, -L.h / 2, L.w, L.h); x.globalAlpha = 1; if (L.moved) { x.lineWidth = Math.max(2, lw * 0.5); x.strokeRect(-L.w / 2, -L.h / 2, L.w, L.h); } x.fillStyle = col === '#ffffff' ? '#111' : col; x.fillText(label, 0, 0); x.restore(); x.textAlign = 'start'; return;
     }
     x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); if (s.tool === 'line') return; const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), h = lw * 5;
     x.beginPath(); x.moveTo(b[0], b[1]); x.lineTo(b[0] - h * Math.cos(ang - 0.45), b[1] - h * Math.sin(ang - 0.45)); x.moveTo(b[0], b[1]); x.lineTo(b[0] - h * Math.cos(ang + 0.45), b[1] - h * Math.sin(ang + 0.45)); x.stroke();
@@ -137,6 +151,7 @@ function hit(pt) {
     if (s.tool === 'pen' || s.tool === 'poly') { for (let j = 1; j < s.p.length; j++) if (segD(pt, s.p[j - 1], s.p[j]) < tol) return s; if (s.tool === 'poly' && s.closed && segD(pt, s.p[s.p.length - 1], s.p[0]) < tol) return s; continue; }
     if (s.tool === 'circle') { const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, rx = Math.abs(b[0] - a[0]) / 2 + 1, ry = Math.abs(b[1] - a[1]) / 2 + 1; const d = Math.hypot((pt[0] - cx) / rx, (pt[1] - cy) / ry); if (Math.abs(d - 1) * Math.min(rx, ry) < tol || (s === MK.sel && d < 1)) return s; continue; }
     if (s.tool === 'rect') { const q = bbox(s), inX = pt[0] > q.x0 - tol && pt[0] < q.x1 + tol, inY = pt[1] > q.y0 - tol && pt[1] < q.y1 + tol; if (inX && inY && (Math.min(Math.abs(pt[0] - q.x0), Math.abs(pt[0] - q.x1), Math.abs(pt[1] - q.y0), Math.abs(pt[1] - q.y1)) < tol || s === MK.sel)) return s; continue; }
+    if (s.tool === 'dim' && inDimLabel(s, pt)) return s;
     if (segD(pt, a, b) < tol * 1.3) return s;
   }
   return null;
@@ -193,17 +208,17 @@ export function initMarkup() {
     if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; MK.hover = null; draw(); } else if (drag && drag.orig) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; MK.sel.bw = drag.orig.bw; drag = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
   addEventListener('keyup', e => { if (e.key === ' ') space = false; });
   cv.addEventListener('wheel', e => { if (!MK) return; e.preventDefault(); const r = cv.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top, ns = Math.max(1, Math.min(8, V.s * Math.exp(-e.deltaY * 0.0015))); V.x = cx - (cx - V.x) * ns / V.s; V.y = cy - (cy - V.y) * ns / V.s; V.s = ns; if (V.s === 1) { V.x = 0; V.y = 0; } applyV(); }, { passive: false });
-  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur && MK.cur.tool === 'poly') { if (MK.cur.p.length > 1) MK.cur.p.pop(); } else if (MK.cur) { MK.cur = null; } if (drag && drag.orig && MK.sel) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; MK.sel.bw = drag.orig.bw; } drag = null; draw(); } });
+  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur && MK.cur.tool === 'poly') { if (MK.cur.p.length > 1) MK.cur.p.pop(); } else if (MK.cur) { MK.cur = null; } if (drag && drag.orig && MK.sel) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; MK.sel.bw = drag.orig.bw; if (drag.orig.lo) MK.sel.lo = drag.orig.lo; else delete MK.sel.lo; } drag = null; draw(); } });
   cv.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], r = cv.getBoundingClientRect(), ns = Math.max(1, Math.min(8, pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, cx = pinch.cx - r.left, cy = pinch.cy - r.top; V.x = cx - (cx - pinch.x) * ns / pinch.s + (mx - pinch.cx); V.y = cy - (cy - pinch.y) * ns / pinch.s + (my - pinch.cy); V.s = ns; applyV(); } });
   const upV = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (V.s <= 1.001) resetV(); };
   cv.addEventListener('pointerup', upV); cv.addEventListener('pointercancel', upV);
   c.addEventListener('pointerdown', async e => {
     if (!MK) return; if (pts.size >= 2) return;
     if (e.ctrlKey || e.button === 1 || space) { pan = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y }; c.setPointerCapture(e.pointerId); c.style.cursor = 'grabbing'; return; }
-    c.setPointerCapture(e.pointerId); const p = pt(e), keep = s => ({ p: s.p.map(q => q.slice()), fs: s.fs, bw: s.bw, box: bbox(s) });
+    c.setPointerCapture(e.pointerId); const p = pt(e), keep = s => ({ p: s.p.map(q => q.slice()), fs: s.fs, bw: s.bw, lo: s.lo ? s.lo.slice() : undefined, box: bbox(s) });
     // a handle of the selected mark always wins, whichever tool is active
     const h = hitHandle(p); if (h) { drag = { kind: 'h', k: h.k, from: p, orig: keep(MK.sel), moved: false }; return; }
-    if (MK.tool === 'select') { const s = hit(p); MK.sel = s; drag = s ? { kind: 'm', from: p, orig: keep(s), moved: false } : null; draw(); return; }
+    if (MK.tool === 'select') { const s = hit(p); MK.sel = s; drag = s ? (s.tool === 'dim' && inDimLabel(s, p) ? { kind: 'h', k: 'L', from: p, orig: keep(s), moved: false } : { kind: 'm', from: p, orig: keep(s), moved: false }) : null; draw(); return; }
     if (MK.tool === 'text') { const t = await askText('Text', '', true); if (t) { snap(); const n = { tool: 'text', p: [p], text: t, col: MK.col }; fitText(n); MK.strokes.push(n); MK.sel = n; setTool('select'); draw(); } return; }
     if (MK.tool === 'poly') { // one tap per corner
       const s = MK.cur, near = (q, k) => Math.hypot(p[0] - q[0], p[1] - q[1]) < base().tol * (k || 1.2);
@@ -220,6 +235,7 @@ export function initMarkup() {
       if (!drag.moved) { if (Math.hypot(dx, dy) < base().tol * 0.25) return; drag.moved = true; snap(); }
       if (drag.kind === 'm') s.p = o.p.map(q => [q[0] + dx, q[1] + dy]);
       else if (typeof drag.k === 'number') { s.p = o.p.map(q => q.slice()); s.p[drag.k] = p; }
+      else if (drag.k === 'L') { const L0 = { ...s, p: o.p, lo: o.lo }, c0 = dimLabel(L0); s.lo = [c0.cx - c0.mx + dx, c0.cy - c0.my + dy]; }
       else if (drag.k === 'a') s.p = [p, o.p[o.p.length - 1]]; else if (drag.k === 'b') s.p = [o.p[0], p];
       else if (s.tool === 'text' && drag.k === 'e') s.bw = Math.max(fsOf(s) * 2, p[0] - 6 - s.p[0][0]);
       else if (s.tool === 'text' && drag.k === 'w') { const right = o.box.x1 - 6, nx = Math.min(p[0] + 6, right - fsOf(s) * 2); s.p = [[nx, o.p[0][1]]]; s.bw = right - nx; }
@@ -235,7 +251,7 @@ export function initMarkup() {
   const up = async () => {
     if (!MK) return; if (pan) { pan = null; c.style.cursor = ''; return; }
     if (drag) { const d = drag, s = MK.sel; drag = null;
-      if (!d.moved && s && d.kind === 'm') { const now = Date.now(); if (lastTap.s === s && now - lastTap.t < 450 && (s.tool === 'text' || s.tool === 'dim')) { const t = await askText(s.tool === 'dim' ? 'Dimension' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; draw(); } lastTap = { t: 0, s: null }; } else lastTap = { t: now, s }; }
+      if (!d.moved && s && (d.kind === 'm' || d.k === 'L')) { const now = Date.now(); if (lastTap.s === s && now - lastTap.t < 450 && (s.tool === 'text' || s.tool === 'dim')) { const t = await askText(s.tool === 'dim' ? 'Dimension' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; draw(); } lastTap = { t: 0, s: null }; } else lastTap = { t: now, s }; }
       return; }
     if (MK.cur && MK.cur.tool === 'poly') return;
     if (MK.cur) { const s = MK.cur; MK.cur = null; if (s.p.length > 1 && (s.tool === 'pen' || Math.hypot(s.p[1][0] - s.p[0][0], s.p[1][1] - s.p[0][1]) > 6)) { if (s.tool === 'dim') { const t = await askText('Dimension (what you measured)', ''); if (t === null) { draw(); return; } s.text = t; } snap(); MK.strokes.push(s); if (s.tool !== 'pen') { MK.sel = s; setTool('select'); } } draw(); }
