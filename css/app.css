@@ -521,7 +521,13 @@ img.snip.big{width:74px;height:74px;border-radius:8px}
 @keyframes edinr{from{transform:translateX(40px);opacity:.3}to{transform:none;opacity:1}}@keyframes edinl{from{transform:translateX(-40px);opacity:.3}to{transform:none;opacity:1}}
 html,body{overscroll-behavior-x:none}#edBody{overscroll-behavior-x:none;touch-action:pan-y}
 
-.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
-.photos .ph,.photos .ph img,.photos .addph{width:auto;height:auto;aspect-ratio:1}
-.photos .phmenu{grid-column:1/-1}
-@media(min-width:900px){.photos{grid-template-columns:repeat(auto-fill,96px)}}
+
+/* photos on a record: small fixed tiles in a wrapping row, then one Add photo tile */
+.photos{display:flex;flex-wrap:wrap;gap:8px}
+.photos .ph,.photos .addph{width:72px;height:72px;flex:0 0 72px;box-sizing:border-box}
+.photos .ph img{width:72px;height:72px;max-width:72px;max-height:72px;object-fit:cover;display:block}
+.photos .addph{font-size:17px;letter-spacing:1px}.photos .addph span{font-size:11px;letter-spacing:0}
+.phsheet{position:fixed;inset:0;z-index:950;background:rgba(10,20,40,.5);display:flex;align-items:flex-end;justify-content:center}
+.phs{background:#fff;width:min(520px,100%);border-radius:16px 16px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px}
+.phs b{font-size:15px;margin-bottom:2px}.phs button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:15px;font-size:16px;font-weight:600;text-align:left}
+.phs button.x{text-align:center;color:var(--muted);font-weight:500;padding:11px}

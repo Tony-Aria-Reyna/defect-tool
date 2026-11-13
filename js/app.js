@@ -241,7 +241,9 @@ export async function snip(d, px, span) {
   const im = await planImage(p), c = document.createElement('canvas'), x = c.getContext('2d'); c.width = c.height = px;
   const sc = px / (p.w / (span || 3.2)), cx = d.x * p.w * sc, cy = d.y * p.h * sc;
   x.fillStyle = '#fff'; x.fillRect(0, 0, px, px); x.drawImage(im, px / 2 - cx, px / 2 - cy, p.w * sc, p.h * sc);
-  const rr = Math.max(5, px * 0.075); x.fillStyle = SCOL[d.status] || '#d64545'; x.beginPath(); x.arc(px / 2, px / 2, rr, 0, 7); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = Math.max(2, px * 0.02); x.stroke();
+  const col = SCOL[d.status] || '#d64545', big = px > 300, rr = big ? Math.max(8, px * 0.011) : Math.max(5, px * 0.075);
+  if (big) { x.strokeStyle = col; x.globalAlpha = 0.55; x.lineWidth = 3; x.beginPath(); x.arc(px / 2, px / 2, rr * 4.2, 0, 7); x.stroke(); x.globalAlpha = 1; }
+  x.fillStyle = col; x.beginPath(); x.arc(px / 2, px / 2, rr, 0, 7); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = big ? 2.5 : Math.max(2, px * 0.02); x.stroke();
   const u = c.toDataURL('image/jpeg', 0.82); if (snips.size > 1500) snips.clear(); snips.set(key, u); return u;
 }
 // Wire one plan cut-out image: tap opens the location window (not the full plans), press and hold shows it large.
@@ -277,13 +279,11 @@ function noteDialog(o) {
   setTimeout(() => $('ndTxt') && !isMobile() && $('ndTxt').focus(), 60);
 }
 // One "Add photo" tile: on a phone it offers the camera or the gallery; on a computer it goes straight to the files.
-function addPhotoMenu(anchor) {
+function addPhotoMenu() {
   if (!isMobile()) { $('fPhoto').click(); return; }
-  const old = document.querySelector('.phmenu'); if (old) { old.remove(); return; }
-  const m = document.createElement('div'); m.className = 'phmenu'; m.innerHTML = '<button data-k="cam">📷 Take a photo</button><button data-k="gal">🖼 Choose from gallery</button>'; anchor.parentNode.insertBefore(m, anchor.nextSibling);
-  const off = e => { if (!m.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) { m.remove(); document.removeEventListener('pointerdown', off, true); } };
-  m.querySelectorAll('button').forEach(b => b.onclick = () => { m.remove(); document.removeEventListener('pointerdown', off, true); $(b.dataset.k === 'cam' ? 'fCam' : 'fPhoto').click(); });
-  setTimeout(() => document.addEventListener('pointerdown', off, true), 0);
+  const old = document.querySelector('.phsheet'); if (old) old.remove();
+  const m = document.createElement('div'); m.className = 'phsheet'; m.innerHTML = '<div class="phs"><b>Add photo</b><button data-k="cam">📷 Take a photo</button><button data-k="gal">🖼 Choose from gallery</button><button data-k="x" class="x">Cancel</button></div>'; document.body.appendChild(m);
+  m.onclick = e => { const b = e.target.closest('button'); if (e.target !== m && !b) return; m.remove(); if (b && b.dataset.k !== 'x') $(b.dataset.k === 'cam' ? 'fCam' : 'fPhoto').click(); };
 }
 // Press and hold a photo to see it large; let go and it closes. A quick tap still does what it did before.
 function peekable(im, big) {
@@ -684,7 +684,7 @@ function stageGate() {
 }
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
-  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">＋<span>Add photo</span></div>' : '');
+  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
   $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
   if ($('addph')) $('addph').onclick = () => addPhotoMenu($('addph'));
