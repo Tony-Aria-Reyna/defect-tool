@@ -514,6 +514,17 @@ export function openEditor(d, isNew, isDraft) {
   if ($('genBtn')) $('genBtn').onclick = () => { collect(); ED.d.general = !ED.d.general; openEditor(ED.d, ED.isNew, true); };
   if ($('aiWaitX')) $('aiWaitX').onclick = e => { e.preventDefault(); ED.d.aiPending = false; $('aiWait').remove(); if (!ED.isNew && ED.d.id) S.store.updateDefect(S.project.id, ED.d.id, { aiPending: false }).catch(() => {}); };
   if ($('goPin')) $('goPin').onclick = () => { const d = ED.d; closeEditor(); showPlan(d.plan, d); setTab('plan'); };
+  // New items are staged: 1 pin, 2 photo, 3 Gemini. The place and the picture go in first so Gemini is not guessing.
+  const dict = $('edBody').querySelector('.dict');
+  if (isNew && dict && S.plans.length) {
+    const hs = [...$('edBody').querySelectorAll('h3.sec')], hLoc = hs.find(h => /^Location/.test(h.textContent)), hPh = hs.find(h => /^Photos/.test(h.textContent));
+    const hG = document.createElement('h3'); hG.className = 'sec stg'; hG.id = 'stg3'; hG.innerHTML = '<i>3</i> Describe it <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Gemini fills in the form</span>';
+    const lk = document.createElement('div'); lk.className = 'note small stglock'; lk.id = 'stgLock';
+    [hLoc, $('locBox'), $('locMore'), hPh, $('phs'), hG, lk].forEach(n => n && dict.parentNode.insertBefore(n, dict));
+    hLoc.classList.add('stg'); hLoc.id = 'stg1'; hLoc.innerHTML = '<i>1</i> Where is it';
+    hPh.classList.add('stg'); hPh.id = 'stg2'; hPh.innerHTML = '<i>2</i> Photo <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Tap a photo to mark it up</span>';
+    ED.staged = true;
+  }
   drawLoc(); renderPhotos();
   $('edDel').style.display = isNew || !can.admin() ? 'none' : ''; $('edSave').style.display = ro ? 'none' : '';
   $('edCancel').textContent = ro ? 'Close' : 'Cancel';
@@ -538,8 +549,15 @@ async function drawLoc() {
   try { const im = await loadImage(await imgUrl(p.img)); const W = c.width, H = c.height, s = 3 * W / p.w, cx = d.x * p.w * s, cy = d.y * p.h * s; x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.drawImage(im, W / 2 - cx, H / 2 - cy, p.w * s, p.h * s); x.fillStyle = SCOL[d.status] || '#d64545'; x.beginPath(); x.arc(W / 2, H / 2, 9, 0, 7); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke(); }
   catch (e) { c.style.display = 'none'; }
 }
+function stageGate() {
+  if (!ED || !ED.staged) return true; const d = ED.d, pin = !!((d.plan && d.x != null) || d.general), ph = (d.photos || []).length > 0, dict = $('edBody').querySelector('.dict');
+  const mark = (id, ok) => { const h = $(id); if (h) h.classList.toggle('done', ok); }; mark('stg1', pin); mark('stg2', ph); mark('stg3', false);
+  if (dict) dict.classList.toggle('locked', !(pin && ph));
+  const lk = $('stgLock'); if (lk) { lk.style.display = pin && ph ? 'none' : ''; lk.textContent = !pin && !ph ? '🔒 Pin it and add a photo first. Gemini then knows where it is and can see it.' : !pin ? '🔒 Pin it on the plan first (or mark it as a general defect).' : '🔒 Add a photo first so Gemini can see it.'; }
+  return pin && ph;
+}
 async function renderPhotos() {
-  const w = ED.d, ro = !can.write();
+  const w = ED.d, ro = !can.write(); stageGate();
   $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addcam">📷<span>Camera</span></div><div class="addph" id="addph">🖼<span>From gallery</span></div>' : '');
   $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
@@ -640,6 +658,7 @@ function step(dir) { if (!ED || ED.isNew) return; const L = filtered(); const i 
 /* ---- Gemini ---- */
 const AIMAP = { title: 'title', description: 'desc', action: 'action', unit: 'unit', room: 'room', surface: 'surface', item: 'item', block: 'block', level: 'level', element: 'element', type: 'type', severity: 'severity', trade: 'trade', responsible: 'responsible', status: 'status', targetDate: 'targetDate' };
 async function interpret() {
+  if (!stageGate()) { toast('Pin it and add a photo first, then Gemini can fill in the form', 4500); return; }
   const text = $('dt').value.trim(); if (!text) { toast('Say or type the defect first'); return; }
   const cur = collect(); const btn = $('aiGo'); btn.disabled = true; aiStatus('Asking Gemini…'); $('aiNote').classList.remove('show');
   try {
@@ -826,17 +845,15 @@ let addFilesRef = null;
 export async function addFiles(fs) { if (addFilesRef) return addFilesRef(fs); }
 function newDefectChooser() {
   modal(`<h2>New defect</h2><div class="btnlist">
-    <button id="ndMic">🎤 Dictate<small>Say it, Gemini fills the form</small></button>
-    <button id="ndCam">📷 Take a photo<small>Opens the camera, then the form</small></button>
-    <button id="ndPin">📍 Pin on the plan<small>Tap where it is, the room fills in</small></button>
-    <button id="ndType">✎ Type it<small>Blank form</small></button>
+    ${S.plans.length ? '<button id="ndPin">📍 Pin on the plan<small>Start here: tap where it is, then photo, then say what is wrong</small></button>' : ''}
+    <button id="ndCam">📷 Take a photo first<small>Opens the camera, then the form</small></button>
+    <button id="ndType">✎ General defect or type it<small>Form without a pin</small></button>
   </div><div class="act"><button id="ndX">Cancel</button></div>`);
   $('ndX').onclick = closeModal;
   const go = async after => { closeModal(); openEditor(await newDefect(), true, true); after && after(); };
-  $('ndMic').onclick = () => go(() => $('mic') && $('mic').click());
   $('ndCam').onclick = () => go(() => $('fCam').click());
   $('ndType').onclick = () => go();
-  $('ndPin').onclick = () => { closeModal(); if (!S.plans.length) { toast('No plans in this project'); return; } setTab('plan'); startPlacing({ mode: 'new' }); };
+  if ($('ndPin')) $('ndPin').onclick = () => { closeModal(); if (!S.plans.length) { toast('No plans in this project'); return; } setTab('plan'); startPlacing({ mode: 'new' }); };
 }
 async function addPhotos(fs) {
   if (!ED) return;
