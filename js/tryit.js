@@ -26,6 +26,7 @@ const TASKS = {
     ['See it on the plan', 'On the list, tap the small plan picture under a photo to see where the item is, or press and hold it for a quick look. Then open Plans, switch block and level, and tap a pin.'],
     ['Look at the photos', 'Tap the camera count on the corner of a photo to open the photos. Press and hold a photo to see it large.'],
     ['Respond to an item', 'Open an open item and read the latest comment at the top. Tap "Ready for inspection", add a photo of the finished work and say or type what was done.'],
+    ['Raise your own item', 'Tap the + button. Drop a pin, add a photo and say what is wrong. Save it, then open it again and change the title: items you raised are yours to edit.'],
     ['Close one of your own', 'If an item from your own register shows "Complete and close", use it. If none do, mark this step "Not for me".'],
     ['Set the subcontractor', 'Open an item and choose or type the subcontractor. Save. Then filter the list by that subcontractor.'],
     ['Read the history', 'Open an item that has been reopened or closed and read the History. Is it clear what changed and who did it?'],

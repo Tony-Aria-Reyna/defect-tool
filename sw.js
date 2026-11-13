@@ -1,5 +1,5 @@
 // Resero Defects - offline support. The app shell and libraries are cached; data is cached by Firestore itself.
-const VERSION = 'resero-defects-2.55.2';
+const VERSION = 'resero-defects-2.56.0';
 const SHELL = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'img/resero-navy.png', 'img/resero-white.png',
   'js/app.js', 'js/admin.js', 'js/faces.js', 'js/autofit.js', 'js/ticksheet.js', 'js/sheetsync.js', 'js/placer.js', 'js/search.js', 'js/setup.js', 'js/tryit.js', 'js/fm.js', 'js/pack.js', 'js/dnd.js', 'js/help.js', 'js/nav.js', 'js/install.js', 'js/typicals.js', 'js/ai.js', 'js/config.js', 'js/exports.js', 'js/photos.js', 'js/planview.js', 'js/state.js', 'js/store.js', 'js/util.js',
   'lib/firebase/firebase-app.js', 'lib/firebase/firebase-auth.js', 'lib/firebase/firebase-firestore.js', 'lib/firebase/firebase-storage.js',

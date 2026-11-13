@@ -46,8 +46,8 @@ service cloud.firestore {
       allow update: if isAdmin(pid)
         // contractors and editors can add names to the subcontractor list
         || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['subcontractors']))
-        // editors take the next defect number
-        || (canEdit(pid) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
+        // editors and contractors take the next defect number
+        || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
         // a user accepts an invitation sent to their verified email address
         || (verified()
             && exists(/databases/$(db)/documents/invites/$(pid + '_' + myEmail()))
@@ -64,11 +64,17 @@ service cloud.firestore {
 
       match /defects/{id} {
         allow read: if isMember(pid);
-        // contractors can add items to their own registers only
+        // contractors can raise items in their own name, and add items to their own registers
         allow create: if canEdit(pid)
+          || (isContractor(pid) && request.resource.data.get('createdBy', '').lower() == myEmail())
           || (isContractor(pid) && request.resource.data.get('source', '') in proj(pid).get('selfCloseSources', []));
         allow delete: if isAdmin(pid);
         allow update: if canEdit(pid)
+          // a contractor can edit the items they raised themselves (who raised it cannot be changed)
+          || (isContractor(pid)
+              && resource.data.get('createdBy', '').lower() == myEmail()
+              && !changed().hasAny(['createdBy', 'created']))
+          // on anyone else's items a contractor responds, adds photos and moves the status only
           || (isContractor(pid)
               && changed().hasOnly(['status', 'subcontractor', 'photos', 'files', 'history', 'updated', 'updatedBy'])
               && (request.resource.data.status in ['Open', 'In progress', 'Ready for review']
@@ -97,6 +103,11 @@ service cloud.firestore {
         allow read: if isMember(pid);
         allow create, delete: if canEdit(pid);
         allow update: if canEdit(pid)
+          // a contractor can edit the items they raised themselves (who raised it cannot be changed)
+          || (isContractor(pid)
+              && resource.data.get('createdBy', '').lower() == myEmail()
+              && !changed().hasAny(['createdBy', 'created']))
+          // on anyone else's items a contractor responds, adds photos and moves the status only
           || (isContractor(pid) && changed().hasOnly(['lastDone', 'nextDue', 'history', 'updated', 'updatedBy']));
       }
 

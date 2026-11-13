@@ -29,7 +29,7 @@ async function imgUrl(u) { if (!u) return ''; if (urlCache[u]) return urlCache[u
 async function photoSrc(p) { if (p.data) return p.data; if (p.pending) return await pendingUrl(p.id); return p.url ? await imgUrl(p.url) : ''; }
 
 /* ================================================================ screens */
-function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id)); $('fab').style.display = id === 'scrWork' && can.edit() ? '' : 'none'; }
+function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id)); $('fab').style.display = id === 'scrWork' && can.write() ? '' : 'none'; }
 
 async function boot() {
   initMarkup();
@@ -175,7 +175,7 @@ function applyDeepLink() {
 export async function reloadProject() { const p = await S.store.getProject(S.project.id); S.project = withDefaults(p); S.plans = await S.store.listPlans(p.id); if (!S.plans.find(x => x.id === S.curPlan)) S.curPlan = S.plans[0] ? S.plans[0].id : null; applyProjectChrome(); initFilters(); renderPlanTabs(); await showPlan(S.curPlan); render(); }
 function applyProjectChrome() {
   const p = S.project; $('wTitle').firstChild.textContent = p.name; $('wSub').textContent = [p.address, p.client, ROLES[S.role] + (S.sup && S.role !== 'admin' ? ' (system admin)' : '')].filter(Boolean).join(' · ');
-  $('bNew').style.display = can.edit() ? '' : 'none'; $('fab').style.display = can.edit() ? '' : 'none';
+  $('bNew').style.display = can.write() ? '' : 'none'; $('fab').style.display = can.write() ? '' : 'none';
 }
 
 /* ================================================================ filters & list */
@@ -365,7 +365,7 @@ function renderPlanTabs() {
     markTabs();
   } else pt.innerHTML = (lastG = null, sorted.map(p => { const g = gOf(p), sep = lastG && g !== lastG ? '<span class="ptsep"></span>' : ''; lastG = g; return sep + tabBtn(p); }).join('')) +
     (S.plans.length ? '' : (can.admin() ? '<span class="muted small">No plans yet.</span><button class="act" id="bUpPlan">Upload plans</button>' : '<span class="muted small">No plans uploaded for this project yet.</span>'));
-  let pinBtn = $('bPin'); if (!pinBtn) { pinBtn = document.createElement('button'); pinBtn.id = 'bPin'; pinBtn.className = 'pinfab'; $('planPane').appendChild(pinBtn); } pinBtn.textContent = '📍 Add pin'; pinBtn.classList.remove('on'); pinBtn.style.display = S.plans.length && can.edit() ? '' : 'none';
+  let pinBtn = $('bPin'); if (!pinBtn) { pinBtn = document.createElement('button'); pinBtn.id = 'bPin'; pinBtn.className = 'pinfab'; $('planPane').appendChild(pinBtn); } pinBtn.textContent = '📍 Add pin'; pinBtn.classList.remove('on'); pinBtn.style.display = S.plans.length && can.write() ? '' : 'none';
   pt.querySelectorAll('[data-p]').forEach(b => b.onclick = () => showPlan(b.dataset.p));
   if ($('bPin')) $('bPin').onclick = () => placing ? stopPlacing() : startPlacing({ mode: 'new' });
   if ($('bUpPlan')) $('bUpPlan').onclick = () => Admin.plansDialog();
@@ -565,7 +565,7 @@ async function newDefect() {
 export function openEditor(d, isNew, isDraft) {
   const w = isDraft ? d : JSON.parse(JSON.stringify(d)); const p = S.project;
   ED = { d: w, isNew: !!isNew, orig: isNew ? null : S.defects.find(x => x.id === d.id), removed: ED && ED.d === d ? ED.removed : [] };
-  const ro = !can.write(), con = can.contractor();
+  const ro = !can.write(), con = limited(w, isNew);   // a contractor's own items are theirs to edit
   const dis = ro || con ? 'disabled' : '';
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
@@ -696,7 +696,7 @@ async function drawLoc() {
 // After a step of a new defect is done, take the person to the next one: pin, then photo, then describe.
 function nextStep() {
   if (!ED || !ED.isNew) return; const d = ED.d, show = id => { const n = $(id); if (n) setTimeout(() => { try { (n.closest('.stgcard') || n).scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }, 80); };
-  if (!(d.photos || []).length) { show('stg2'); if (isMobile() && !can.contractor()) setTimeout(() => { if (ED && ED.isNew && !(ED.d.photos || []).length && !document.querySelector('.phsheet')) addPhotoMenu(); }, 350); }
+  if (!(d.photos || []).length) { show('stg2'); if (isMobile()) setTimeout(() => { if (ED && ED.isNew && !(ED.d.photos || []).length && !document.querySelector('.phsheet')) addPhotoMenu(); }, 350); }
   else show('stg3');
 }
 function stageGate() {
@@ -708,7 +708,7 @@ function stageGate() {
 }
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
-  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
+  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew || !limited(w, ED.isNew)) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
   $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
   if ($('addph')) $('addph').onclick = () => addPhotoMenu($('addph'));
@@ -723,7 +723,7 @@ async function renderPhotos() {
   if ($('wfSelf')) $('wfSelf').onclick = () => readyDialog(wf('Closed', 'Completed and closed by the contractor', true), true);
   if ($('wfReopen')) $('wfReopen').onclick = () => noteDialog({ title: 'Reopen and send back', ask: 'What still needs doing', ph: 'Say exactly what is still wrong so it is fixed first time', btn: 'Reopen and send back', warn: true, required: true, need: 'Say what still needs doing so the contractor knows.', go: wf('Open', 'Reopened and sent back', true) });
   if ($('wfProg')) $('wfProg').onclick = () => noteDialog({ title: 'Mark in progress', ask: 'Note', ph: 'e.g. Painter booked for Tuesday', btn: 'Mark in progress', go: wf('In progress', 'In progress', false) });
-  if ($('wfCmt')) $('wfCmt').onclick = () => noteDialog({ title: can.contractor() ? 'Add a response' : 'Add a comment', ask: can.contractor() ? 'Your response' : 'Comment', ph: 'Saved with your name and the time', btn: 'Save comment', required: true, go: saveEditor });
+  if ($('wfCmt')) $('wfCmt').onclick = () => noteDialog({ title: limited(ED.d) ? 'Add a response' : 'Add a comment', ask: limited(ED.d) ? 'Your response' : 'Comment', ph: 'Saved with your name and the time', btn: 'Save comment', required: true, go: saveEditor });
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
   requestAnimationFrame(() => { Nav.refit($('edBody')); if (ED && !ED.isNew) ED.snap = edSnap(); });
 }
@@ -762,6 +762,8 @@ function readyDialog(go, close) {
   $('rdGo').onclick = async () => { stopDictation(); const txt = $('rdTxt').value.trim(); if (!txt && !shots.length && !docs.length) return st('Add a photo, a file or a short note so the inspector knows what was done.', true);
     d.photos = (d.photos || []).concat(shots); d.files = (d.files || []).concat(docs); if ($('cmt')) $('cmt').value = txt || [shots.length ? `Photo${shots.length === 1 ? '' : 's'}` : '', docs.length ? `file${docs.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ').replace(/^f/, 'F') + ' of the completed work attached.'; closeModal(); await go(); };
 }
+// A contractor can raise items and edit the ones they raised. On items raised by someone else they respond, add photos and move the status only.
+const limited = (d, isNew) => can.contractor() && !isNew && !(d && d.createdBy && d.createdBy === S.user.email);
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }
 // Next reference number from what this device knows (used when the server cannot be reached in time).
@@ -772,7 +774,7 @@ export async function addSubs(names) { const cur = S.project.subcontractors || [
 async function saveEditor() {
   const d = collect(); const who = ($('cmtFor') && $('cmtFor').value) ? S.user.name + ' on behalf of ' + $('cmtFor').value : S.user.name, t = new Date().toISOString(), pid = S.project.id, newH = [];
   if (!d.title && !d.desc) { toast('Add a title or description first'); return; }
-  if (ED.isNew && !can.contractor() && S.plans.length && !d.plan && !d.general) { const n = $('locNeed'); if (n) n.style.display = ''; const bx = $('locBox'); if (bx) { bx.classList.add('need'); bx.scrollIntoView({ block: 'center', behavior: 'smooth' }); } toast('Pin it on the plan first, or mark it as a general defect', 5000); return; }
+  if (ED.isNew && S.plans.length && !d.plan && !d.general) { const n = $('locNeed'); if (n) n.style.display = ''; const bx = $('locBox'); if (bx) { bx.classList.add('need'); bx.scrollIntoView({ block: 'center', behavior: 'smooth' }); } toast('Pin it on the plan first, or mark it as a general defect', 5000); return; }
   if (!d.title) d.title = d.desc.split(/[.,;]/)[0].slice(0, 70);
   if (d.subcontractor) { d.subcontractor = d.subcontractor.trim(); addSubs([d.subcontractor]).catch(e => console.warn('subcontractor list', e)); }
   const b = busy(navigator.onLine ? 'Saving…' : 'Saving on this phone…');
@@ -790,9 +792,9 @@ async function saveEditor() {
       await S.store.createDefect(pid, rec);
     } else {
       const o = ED.orig || {}, patch = {}, ch = [];
-      const keys = can.contractor() ? ['status', 'subcontractor'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc', 'general'];
+      const lim = limited(o); const keys = lim ? ['status', 'subcontractor'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc', 'general'];
       if (ED.wfLabel) { ch.push(ED.wfLabel.toLowerCase()); }
-      if (o.aiReview && !can.contractor()) { patch.aiReview = false; ch.push('checked'); }
+      if (o.aiReview && !lim) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
       ['status', 'severity', 'responsible', 'subcontractor', 'targetDate', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
@@ -870,8 +872,8 @@ function queueNote(text) {
 }
 let aiBusy = false;
 export async function processPendingAI() {
-  if (aiBusy || !navigator.onLine || !S.project || !can.edit()) return;
-  const todo = S.defects.filter(d => d.aiPending && d.transcript); if (!todo.length) return;
+  if (aiBusy || !navigator.onLine || !S.project || !can.write()) return;
+  const todo = S.defects.filter(d => d.aiPending && d.transcript && !limited(d)); if (!todo.length) return;
   aiBusy = true; const pid = S.project.id;
   try {
     for (const d of todo) {

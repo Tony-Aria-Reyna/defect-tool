@@ -66,7 +66,7 @@ Facility management (tabs under the header)
 
 Menu (☰)
 - Project settings, Users and access (invite by email, set roles), Plans, Room boundaries (draw units, rooms, common areas; duplicate a unit with its rooms), Import register, Gemini settings, Site check, Help.
-- Roles: Admin (everything), Editor (raise, edit, close), Contractor (update status to In progress or Ready for review, add photos and comments), Viewer (read and export).
+- Roles: Admin (everything), Editor (raise, edit, close), Contractor (raise new items and edit the items they raised; on items raised by others, respond, add photos and update status to In progress or Ready for review), Viewer (read and export).
 
 Offline
 - The register works without signal once it has loaded online. Plans show if viewed online before. Everything syncs when back online.
