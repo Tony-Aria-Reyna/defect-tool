@@ -714,7 +714,7 @@ function openMenu() {
     ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
     ${can.edit() && unpinned().length ? `<button id="mPinQ">📍 Items to pin (${unpinned().length})<small>Go through open items that have no pin, one at a time</small></button>` : ''}
     ${can.write() ? '<button id="mTick">📄 Scan a site tick sheet<small>Photograph a printed sheet: ticks and handwriting are read by Gemini</small></button>' : ''}
-    ${can.write() && Sync.pool().length ? '<button id="mSync">🔄 Update the contractor\'s spreadsheet<small>Two-way: completed rows close items here, closed items are ticked off in the Excel register</small></button>' : ''}
+    ${can.write() && Sync.available() ? '<button id="mSync">🔄 Update the contractor\'s spreadsheet<small>Two-way: completed rows close items here, closed items are ticked off in the Excel register</small></button>' : ''}
     ${can.edit() ? '<button id="mImp">⬆ Import register<small>Excel, CSV or a v1 backup file</small></button>' : ''}
     ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
     ${canInstall() ? `<button id="mInst">📲 Install ${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'on this phone' : 'as a desktop app'}<small>${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'Home screen app, stays signed in' : 'Opens in its own window from the Start menu or Dock'}</small></button>` : ''}
@@ -734,7 +734,7 @@ function openMenu() {
 /* ================================================================ wiring */
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, onPinMoved: movePin });
-  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned, elevSpot });
+  Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned, elevSpot, Sync });
   FM.init({ render, getBytes }); Tick.init({ render, reloadProject, pinPatch }); Sync.init({ render, reloadProject, pinPatch, addSubs });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));

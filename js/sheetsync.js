@@ -11,6 +11,19 @@ const listed = d => String((d.ext && d.ext['Listed under']) || (d.unit ? 'Unit '
 const areaOf = a => /^\d+$/.test(String(a).trim()) ? 'Unit ' + String(a).trim() : String(a).trim();
 const xesc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 export const pool = () => S.defects.filter(selfClose);
+// Items that came in from a contractor's register (they carry its row number). Used to offer the set-up when the project setting is missing.
+const regItems = () => S.defects.filter(d => (d.ext || {})['Register row']);
+export const available = () => pool().length > 0 || (can.admin() && regItems().length > 0);
+// Make sure the project knows which register is the contractor's own; an admin is asked once.
+async function ensureSetup() {
+  if (pool().length) return true; const items = regItems(); if (!items.length || !can.admin()) { toast('No items from the contractor\'s own register are in this project yet'); return false; }
+  const cnt = {}; items.forEach(d => { cnt[d.source] = (cnt[d.source] || 0) + 1; }); const src = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
+  return new Promise(res => { modal(`<h2>Is this the contractor's own register?</h2><p><b>${cnt[src]}</b> items in this project came from "<b>${esc(src)}</b>".</p><p class="note">Saying yes does two things: the contractor can close these items themselves (your own items and the consultant's still come to you as Ready for review), and the app can keep them in step with the contractor's spreadsheet.</p><div class="act"><button id="esX">Not now</button><button class="go" id="esGo">Yes, that is their register</button></div>`);
+    $('esX').onclick = () => { closeModal(); res(false); };
+    $('esGo').onclick = async () => { try { const list = [...new Set([...(S.project.selfCloseSources || []), src])]; await S.store.updateProject(S.project.id, { selfCloseSources: list }); S.project.selfCloseSources = list; closeModal(); res(true); } catch (e) { toast('Could not save the setting: ' + e.message, 7000); res(false); } }; });
+}
+// A register file handed over directly (dropped on the app): compare and review it.
+export async function fromFile(f) { if (!can.write()) return toast('Your role cannot update defects'); if (!(await ensureSetup())) return; const b = busy('Reading the spreadsheet…'); try { const plan = await compare(f); b.done(); review(plan); } catch (x) { b.done(); console.error(x); toast('Could not read that spreadsheet: ' + x.message, 8000); } }
 /* ---- a spreadsheet linked on this computer (Chrome or Edge): the app reads it and writes back into it in place ---- */
 const canLink = () => 'showOpenFilePicker' in window;
 const idb = () => new Promise((res, rej) => { const q = indexedDB.open('resero-links', 1); q.onupgradeneeded = () => q.result.createObjectStore('h'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
@@ -34,7 +47,7 @@ async function autoRun() { if (autoBusy || !navigator.onLine || !S.project || lo
 export function autoStart() { if (autoTimer) { clearInterval(autoTimer); autoTimer = null; } if (!canLink() || !S.project || localStorage.getItem(akey()) !== '1') return; setTimeout(autoRun, 8000); autoTimer = setInterval(autoRun, 5 * 60 * 1000); }
 
 export async function start() {
-  if (!can.write()) return toast('Your role cannot update defects'); if (!pool().length) return toast('No items from the contractor\'s own register are in this project yet');
+  if (!can.write()) return toast('Your role cannot update defects'); if (!(await ensureSetup())) return;
   const h = await linked(), last = getLast(), auto = localStorage.getItem(akey()) === '1';
   modal(`<h2>Update the contractor's spreadsheet</h2><p>The app compares the register (the Excel file with Unit, Description, Contractor, Interior/Exterior and Completed) with the ${pool().length} register items it holds, and shows you every change before anything happens.</p>
     ${h ? `<div class="rdgem"><div><b>🔗 Linked on this computer: ${esc(h.name)}</b><span class="note">${last ? 'Last updated ' + new Date(last.t).toLocaleString('en-NZ', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + (last.auto ? ' (automatic)' : '') + (last.pending ? '. ' + last.pending + ' new items waiting for you to check' : '') : 'Not updated yet'}</span></div></div>

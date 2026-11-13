@@ -889,6 +889,16 @@ export async function importSheet(file) {
   try {
     if (!window.XLSX) await loadScript('lib/xlsx.bundle.js');
     const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true }); b.done();
+    // The contractor's own register (Unit | Description | Contractor | Interior/Exterior | Completed) with its items already in the app:
+    // this is an update of that register, not a fresh import, so offer that first.
+    if (!file._asNew && /\.xlsx$/i.test(file.name) && X.Sync && S.defects.some(q => (q.ext || {})['Register row'])) {
+      const first = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false }).slice(0, 30);
+      if (first.some(r => /^unit$/i.test(String(r[0]).trim()) && /^description$/i.test(String(r[1]).trim()) && /completed/i.test(String(r[4] || '')))) {
+        modal(`<h2>This is the contractor's register</h2><p><b>${esc(file.name)}</b> is the register whose items are already in this project.</p><button class="bigcam" id="rgUp">Update from it (recommended)</button><p class="note">Compares it with the app and shows you every change first. Nothing is duplicated. To keep it linked so this happens without choosing the file, use the menu: Update the contractor's spreadsheet.</p><div class="act"><button id="rgX">Cancel</button><button id="rgNew">Import every row as a new defect</button></div>`);
+        $('rgX').onclick = closeModal; $('rgUp').onclick = () => { closeModal(); X.Sync.fromFile(file); }; $('rgNew').onclick = async () => { if (!(await confirmBox('Import every row as a new defect? The register items already in this project will be duplicated.', 'Import as new'))) return; closeModal(); file._asNew = true; importSheet(file); };
+        return;
+      }
+    }
     const pickSheet = name => { const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', raw: false }); let hi = 0, best = 0; rows.slice(0, 15).forEach((r, i) => { const n = r.filter(c => String(c).trim() && isNaN(c)).length; if (n > best) { best = n; hi = i; } }); return { rows, hi }; };
     let sheet = wb.SheetNames.find(n => !/dash|summary|closed/i.test(n)) || wb.SheetNames[0], cur = pickSheet(sheet);
     const ui = () => {
