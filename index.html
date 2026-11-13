@@ -52,9 +52,10 @@
   <main id="main" class="tab-list">
     <section id="listPane">
       <div class="filters">
-        <input type="search" id="q" placeholder="Search ID, element, unit, words…">
-        <select id="fBlock"></select><select id="fLevel"></select><select id="fUnit"></select>
-        <select id="fSev"></select><select id="fTrade"></select><select id="fResp"></select><select id="fSub"></select>
+        <div class="qrow"><input type="search" id="q" placeholder="Search ID, element, unit, words…"><button id="fTog" title="Show or hide the filters">Filters</button></div>
+        <div id="fMore" class="fmore"><select id="fBlock"></select><select id="fLevel"></select><select id="fUnit"></select>
+        <select id="fSev"></select><select id="fTrade"></select><select id="fResp"></select><select id="fSub"></select></div>
+        <div id="fChips" class="fchips"></div>
       </div>
       <div class="listmeta"><span id="lmeta"></span><span><select id="sort"><option value="id">Sort: ID</option><option value="upd">Sort: last updated</option><option value="loc">Sort: location</option><option value="sev">Sort: severity</option></select> <button id="clr">Clear</button> <button id="bSel" title="Select several items for a bulk action">☑ Select</button></span></div>
       <div id="list"></div>

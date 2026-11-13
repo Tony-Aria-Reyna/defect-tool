@@ -206,15 +206,58 @@ export async function render() {
   $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt cats" title="Open items by ${esc(sevLabel(S.project).toLowerCase())}. Tap a letter to show only those."><em>${esc(sevLabel(S.project))}</em>${byCat ? byCat.map(c => `<button class="catb ${S.F.sev === c[2] ? 'on' : ''}" data-sev="${esc(c[2])}" title="${esc(c[2])}">${esc(c[0])} <b>${c[1]}</b></button>`).join('') : `Major <b>${maj}</b>`}${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '') + (toRev || S.F.toReview ? `<button class="cnt chk ${S.F.toReview ? 'on' : ''}" data-tr="1">🔎 For me to inspect <b>${toRev}</b></button>` : '');
   $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.sev) { S.F.sev = S.F.sev === b.dataset.sev ? '' : b.dataset.sev; render(); return; } if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } if (b.dataset.tr) { S.F.toReview = !S.F.toReview; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
   const L = filtered();
-  $('lmeta').textContent = L.length + ' of ' + D.length + ' shown';
+  $('lmeta').textContent = L.length + ' of ' + D.length + ' shown'; filterChips();
   $('list').innerHTML = L.length ? L.map(d => { const sev = isMajor(d) ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
-    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="">` : ''}<div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.subcontractor ? `<span class="tag">${esc(d.subcontractor)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.plan ? `<span class="tag loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</span>` : ''}${(d.photos || []).length ? `<span class="tag">📷 ${d.photos.length}</span>` : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
-  $('list').querySelectorAll('.tag.loc').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
+    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}<div class="thc"${ph || d.plan ? '' : ' hidden'}>${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="" draggable="false">` : ''}<div class="thb">${d.plan ? `<button class="loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</button>` : ''}${(d.photos || []).length ? `<button data-gal="${esc(d.id)}" title="Open the photos">📷 ${d.photos.length}</button>` : ''}</div></div><div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.subcontractor ? `<span class="tag">${esc(d.subcontractor)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.general && !d.plan ? '<span class="tag">General</span>' : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+  $('list').querySelectorAll('[data-gal]').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.gal); if (d) gallery(d.photos, 0, d.id + ' · ' + (d.title || '')); });
+  $('list').querySelectorAll('.loc[data-loc]').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
   $('list').querySelectorAll('[data-pick]').forEach(cb => { cb.onclick = e => e.stopPropagation(); cb.onchange = () => { cb.checked ? S.bulk.add(cb.dataset.pick) : S.bulk.delete(cb.dataset.pick); cb.closest('.card').classList.toggle('picked', cb.checked); bulkBar(); }; });
   $('list').querySelectorAll('.card').forEach(el => el.onclick = () => { if (S.bulk) { const cb = el.querySelector('[data-pick]'); if (cb) { cb.checked = !cb.checked; cb.onchange(); } return; } const d = S.defects.find(x => x.id === el.dataset.id); S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); });
   // thumbnails load lazily
-  $('list').querySelectorAll('img[data-ph]').forEach(async im => { const d = S.defects.find(x => x.id === im.dataset.ph); if (d && d.photos[0]) im.src = await photoSrc(d.photos[0]); });
+  $('list').querySelectorAll('img[data-ph]').forEach(async im => { const d = S.defects.find(x => x.id === im.dataset.ph); if (d && d.photos[0]) im.src = await photoSrc(d.photos[0]); peekable(im); });
   renderPins();
+}
+// Filters fold away under the search box; anything that is narrowing the list shows as a chip that can be tapped off.
+const F_NAMES = { block: 'Block', level: 'Level', unit: 'Unit', sev: null, trade: 'Trade', resp: 'Responsible', sub: 'Subcontractor' };
+function filterChips() {
+  const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => [k, (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + (k === 'unit' && F[k] === '-' ? 'common areas' : F[k])]);
+  if (F.q) on.unshift(['q', 'Search "' + F.q + '"']); if (F.review) on.push(['review', 'To check']); if (F.toReview) on.push(['toReview', 'For me to inspect']);
+  const n = on.filter(o => o[0] !== 'q').length, tg = $('fTog'), open = S.fOpen == null ? !isMobile() : S.fOpen;
+  $('fMore').classList.toggle('open', open); tg.classList.toggle('on', open); tg.classList.toggle('has', n > 0); tg.innerHTML = (open ? '▴' : '▾') + ' Filters' + (n ? ` <b>${n}</b>` : '');
+  $('fChips').innerHTML = on.length ? `<span class="fcl">Showing only:</span>` + on.map(o => `<button data-fx="${o[0]}">${esc(o[1])} ✕</button>`).join('') + (on.length > 1 ? '<button class="all" data-fx="*">Clear all</button>' : '') : '';
+  $('fChips').querySelectorAll('button').forEach(b => b.onclick = () => { const k = b.dataset.fx; if (k === '*') { $('clr').click(); return; } S.F[k] = (k === 'review' || k === 'toReview') ? false : ''; if (k === 'q') $('q').value = ''; filtersDirty = true; render(); });
+}
+// Press and hold a photo to see it large; let go and it closes. A quick tap still does what it did before.
+function peekable(im) {
+  if (im._peek) return; im._peek = 1; let t = null, ov = null, sx = 0, sy = 0, last = 0;
+  const end = () => { clearTimeout(t); t = null; if (ov) { ov.remove(); ov = null; last = Date.now(); } };
+  im.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; clearTimeout(t); t = setTimeout(() => { if (!im.src) return; ov = document.createElement('div'); ov.className = 'peek'; ov.innerHTML = '<img alt=""><span>Let go to close</span>'; ov.firstChild.src = im.src; document.body.appendChild(ov); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} }, 320); });
+  im.addEventListener('pointermove', e => { if (!ov && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) { clearTimeout(t); t = null; } });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => im.addEventListener(n, end));
+  im.addEventListener('contextmenu', e => e.preventDefault());
+  im.addEventListener('click', e => { if (Date.now() - last < 500) { e.stopImmediatePropagation(); e.stopPropagation(); e.preventDefault(); } }, true);
+}
+export async function gallery(photos, i, title) {
+  photos = (photos || []).slice(); if (!photos.length) return; let n = i || 0, sx = null;
+  const g = document.createElement('div'); g.className = 'gal'; g.innerHTML = `<div class="galh"><span id="galT"></span><button id="galX" title="Close">✕</button></div><img id="galI" alt="" draggable="false"><button class="gnav l" id="galP">‹</button><button class="gnav r" id="galN">›</button>`; document.body.appendChild(g);
+  const show = async () => { n = (n + photos.length) % photos.length; g.querySelector('#galT').textContent = (title ? title + ' · ' : '') + 'photo ' + (n + 1) + ' of ' + photos.length; g.querySelector('#galI').src = await photoSrc(photos[n]); g.querySelectorAll('.gnav').forEach(b => b.style.display = photos.length > 1 ? '' : 'none'); };
+  const close = () => { g.remove(); document.removeEventListener('keydown', key); }, key = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') { n++; show(); } if (e.key === 'ArrowLeft') { n--; show(); } };
+  g.querySelector('#galX').onclick = close; g.querySelector('#galP').onclick = e => { e.stopPropagation(); n--; show(); }; g.querySelector('#galN').onclick = e => { e.stopPropagation(); n++; show(); };
+  g.onclick = e => { if (e.target === g) close(); }; document.addEventListener('keydown', key);
+  g.addEventListener('pointerdown', e => { sx = e.clientX; }); g.addEventListener('pointerup', e => { if (sx != null && Math.abs(e.clientX - sx) > 50 && photos.length > 1) { n += e.clientX < sx ? 1 : -1; show(); } sx = null; });
+  show();
+}
+// History: every entry shows who and when; a change of status shows the old and new status in their own colours.
+const WF_TO = [[/^Ready for inspection/i, 'Ready for review'], [/^(Accepted and closed|Completed and closed)/i, 'Closed'], [/^Reopened/i, 'Open'], [/^In progress/i, 'In progress'], [/^Ticked on the site sheet|^Marked "/i, null]];
+function histHtml(h) {
+  const txt = String(h.txt || ''); let from = h.st && h.st[0], to = h.st && h.st[1];
+  if (!to) { const m = txt.match(/status ([^→;.]+?) → ([^;.]+)/i); if (m) { from = m[1].trim(); to = m[2].trim(); } }
+  if (!to) { const w = WF_TO.find(x => x[0].test(txt)); if (w && w[1]) to = w[1]; }
+  const raised = /^Raised|^Imported|^Added from/i.test(txt); if (!to && raised) { const m = txt.match(/Status ([^.]+)\./); if (m) to = m[1].trim(); }
+  const pill = s => `<span class="pill" style="background:${SCOL[s] || '#888'}">${esc(s)}</span>`;
+  const sys = /^(Changed |Raised|Imported|Added from|Pin placed|Unit |Filled in|Site note|Status |Ticked|Marked|Handwritten|Resolution note)/i.test(txt) || to;
+  let body = esc(txt).replace(/status [^→;.]+? → [^;.]+(; |\.)?/i, '').replace(/(^|; |Changed )([a-z ]+?) ([^;→]+?) → ([^;.]+)/gi, (m0, pre, k, a, b) => `${pre}<b>${k}</b> <s>${a}</s> → <b>${b}</b>`).replace(/^Changed \.?$/, '').trim();
+  return `<div class="h ${sys ? 'sys' : 'cm'}" style="--c:${to ? (SCOL[to] || '#888') : sys ? '#c9ced6' : '#2f6fd0'}"><div class="hh"><b>${esc(nzDT(h.t))}</b> · ${esc(h.who || '')}${raised ? ' <span class="hk">raised</span>' : !sys ? ' <span class="hk c">comment</span>' : ''}</div>${to ? `<div class="hs">${from ? pill(from) + ' <span class="ar">→</span> ' : '<span class="ar">now</span> '}${pill(to)}</div>` : ''}${body ? `<div class="ht">${body}</div>` : ''}</div>`;
 }
 function renderPins() {
   if (!PV || !S.project) return; const ids = new Set(filtered().map(d => d.id));
@@ -501,9 +544,9 @@ export function openEditor(d, isNew, isDraft) {
   <div class="photos" id="phs"></div>
   <h3 class="sec">Attachments</h3>
   <div class="files" id="fls">${(w.files || []).map((f, i) => `<div class="file"><a href="#" data-f="${i}">📎 ${esc(f.name)}</a><span class="muted small"> · ${esc(f.by || '')} ${esc(nzDate((f.t || '').slice(0, 10)))}${f.pending ? ' · waiting to upload' : ''}</span>${!ro && (can.edit() || f.isNew) ? ` <button data-fx="${i}" class="small">✕</button>` : ''}</div>`).join('')}${!ro ? '<button id="addfile" class="small">📎 Attach PDF or file</button>' : ''}</div>
-  <h3 class="sec">${con ? 'Response and history' : 'Comments and history'}</h3>
-  ${!ro ? `<label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="cmtFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}` : ''}
-  <div class="hist">${(w.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(h => `<div><b>${esc(nzDT(h.t))}</b> · ${esc(h.who)}: ${esc(h.txt)}</div>`).join('') || '<div>No history yet.</div>'}</div>
+  ${!ro ? `<div id="cmtBox"><h3 class="sec">${con ? 'Your response' : 'Add a comment'}</h3><label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="cmtFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}</div>` : ''}
+  <h3 class="sec" id="hHist">History <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">newest first</span></h3>
+  <div class="hist">${(w.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(histHtml).join('') || '<div>No history yet.</div>'}</div>
   ${w.ext ? `<details class="ext"><summary>Original record (${esc(w.extRef || w.source)})</summary>${Object.entries(w.ext).filter(e => e[1]).map(([k, v]) => `<p><b>${esc(k)}:</b> ${esc(v)}</p>`).join('')}</details>` : ''}`;
   const body = $('edBody');
   if (!ro && w.unit && (!w.block || !w.level)) { const u = unitInfo(w.unit); if (u) { if (!w.block && u.block) { w.block = u.block; body.querySelector('[name=block]').value = u.block; } if (!w.level && u.level) { w.level = u.level; body.querySelector('[name=level]').value = u.level; } } }
@@ -524,6 +567,17 @@ export function openEditor(d, isNew, isDraft) {
     hLoc.classList.add('stg'); hLoc.id = 'stg1'; hLoc.innerHTML = '<i>1</i> Where is it';
     hPh.classList.add('stg'); hPh.id = 'stg2'; hPh.innerHTML = '<i>2</i> Photo <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Tap a photo to mark it up</span>';
     ED.staged = true;
+  }
+  // An existing item opens as a working record: status and place, the action buttons, photos and the response box first; the form details fold away underneath.
+  if (!isNew) {
+    const B = $('edBody'), hs = [...B.querySelectorAll('h3.sec')], hPh = hs.find(h => /^Photos/.test(h.textContent)), hCls = hs.find(h => /^Classification/.test(h.textContent)), tg = B.querySelector('[name=title]').closest('.grid');
+    const sum = document.createElement('div'); sum.className = 'sumline'; sum.innerHTML = `<span class="pill" style="background:${SCOL[w.status] || '#999'}">${esc(w.status)}</span><b>${esc(w.id || '')}</b><span>${esc(locText(w) || (w.general ? 'General defect' : 'No location'))}</span>${w.plan ? '<button class="mini" id="sumPin">📍 Plan</button>' : ''}`;
+    B.insertBefore(sum, B.firstElementChild);
+    [hPh, $('phs'), $('cmtBox')].forEach(n => n && B.insertBefore(n, tg));
+    const dc = B.querySelector('.dict'); if (dc) { const dd = document.createElement('details'); dd.className = 'ext'; dd.innerHTML = '<summary>✨ Dictate a change with Gemini</summary>'; B.insertBefore(dd, tg); dd.appendChild(dc); if (w.aiPending || w.transcript && !w.title) dd.open = true; }
+    const hT = document.createElement('h3'); hT.className = 'sec'; hT.textContent = 'The defect'; B.insertBefore(hT, tg);
+    if (hCls) { const gr = hCls.nextElementSibling, dd = document.createElement('details'); dd.className = 'ext clsd'; dd.innerHTML = `<summary>Details <span class="muted small">${esc([w.severity, w.trade, w.subcontractor || w.responsible, w.targetDate ? 'due ' + nzDate(w.targetDate) : ''].filter(Boolean).join(' · '))}</span></summary>`; B.insertBefore(dd, hCls); dd.appendChild(gr); hCls.remove(); if (!isMobile()) dd.open = true; }
+    if ($('sumPin')) $('sumPin').onclick = () => showLocation(ED.d);
   }
   drawLoc(); renderPhotos();
   $('edDel').style.display = isNew || !can.admin() ? 'none' : ''; $('edSave').style.display = ro ? 'none' : '';
@@ -559,7 +613,7 @@ function stageGate() {
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
   $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addcam">📷<span>Camera</span></div><div class="addph" id="addph">🖼<span>From gallery</span></div>' : '');
-  $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
+  $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
   if ($('addph')) $('addph').onclick = () => $('fPhoto').click();
   if ($('addcam')) $('addcam').onclick = () => $('fCam').click();
@@ -638,6 +692,7 @@ async function saveEditor() {
       const fl = clean(d).files; if (JSON.stringify(fl) !== JSON.stringify(o.files || [])) { patch.files = fl; ch.push('attachments ' + (o.files || []).length + ' → ' + fl.length); }
       if (ED.wfLabel) { newH.push({ t, who, txt: ED.wfLabel + (cm ? ': ' + cm : '.') }); const rest = ch.filter(x => x !== ED.wfLabel.toLowerCase() && !/^status /.test(x)); if (rest.length) newH.push({ t, who, txt: 'Changed ' + rest.join('; ') + '.' }); }
       else { if (ch.length) newH.push({ t, who, txt: 'Changed ' + ch.join('; ') + '.' }); if (cm) newH.push({ t, who, txt: cm }); }
+      if ('status' in patch && newH.length && o.status) newH[0].st = [o.status, d.status];
       if (!Object.keys(patch).length && !newH.length) { b.done(); closeEditor(); return; }
       patch.updated = t; patch.updatedBy = S.user.email;
       await S.store.updateDefect(pid, d.id, patch, newH);
@@ -798,6 +853,7 @@ function wire() {
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
+  $('fTog').onclick = () => { S.fOpen = !$('fMore').classList.contains('open'); filterChips(); };
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = newDefectChooser;
   $('fAttach').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addFiles(fs); };
