@@ -69,7 +69,7 @@ async function checkUpdate() {
   } catch (e) {}
 }
 export async function reloadApp() {
-  try { const r = await navigator.serviceWorker.getRegistration(); if (r) await r.update(); } catch (e) {}
+  try { const r = await navigator.serviceWorker.getRegistration(); if (r) { await r.update(); await new Promise(res => setTimeout(res, 1200)); } } catch (e) {}
   try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('resero-defects') && k !== 'resero-defects-img').map(k => caches.delete(k))); } catch (e) {}
   location.reload();
 }
