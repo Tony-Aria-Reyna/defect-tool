@@ -15,6 +15,7 @@ import { helpDialog, siteCheck } from './help.js';
 import * as Nav from './nav.js';
 import * as Tick from './ticksheet.js';
 import * as Sync from './sheetsync.js';
+import * as Placer from './placer.js';
 import { installDialog, maybeNag, canInstall } from './install.js';
 import { typicalList, templateFrom } from './typicals.js';
 const SURFACES = ['Floor', 'Wall', 'Ceiling', 'Exterior cladding', 'Roof', 'Joinery', 'Services'];
@@ -660,7 +661,7 @@ function applyAI(x) {
   Nav.refit($('edBody'));
   collect(); const d = ED.d;
   if (d.unit) { const u = unitInfo(d.unit); if (u) { if (!x.block && u.block) d.block = b.querySelector('[name=block]').value = u.block; if (!x.level && u.level) d.level = b.querySelector('[name=level]').value = u.level; } }
-  if (!d.plan) { const z = findZone(d.unit, d.room); if (z) { applyZone(d, z.x, z.y, z.plan.id); d.zoneHit = (z.unitOnly ? 'Pinned at the centre of Unit ' + d.unit : 'Pinned in ' + d.zoneHit) + ' (move it if needed)'; } }
+  if (!d.plan) { const z = (d.item && findZone(d.unit, d.room, d.item, { strict: true })) || (d.room && findZone(d.unit, d.room, '', { strict: true })); if (z) { applyZone(d, z.x, z.y, z.plan.id); d.zoneHit = 'Pinned in ' + d.zoneHit + ' (move it if needed)'; } else { const keep = { unit: d.unit, room: d.room, item: d.item }; const note = Placer.place(d, { pinPatch, elevSpot }, { rules: S.project.placeRules }); if (note) { d.unit = keep.unit || d.unit; if (keep.room) d.room = keep.room; if (keep.item) d.item = keep.item; d.zoneHit = (d.zoneHit || note) + ' (move it if needed)'; } } }
   drawLoc();
 }
 async function addExtra(extra) { const made = await createFromAI(extra, collect(), 'Raised from the same dictation as the item being edited.'); $('aiNote').innerHTML = 'Added ' + made.join(', ') + '.'; }
@@ -735,7 +736,7 @@ function openMenu() {
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, onPinMoved: movePin });
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned, elevSpot, Sync });
-  FM.init({ render, getBytes }); Tick.init({ render, reloadProject, pinPatch }); Sync.init({ render, reloadProject, pinPatch, addSubs });
+  FM.init({ render, getBytes }); const placeIt = (d, opt) => Placer.place(d, { pinPatch, elevSpot }, { rules: S.project.placeRules, ...(opt || {}) }); Tick.init({ render, reloadProject, pinPatch, placeIt }); Sync.init({ render, reloadProject, pinPatch, addSubs, placeIt });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
