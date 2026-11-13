@@ -579,7 +579,7 @@ export function openEditor(d, isNew, isDraft) {
   </div>
   <h3 class="sec">Location</h3>
   <div class="locbox" id="locBox"><canvas id="locC" width="300" height="200"></canvas><div><div id="locT" style="margin-bottom:6px"></div>${!ro && !con && S.plans.length ? `<button class="${w.plan || w.general ? 'mini' : 'pinbig'}" id="setPin">📍 ${w.plan ? 'Move pin' : 'Pin it on the plan'}</button> ${w.plan ? '<button class="mini" id="clrPin">Remove pin</button>' : `<button class="mini ${w.general ? 'on' : ''}" id="genBtn" title="For something that applies across a building or the whole site, with no single place">${w.general ? '✓ General defect' : 'General defect (no single place)'}</button>`}` : ''}${w.plan && !ED.isNew ? ' <button class="mini" id="goPin">Show on plan</button>' : ''}<div class="note small" id="locNeed" style="display:none;color:#a32222;margin-top:6px">Pin it on the plan, or mark it as a general defect, before saving.</div></div></div>
-  <details class="ext" id="locMore" ${!w.plan && (w.unit || w.room || w.block) || w.general ? 'open' : ''}><summary>Location details${w.plan ? ' (filled in by the pin)' : ''}</summary>
+  <details class="ext" id="locMore" ${!w.plan && (w.unit || w.room || w.block) ? 'open' : ''}><summary>Location details${w.plan ? ' (filled in by the pin)' : ''}</summary>
   <div class="grid">
     <label class="f">Unit<select name="unit" ${dis}><option value="">Common / none</option>${units.map(u => `<option ${String(w.unit) === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label>
     <label class="f">Room / area<input name="room" value="${esc(w.room)}" list="rooms" ${dis}></label>
@@ -607,7 +607,7 @@ export function openEditor(d, isNew, isDraft) {
   <h3 class="sec">Photos <span class="sp"></span>${!ro ? '<span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Tap a photo to mark it up</span>' : ''}</h3>
   <div class="photos" id="phs"></div>
   <h3 class="sec">Attachments</h3>
-  <div class="files" id="fls">${(w.files || []).map((f, i) => `<div class="file"><a href="#" data-f="${i}">📎 ${esc(f.name)}</a><span class="muted small"> · ${esc(f.by || '')} ${esc(nzDate((f.t || '').slice(0, 10)))}${f.pending ? ' · waiting to upload' : ''}</span>${!ro && (can.edit() || f.isNew) ? ` <button data-fx="${i}" class="small">✕</button>` : ''}</div>`).join('')}${!ro ? '<button id="addfile" class="small">📎 Attach PDF or file</button>' : ''}</div>
+  <div class="files" id="fls">${(w.files || []).map((f, i) => `<div class="file"><a href="#" data-f="${i}">📎 ${esc(f.name)}</a><span class="muted small"> · ${esc(f.by || '')} ${esc(nzDate((f.t || '').slice(0, 10)))}${f.pending ? ' · waiting to upload' : ''}</span>${!ro && (can.edit() || f.isNew) ? ` <button data-fx="${i}" class="small">✕</button>` : ''}</div>`).join('')}${!ro ? `<div class="flbtns"><button id="addfile" class="small">📎 Attach PDF or file</button>${((S.fm || {}).docs || []).length ? '<button id="findDoc" class="small">🔎 Find a project document</button>' : ''}</div>` : ''}</div>
   ${!ro ? `<div id="cmtBox"><h3 class="sec">${con ? 'Your response' : 'Add a comment'}</h3><label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="cmtFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}</div>` : ''}
   <h3 class="sec" id="hHist">History <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">newest first</span></h3>
   <div class="hist">${(w.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(histHtml).join('') || '<div>No history yet.</div>'}</div>
@@ -627,9 +627,20 @@ export function openEditor(d, isNew, isDraft) {
     const hs = [...$('edBody').querySelectorAll('h3.sec')], hLoc = hs.find(h => /^Location/.test(h.textContent)), hPh = hs.find(h => /^Photos/.test(h.textContent));
     const hG = document.createElement('h3'); hG.className = 'sec stg'; hG.id = 'stg3'; hG.innerHTML = '<i>3</i> Describe it <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Gemini fills in the form</span>';
     const lk = document.createElement('div'); lk.className = 'note small stglock'; lk.id = 'stgLock';
-    [hLoc, $('locBox'), $('locMore'), hPh, $('phs'), hG, lk].forEach(n => n && dict.parentNode.insertBefore(n, dict));
-    hLoc.classList.add('stg'); hLoc.id = 'stg1'; hLoc.innerHTML = '<i>1</i> Where is it';
-    hPh.classList.add('stg'); hPh.id = 'stg2'; hPh.innerHTML = '<i>2</i> Photo <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Tap a photo to mark it up</span>';
+    const B = $('edBody'), tag = (t, k) => `<span class="rq ${k}">${t}</span>`, sub = 'style="text-transform:none;letter-spacing:0;font-weight:400"';
+    const hAtt = hs.find(h => /^Attachments/.test(h.textContent)), hCls = hs.find(h => /^Classification/.test(h.textContent)), hHist = $('hHist'), tg = B.querySelector('[name=title]').closest('.grid'), elg = B.querySelector('[name=element]').closest('.grid');
+    hLoc.classList.add('stg'); hLoc.id = 'stg1'; hLoc.innerHTML = '<i>1</i> Where is it ' + tag('Required', 'must');
+    hPh.classList.add('stg'); hPh.id = 'stg2'; hPh.innerHTML = '<i>2</i> Photo ' + tag('Needed for Gemini', 'must') + ` <span class="muted small" ${sub}>Tap a photo to mark it up</span>`;
+    hG.innerHTML = '<i>3</i> Describe it ' + tag('Required', 'must') + ` <span class="muted small" ${sub}>Say it and Gemini fills in the form, or type a title</span>`;
+    const hRef = document.createElement('div'); hRef.className = 'subh'; hRef.innerHTML = 'Reference documents ' + tag('Optional', 'opt') + ` <span class="muted small">A drawing, specification or data sheet for quick reference</span>`;
+    const hDet = document.createElement('h3'); hDet.className = 'sec stg'; hDet.innerHTML = '<i>4</i> Details ' + tag('Optional', 'opt') + ` <span class="muted small" ${sub}>Already set to the usual answers</span>`;
+    const card = nodes => { const c = document.createElement('div'); c.className = 'stgcard'; nodes.forEach(n => n && c.appendChild(n)); return c; };
+    const clsGrid = hCls && hCls.nextElementSibling, cards = [card([hLoc, $('locBox'), $('locMore')]), card([hPh, $('phs'), hRef, $('fls')]), card([hG, lk, dict, tg]), card([hDet, elg, clsGrid])];
+    if (hCls) hCls.remove(); if (hAtt) hAtt.remove();
+    if ($('cmtBox')) { const h = $('cmtBox').querySelector('h3'); if (h) h.innerHTML = 'Add a comment ' + tag('Optional', 'opt'); cards.push(card([$('cmtBox')])); }
+    const first = B.firstElementChild; cards.forEach(c => B.insertBefore(c, first));
+    tg.addEventListener('input', () => stageGate());
+    if (hHist) { const hi = hHist.nextElementSibling; hHist.remove(); if (hi) hi.remove(); }
     ED.staged = true;
   }
   // An existing item opens as a working record: status and place, the action buttons, photos and the response box first; the form details fold away underneath.
@@ -640,7 +651,8 @@ export function openEditor(d, isNew, isDraft) {
     B.insertBefore(sum, B.firstElementChild);
     const lc = document.createElement('div'); lc.innerHTML = lastNoteHtml(w); if (lc.firstChild) sum.after(lc.firstChild);
     const cn = B.querySelector(':scope > p.note.muted.small'); if (cn && /You can add photos/.test(cn.textContent)) cn.remove();
-    [hPh, $('phs')].forEach(n => n && B.insertBefore(n, tg));
+    const hAtt = hs.find(h => /^Attachments/.test(h.textContent)); if (hAtt) hAtt.textContent = 'Documents';
+    [hPh, $('phs'), hAtt, $('fls')].forEach(n => n && B.insertBefore(n, tg));
     if ($('cmtBox')) $('cmtBox').hidden = true;   // comments and responses are written in the pop-up that goes with the button pressed
     // the plan cut-out now sits in the top strip; the pin buttons move into Location details
     const hLoc = hs.find(h => /^Location/.test(h.textContent)), lb = $('locBox'), lm = $('locMore'); if (hLoc) hLoc.remove();
@@ -677,7 +689,7 @@ async function drawLoc() {
 }
 function stageGate() {
   if (!ED || !ED.staged) return true; const d = ED.d, pin = !!((d.plan && d.x != null) || d.general), ph = (d.photos || []).length > 0, dict = $('edBody').querySelector('.dict');
-  const mark = (id, ok) => { const h = $(id); if (h) h.classList.toggle('done', ok); }; mark('stg1', pin); mark('stg2', ph); mark('stg3', false);
+  const mark = (id, ok) => { const h = $(id); if (h) h.classList.toggle('done', ok); }; mark('stg1', pin); mark('stg2', ph); mark('stg3', ['title', 'desc'].some(n => { const el = $('edBody').querySelector(`[name=${n}]`); return el && el.value.trim(); }));
   if (dict) dict.classList.toggle('locked', !(pin && ph));
   const lk = $('stgLock'); if (lk) { lk.style.display = pin && ph ? 'none' : ''; lk.textContent = !pin && !ph ? '🔒 Pin it and add a photo first. Gemini then knows where it is and can see it.' : !pin ? '🔒 Pin it on the plan first (or mark it as a general defect).' : '🔒 Add a photo first so Gemini can see it.'; }
   return pin && ph;
@@ -690,7 +702,8 @@ async function renderPhotos() {
   if ($('addph')) $('addph').onclick = () => addPhotoMenu($('addph'));
   if ($('addfile')) $('addfile').onclick = () => $('fAttach').click();
   $('locC').onclick = () => showLocation(ED.d); $('locC').style.cursor = 'zoom-in'; $('locC').title = 'Open the plan at this location';
-  $('fls').querySelectorAll('[data-f]').forEach(a => a.onclick = async ev => { ev.preventDefault(); const f = (ED.d.files || [])[+a.dataset.f]; if (!f) return; const u = f.data || (f.url ? await imgUrl(f.url) : ''); if (u) window.open(u, '_blank'); else toast('This file is still waiting to upload'); });
+  $('fls').querySelectorAll('[data-f]').forEach(a => a.onclick = async ev => { ev.preventDefault(); const f = (ED.d.files || [])[+a.dataset.f]; if (!f) return; const u = f.data || (f.url ? await imgUrl(f.url) : '') || f.link || ''; if (u) window.open(u, '_blank'); else toast('This file is still waiting to upload'); });
+  if ($('findDoc')) $('findDoc').onclick = findDocDialog;
   $('fls').querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { const i = +b.dataset.fx; const f = ED.d.files[i]; if (f.path && !f.isNew) (ED.removed = ED.removed || []).push(f.path); ED.d.files.splice(i, 1); openEditor(ED.d, ED.isNew, true); });
   const wf = (status, label, needComment) => async () => { collect(); const c = $('cmt') ? $('cmt').value.trim() : ''; if (needComment && !c) { toast(label + ': add a short comment first so the other side knows what happened'); $('cmt').focus(); return; } const sel = $('edBody').querySelector('[name=status]'); if (sel) { if (![...sel.options].some(o => o.value === status)) { const o = document.createElement('option'); o.textContent = status; sel.appendChild(o); } sel.value = status; } ED.d.status = status; ED.wfLabel = label; await saveEditor(); };
   if ($('wfReady')) $('wfReady').onclick = () => readyDialog(wf('Ready for review', 'Ready for inspection', true));
@@ -703,28 +716,39 @@ async function renderPhotos() {
   requestAnimationFrame(() => { Nav.refit($('edBody')); if (ED && !ED.isNew) ED.snap = edSnap(); });
 }
 // Marking an item ready for inspection: prompt for a photo of the fix (optional) and a short note that can be spoken and tidied by Gemini.
+// Reference a document that is already in the project's Documents (drawings, specifications, manuals) without uploading it again.
+function findDocDialog() {
+  const docs = ((S.fm || {}).docs || []).filter(x => x.url || x.link);
+  modal(`<h2>Find a project document</h2><p class="note">Search the project's Documents and attach one as a reference. It is linked, not copied.</p><input type="search" id="fdQ" placeholder="Type a few words, e.g. window flashing detail" autocomplete="off"><div id="fdR" class="fdres"></div><div class="act"><button id="fdX">Close</button></div>`, true);
+  const draw = () => { const q = $('fdQ').value.trim(), L = docs.filter(x => !q || Search.hit(q, x, [x.title, x.fileName, x.type, x.system, x.party, x.notes].join(' '))).slice(0, 40);
+    $('fdR').innerHTML = L.length ? L.map(x => `<button data-d="${esc(x.id)}"><b>${esc(x.title || x.fileName || 'Document')}</b><small>${esc([x.type, x.system].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="note">Nothing matches. Try fewer words, or attach the file from your phone instead.</p>';
+    $('fdR').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const x = docs.find(y => y.id === b.dataset.d); if (!x) return; collect(); (ED.d.files = ED.d.files || []).push({ id: uid(), name: 'Ref: ' + (x.title || x.fileName), mime: x.mime || '', url: x.url || '', link: x.link || '', docId: x.id, t: new Date().toISOString(), by: S.user.name, isNew: true }); closeModal(); openEditor(ED.d, ED.isNew, true); toast('Reference attached'); }); };
+  $('fdQ').oninput = draw; $('fdX').onclick = closeModal; draw(); setTimeout(() => $('fdQ') && $('fdQ').focus(), 60);
+}
 function readyDialog(go, close) {
-  collect(); const d = ED.d, pre = '', shots = [];
+  collect(); const d = ED.d, pre = '', shots = [], docs = [];
   modal(`<h2>${close ? 'Complete and close' : 'Ready for inspection'}</h2>${close ? '<p class="note">This item is on your own register, so you can close it yourself. A photo and a short note are the record that it was done.</p>' : ''}<p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>${lastNoteHtml(d, 'Last comment')}
-    <button class="bigcam" id="rdCam">📷 Take a photo of the fix</button><div class="rdmore"><a href="#" id="rdGal">or choose one from the gallery</a></div><div id="rdPh" class="rdph"></div>
-    <input type="file" id="rdFile" accept="image/*" capture="environment" hidden><input type="file" id="rdFile2" accept="image/*" multiple hidden>
+    <div class="rdsec">Proof of the fix</div>
+    <div class="rd3"><button id="rdCam">📷<span>Take a photo</span></button><button id="rdGal">🖼<span>From gallery</span></button><button id="rdDoc">📎<span>File or PDF</span></button></div><div id="rdPh" class="rdph"></div><div id="rdFl" class="rdfl"></div>
+    <input type="file" id="rdFile" accept="image/*" capture="environment" hidden><input type="file" id="rdFile2" accept="image/*" multiple hidden><input type="file" id="rdFile3" multiple hidden>
     <div class="rdsec">What was done</div>
     <div class="rdgem"><button class="mic" id="rdMic" title="Hold to talk to Gemini">🎤</button><div><b>✨ Tell Gemini</b><span class="note" id="rdSt">Hold the microphone and say what was fixed. Let go and Gemini writes it up for you.</span></div></div>
     <label class="f"><span class="rdor">or write it yourself</span><textarea id="rdTxt" rows="3" placeholder="Type what was done. It is saved exactly as you write it.">${esc(pre)}</textarea></label>
     <div class="rdtidy"><button id="rdTidy">✨ Tidy my writing with Gemini (optional)</button></div>
     <div class="act"><button id="rdX">Cancel</button><button class="go" id="rdGo">${close ? 'Close this item' : 'Mark ready for inspection'}</button></div>`);
   const st = (t, bad) => { $('rdSt').textContent = t; $('rdSt').style.color = bad ? '#a32222' : ''; };
-  const draw = () => { $('rdPh').innerHTML = shots.map((p, i) => `<div class="ph"><img src="${p.data}" alt=""><button data-x="${i}">✕</button></div>`).join(''); $('rdPh').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { shots.splice(+b.dataset.x, 1); draw(); }); $('rdCam').textContent = shots.length ? '📷 Take another photo' : '📷 Take a photo of the fix'; };
+  const draw = () => { $('rdPh').innerHTML = shots.map((p, i) => `<div class="ph"><img src="${p.data}" alt=""><button data-x="${i}">✕</button></div>`).join(''); $('rdPh').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { shots.splice(+b.dataset.x, 1); draw(); }); $('rdFl').innerHTML = docs.map((f, i) => `<div class="file">📎 ${esc(f.name)} <button data-fxx="${i}" class="small">✕</button></div>`).join(''); $('rdFl').querySelectorAll('[data-fxx]').forEach(b => b.onclick = () => { docs.splice(+b.dataset.fxx, 1); draw(); }); };
   const add = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) { try { shots.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } draw(); };
-  $('rdCam').onclick = () => $('rdFile').click(); $('rdGal').onclick = e => { e.preventDefault(); $('rdFile2').click(); }; $('rdFile').onchange = add; $('rdFile2').onchange = add;
+  $('rdCam').onclick = () => $('rdFile').click(); $('rdGal').onclick = () => $('rdFile2').click(); $('rdDoc').onclick = () => $('rdFile3').click(); $('rdFile').onchange = add; $('rdFile2').onchange = add;
+  $('rdFile3').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) { if (f.type.startsWith('image/')) { try { shots.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } continue; } if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB'); continue; } const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); docs.push({ id: uid(), name: f.name, mime: f.type || 'application/octet-stream', data, t: new Date().toISOString(), by: S.user.name, isNew: true }); } draw(); };
   const tidy = async () => { const raw = $('rdTxt').value.trim(); if (!raw) return st('Say or write what was done first.', true); if (!navigator.onLine) return st('No signal: your words are kept as they are.'); st('Tidying up…');
     try { const out = await aiCall(`A contractor on a building site is reporting that a defect has been fixed and is ready for inspection. Rewrite their spoken note as one to three short, clear, professional sentences in New Zealand English, past tense, no em dashes. Keep every fact they gave (what was done, where, when, by whom, product names). Do not add anything they did not say and do not claim the work complies.\nDEFECT: ${d.title || ''}. ${d.desc || ''}\nSPOKEN NOTE: ${raw}\nReturn JSON only: {"text":"..."}`); let t = ''; try { t = JSON.parse(out).text || ''; } catch (e) { t = String(out || '').trim(); } if (t && $('rdTxt')) { $('rdTxt').value = t.replace(/\s*—\s*/g, ', '); st('Gemini has written it up below. Check it reads right, then mark ready.'); } else st('Kept as you said it.'); }
     catch (e) { st(e.message === 'nokey' ? 'Gemini is not set up on this device, so your words are kept as they are.' : 'Could not tidy it (' + friendly(e) + '). Your words are kept.', true); } };
   holdToTalk($('rdMic'), () => dictate($('rdTxt'), $('rdMic'), st, () => { if ($('rdTxt') && $('rdTxt').value.trim()) tidy(); }));
   $('rdTidy').onclick = tidy;
   $('rdX').onclick = () => { stopDictation(); closeModal(); };
-  $('rdGo').onclick = async () => { stopDictation(); const txt = $('rdTxt').value.trim(); if (!txt && !shots.length) return st('Add a photo or a short note so the inspector knows what was done.', true);
-    d.photos = (d.photos || []).concat(shots); if ($('cmt')) $('cmt').value = txt || `Photo${shots.length === 1 ? '' : 's'} of the completed work attached.`; closeModal(); await go(); };
+  $('rdGo').onclick = async () => { stopDictation(); const txt = $('rdTxt').value.trim(); if (!txt && !shots.length && !docs.length) return st('Add a photo, a file or a short note so the inspector knows what was done.', true);
+    d.photos = (d.photos || []).concat(shots); d.files = (d.files || []).concat(docs); if ($('cmt')) $('cmt').value = txt || [shots.length ? `Photo${shots.length === 1 ? '' : 's'}` : '', docs.length ? `file${docs.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ').replace(/^f/, 'F') + ' of the completed work attached.'; closeModal(); await go(); };
 }
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }

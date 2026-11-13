@@ -531,3 +531,19 @@ html,body{overscroll-behavior-x:none}#edBody{overscroll-behavior-x:none;touch-ac
 .phs{background:#fff;width:min(520px,100%);border-radius:16px 16px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px}
 .phs b{font-size:15px;margin-bottom:2px}.phs button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:15px;font-size:16px;font-weight:600;text-align:left}
 .phs button.x{text-align:center;color:var(--muted);font-weight:500;padding:11px}
+
+/* new defect: each step in its own box, with what is a must and what is not */
+.stgcard{border:1.5px solid var(--line);border-radius:12px;padding:10px 12px 12px;margin:0 0 12px;background:#fff}
+.stgcard h3.sec{margin-top:2px;border-bottom:0;padding-bottom:0;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+.stgcard:has(.rq.must){border-color:#b9c6dc}.stgcard:has(h3.done){border-color:#2e7d32;background:#fbfefb}
+.rq{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:8px;padding:2px 7px}
+.rq.must{background:#fde3e0;color:#a32222}.rq.opt{background:#e9edf3;color:#5b6676}
+h3.done .rq.must{background:#dff2e1;color:#1b5e20}
+.subh{font-size:12px;font-weight:700;color:var(--navy);margin:12px 0 6px;padding-top:10px;border-top:1px dashed var(--line);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.flbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.flbtns button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 10px;font-weight:600}
+.fdres{max-height:50vh;overflow:auto;margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.fdres button{text-align:left;border:1px solid var(--line);background:#fff;border-radius:8px;padding:9px 10px}.fdres button small{display:block;color:var(--muted)}
+.rd3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.rd3 button{border:0;border-radius:12px;background:var(--teal,#3aaebc);color:#fff;padding:12px 4px;font-size:22px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:4px;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.rd3 button span{font-size:13px}
+.rdfl .file{margin-top:6px;font-size:13px}
