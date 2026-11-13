@@ -846,11 +846,11 @@ async function interpret() {
     if (qs.length) h += '<b>Check:</b> ' + qs.map(esc).join(' · ');
     if (extra.length) h += (h ? '<br>' : '') + `<b>${extra.length} more defect${extra.length > 1 ? 's' : ''} heard:</b> ` + extra.map(x => esc(x.title)).join(' · ') + `<br><button id="aiMore">Add ${extra.length > 1 ? 'them' : 'it'} as separate defect${extra.length > 1 ? 's' : ''}</button>`;
     if (h) { $('aiNote').innerHTML = h; $('aiNote').classList.add('show'); if ($('aiMore')) $('aiMore').onclick = () => addExtra(extra); }
-    $('dt').value = ''; $('dt').dispatchEvent(new Event('input')); aiStatus('Filled in. Check and save.');
+    $('dt').value = ''; $('dt').dispatchEvent(new Event('input')); aiStatus('Filled in. Check and save.' + (aiCall.note ? ' ' + aiCall.note : ''));
   } catch (e) {
     if (e.message === 'nokey') { aiStatus(''); Admin.aiSettings('Set up Gemini to use the interpreter.'); }
-    else if (!navigator.onLine || /Could not reach|Failed to fetch|NetworkError|network/i.test(e.message)) queueNote(text);
-    else aiStatus(e.message, true);
+    else if (!navigator.onLine || e.message === 'offline') queueNote(text);
+    else { aiStatus(e.message + ' Your words are still in the box: tap "Interpret with Gemini" to try again.', true); $('aiNote').innerHTML = 'Gemini did not answer, so nothing has been filled in. <button id="aiLater">Keep it as a spoken note for Gemini to write up later</button>'; $('aiNote').classList.add('show'); $('aiLater').onclick = () => { $('aiNote').classList.remove('show'); queueNote(text); }; }
   }
   finally { btn.disabled = false; }
 }
@@ -870,7 +870,7 @@ export async function processPendingAI() {
   try {
     for (const d of todo) {
       if (!S.project || S.project.id !== pid) break;
-      let o; try { o = (await aiDefects(d.transcript, d)).o; } catch (e) { if (!navigator.onLine || /Could not reach|Failed to fetch|network/i.test(e.message)) break; console.warn('pending AI', d.id, e); continue; }
+      let o; try { o = (await aiDefects(d.transcript, d)).o; } catch (e) { if (!navigator.onLine || /offline|Could not reach|Failed to fetch|network|helper/i.test(e.message)) break; console.warn('pending AI', d.id, e); continue; }
       const list = Array.isArray(o) ? o : (o.defects || [o]); if (!list.length) continue;
       const t = new Date().toISOString(), x = list[0], patch = { aiPending: false, aiReview: true, updated: t, updatedBy: S.user.email };
       Object.entries(AIMAP).forEach(([k, f]) => { if (x[k] != null && x[k] !== '') patch[f] = String(x[k]).replace(/—/g, ', '); });

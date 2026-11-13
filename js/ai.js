@@ -43,9 +43,17 @@ export async function aiCall(prompt, imgDataUrl) {
   const data = imgDataUrl ? imgDataUrl.split(',')[1] : null;
   const h = S.ai || {};
   if (h.helperUrl) {
-    let t;
-    try { const r = await fetch(h.helperUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: h.helperKey || '', action: 'ai', prompt, file: data ? { mime: 'image/jpeg', data } : undefined }), redirect: 'follow' }); t = await r.text(); }
-    catch (e) { throw new Error('Could not reach the Gemini helper. Check the internet and try again.'); }
+    let t; const post = async body => { const r = await fetch(h.helperUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: h.helperKey || '', ...body }), redirect: 'follow' }); return r.text(); };
+    aiCall.note = '';
+    try { t = await post({ action: 'ai', prompt, file: data ? { mime: 'image/jpeg', data } : undefined }); }
+    catch (e) {
+      // The request never came back. Work out why before blaming the signal: try again without the photo, then ask the helper if it is there at all.
+      if (!navigator.onLine) throw new Error('offline');
+      let ok = false;
+      if (data) { try { t = await post({ action: 'ai', prompt }); ok = true; aiCall.note = 'The photo could not be sent to Gemini this time, so it worked from your words only.'; } catch (e2) {} }
+      if (!ok) { let ping = ''; try { ping = await post({ action: 'ping' }); } catch (e3) {}
+        throw new Error(ping ? 'The Gemini helper is running but the request failed inside it. Open the helper in Apps Script (Executions) to see the error, or tell Tony.' : 'Could not reach the Gemini helper from this phone, although the phone is online. The helper may need redeploying (Apps Script > Deploy > Manage deployments).'); }
+    }
     let j; try { j = JSON.parse(t); } catch (e) { throw new Error('The Gemini helper sent back something unexpected. Check its web address in Project settings.'); }
     if (j.error) throw new Error(j.error === 'nokey' ? 'The Gemini helper has no key yet (Script properties GEMINI_KEY).' : /not allowed/.test(j.error) ? 'Helper key does not match. The script\'s key ends "' + String(j.error).slice(-4) + '", the one you entered ends "' + String(h.helperKey || '').slice(-4) + '".' : 'Gemini said: ' + String(j.error).slice(0, 160));
     return j.text;
