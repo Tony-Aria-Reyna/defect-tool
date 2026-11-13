@@ -35,6 +35,7 @@ export function projectSettings(p) {
   <div class="grid">
     <label class="f">Responsible parties<textarea id="psResp" rows="5">${esc(lines(p.responsible.map(r => r === 'Main contractor' && p.contractor ? p.contractor : r)))}</textarea></label>
     <label class="f">Sources<textarea id="psSrc" rows="5">${esc(lines(p.sources))}</textarea></label>
+    <label class="f">Subcontractors (one per line; anyone working on an item can add to this by typing a new name)<textarea id="psSubs" rows="5">${esc(lines(p.subcontractors || []))}</textarea></label>
     <label class="f">Sources the contractor can close themselves (their own registers; one per line)<textarea id="psSelf" rows="2">${esc(lines(p.selfCloseSources || []))}</textarea></label>
     <label class="f">${esc(sevLabel(p))} list (one per line)<textarea id="psSev" rows="5">${esc(lines(p.severities))}</textarea></label>
     <label class="f">Name of that field (Severity, Category…)<input id="psSevL" value="${esc(sevLabel(p))}"></label>
@@ -60,7 +61,7 @@ export function projectSettings(p) {
   $('psOk').onclick = async () => {
     const name = $('psName').value.trim(); if (!name) return toast('Enter the project name');
     const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
-      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
+      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), subcontractors: fromLines($('psSubs').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
     if ($('psArch')) data.archived = $('psArch').checked;
     const b = busy('Saving…');
     try {
@@ -1010,6 +1011,13 @@ export async function importJson(file) {
     $('upGo').onclick = async () => { $('upGo').disabled = true; let n = 0; const t = new Date().toISOString();
       try { for (const r of hit) { $('upSt').textContent = `Updating ${++n} of ${hit.length}…`; const patch = {}; if (r.st) patch.status = r.st; if (r.extCh) patch.ext = { ...(r.d.ext || {}), ...r.it.ext }; const hist = r.add.concat(r.st ? [{ t, who: S.user.name, txt: `Status ${r.d.status} → ${r.st} (${j.title || 'register update'}).` }] : []); await S.store.updateDefect(S.project.id, r.d.id, patch, hist); Object.assign(r.d, patch); }
         closeModal(); await X.reloadProject(); X.render(); toast(`${hit.length} item${hit.length === 1 ? '' : 's'} updated, ${sts.length} status change${sts.length === 1 ? '' : 's'}`, 6000); } catch (e) { $('upSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('upGo').disabled = false; } };
+    return;
+  }
+  if (j.type === 'subcontractors' && Array.isArray(j.list)) {
+    if (!S.project) return toast('Open the project first'); if (!can.write()) return toast('Your role cannot change the subcontractor list');
+    const cur = S.project.subcontractors || [], low = new Set(cur.map(x => x.toLowerCase())), add = j.list.filter(n => !low.has(String(n).toLowerCase()));
+    modal(`<h2>${esc(j.title || 'Subcontractor list')}</h2><p>${esc(j.note || '')}</p><p><b>${add.length}</b> new name${add.length === 1 ? '' : 's'} to add; ${j.list.length - add.length} already on the list.</p><p class="note">${add.map(esc).join(' · ')}</p><div class="act"><button id="sbX">Cancel</button>${add.length ? '<button class="go" id="sbGo">Add to the list</button>' : ''}</div>`);
+    $('sbX').onclick = closeModal; if ($('sbGo')) $('sbGo').onclick = async () => { try { const list = [...cur, ...add].sort((a, b) => a.localeCompare(b)); await S.store.updateProject(S.project.id, { subcontractors: list }); S.project.subcontractors = list; closeModal(); X.render(); toast(add.length + ' subcontractors added to the list', 5000); } catch (e) { toast('Could not save: ' + e.message, 6000); } };
     return;
   }
   if (j.type === 'pins' && Array.isArray(j.items)) {

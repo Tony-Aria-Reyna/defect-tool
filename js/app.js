@@ -171,7 +171,7 @@ function initFilters() {
   fillSel('fBlock', 'All blocks', blocks, F.block); fillSel('fLevel', 'All levels', levels, F.level);
   $('fUnit').innerHTML = '<option value="">All units</option><option value="-">Common / no unit</option>' + units.map(u => `<option ${u === F.unit ? 'selected' : ''}>${esc(u)}</option>`).join('');
   setProjectCtx(p); const sl = sevLabel(p); fillSel('fSev', sl === 'Severity' ? 'All severities' : 'All ' + sl.toLowerCase().replace(/y$/, 'ie') + 's', p.severities, F.sev); const so = document.querySelector('#sort option[value=sev]'); if (so) so.textContent = 'Sort: ' + sl.toLowerCase(); fillSel('fTrade', 'All trades', p.trades, F.trade);
-  { const subs = [...new Set(D.map(d => d.subcontractor).filter(Boolean))].sort((a, b) => a.localeCompare(b)); fillSel('fSub', 'All subcontractors', subs, F.sub); $('fSub').style.display = subs.length ? '' : 'none'; } fillSel('fResp', 'All responsible', [...new Set([...p.responsible, ...D.map(d => d.responsible).filter(Boolean)])], F.resp);
+  { const subs = subList(); fillSel('fSub', 'All subcontractors', subs, F.sub); $('fSub').style.display = subs.length ? '' : 'none'; } fillSel('fResp', 'All responsible', [...new Set([...p.responsible, ...D.map(d => d.responsible).filter(Boolean)])], F.resp);
 }
 let filtersDirty = true;
 export function filtered() {
@@ -455,7 +455,7 @@ export function openEditor(d, isNew, isDraft) {
     <label class="f">Type<select name="type" ${dis}>${opts(p.types, w.type)}</select></label>
     <label class="f">Trade<select name="trade" ${dis}>${opts(p.trades, w.trade)}</select></label>
     <label class="f">Responsible<select name="responsible" ${dis}>${opts(p.responsible, w.responsible)}</select></label>
-    <label class="f">Subcontractor<input name="subcontractor" list="subL" value="${esc(w.subcontractor || '')}" ${dis} placeholder="optional"><datalist id="subL">${[...new Set(S.defects.map(x => x.subcontractor).filter(Boolean))].sort().map(x => `<option>${esc(x)}</option>`).join('')}</datalist></label>
+    <label class="f">Subcontractor<input name="subcontractor" list="subL" value="${esc(w.subcontractor || '')}" ${ro ? 'disabled' : ''} placeholder="pick from the list, or type a new name to add it"><datalist id="subL">${subList().map(x => `<option>${esc(x)}</option>`).join('')}</datalist></label>
     <label class="f">Target date<input type="date" name="targetDate" value="${esc(w.targetDate)}" ${dis}></label>
     <label class="f">Source<select name="source" ${dis}>${opts(p.sources, w.source)}</select></label>
     <label class="f">Date raised<input type="date" name="dateRaised" value="${esc(w.dateRaised)}" ${dis}></label>
@@ -547,10 +547,14 @@ function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.q
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }
 // Next reference number from what this device knows (used when the server cannot be reached in time).
 function localNextRef() { const pre = (S.project.idPrefix || 'D') + '-'; let m = S.project.seq || 0; S.defects.forEach(d => { if (d.id.startsWith(pre)) { const n = parseInt(d.id.slice(pre.length), 10); if (n > m) m = n; } }); return m + 1; }
+// The project's subcontractor list (from the contractor's register, plus any added since) and any names already used on items.
+export const subList = () => [...new Set([...(S.project.subcontractors || []), ...S.defects.map(x => x.subcontractor).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+export async function addSubs(names) { const cur = S.project.subcontractors || [], low = new Set(cur.map(x => x.toLowerCase())), add = [...new Set(names.flatMap(n => String(n || '').split('/')).map(n => n.trim()).filter(n => n && !/^contractor$/i.test(n)))].filter(n => !low.has(n.toLowerCase())); if (!add.length) return 0; const list = [...cur, ...add].sort((a, b) => a.localeCompare(b)); await S.store.updateProject(S.project.id, { subcontractors: list }); S.project.subcontractors = list; return add.length; }
 async function saveEditor() {
   const d = collect(); const who = ($('cmtFor') && $('cmtFor').value) ? S.user.name + ' on behalf of ' + $('cmtFor').value : S.user.name, t = new Date().toISOString(), pid = S.project.id, newH = [];
   if (!d.title && !d.desc) { toast('Add a title or description first'); return; }
   if (!d.title) d.title = d.desc.split(/[.,;]/)[0].slice(0, 70);
+  if (d.subcontractor) { d.subcontractor = d.subcontractor.trim(); addSubs([d.subcontractor]).catch(e => console.warn('subcontractor list', e)); }
   const b = busy(navigator.onLine ? 'Saving…' : 'Saving on this phone…');
   try {
     if (ED.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
@@ -566,11 +570,11 @@ async function saveEditor() {
       await S.store.createDefect(pid, rec);
     } else {
       const o = ED.orig || {}, patch = {}, ch = [];
-      const keys = can.contractor() ? ['status'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc'];
+      const keys = can.contractor() ? ['status', 'subcontractor'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc'];
       if (ED.wfLabel) { ch.push(ED.wfLabel.toLowerCase()); }
       if (o.aiReview && !can.contractor()) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
-      ['status', 'severity', 'responsible', 'targetDate', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
+      ['status', 'severity', 'responsible', 'subcontractor', 'targetDate', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
       const ph = clean(d).photos; if (JSON.stringify(ph) !== JSON.stringify(o.photos || [])) { patch.photos = ph; ch.push('photos ' + (o.photos || []).length + ' → ' + ph.length); }
       const fl = clean(d).files; if (JSON.stringify(fl) !== JSON.stringify(o.files || [])) { patch.files = fl; ch.push('attachments ' + (o.files || []).length + ' → ' + fl.length); }
@@ -730,7 +734,7 @@ function openMenu() {
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, onPinMoved: movePin });
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned, elevSpot });
-  FM.init({ render, getBytes }); Tick.init({ render, reloadProject, pinPatch }); Sync.init({ render, reloadProject, pinPatch });
+  FM.init({ render, getBytes }); Tick.init({ render, reloadProject, pinPatch }); Sync.init({ render, reloadProject, pinPatch, addSubs });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };

@@ -44,6 +44,8 @@ service cloud.firestore {
       allow create: if isSuper();
       allow delete: if isSuper();
       allow update: if isAdmin(pid)
+        // contractors and editors can add names to the subcontractor list
+        || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['subcontractors']))
         // editors take the next defect number
         || (canEdit(pid) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
         // a user accepts an invitation sent to their verified email address
@@ -68,7 +70,7 @@ service cloud.firestore {
         allow delete: if isAdmin(pid);
         allow update: if canEdit(pid)
           || (isContractor(pid)
-              && changed().hasOnly(['status', 'photos', 'files', 'history', 'updated', 'updatedBy'])
+              && changed().hasOnly(['status', 'subcontractor', 'photos', 'files', 'history', 'updated', 'updatedBy'])
               && (request.resource.data.status in ['Open', 'In progress', 'Ready for review']
                   // items from the contractor's own registers can be closed by the contractor
                   || (request.resource.data.status == 'Closed'
