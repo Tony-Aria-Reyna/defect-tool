@@ -2,7 +2,7 @@
 import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
-import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode } from './state.js';
+import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt } from './ai.js';
@@ -419,7 +419,7 @@ export function openEditor(d, isNew, isDraft) {
   const dis = ro || con ? 'disabled' : '';
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
-  const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status) : p.statuses;
+  const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status || (s === 'Closed' && selfClose(w))) : p.statuses;
   $('edBody').innerHTML = `${w.aiPending ? '<div class="ainote show">📵 Site note recorded out of coverage. Gemini will fill in the form when the phone is back in service. You can still edit and pin it now.</div>' : ''}${w.aiReview ? '<div class="ainote show">✨ Gemini filled this in from your site note while you were out of coverage. Check the fields, then Save to mark it checked.</div>' : ''}
   ${!ro && !con && (isNew || w.createdBy === S.user.email || (!w.createdBy && can.admin())) ? `<div class="dict">
     <div class="row1"><button class="mic" id="mic" title="Hold to talk"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
@@ -512,22 +512,23 @@ async function renderPhotos() {
   const wf = (status, label, needComment) => async () => { collect(); const c = $('cmt') ? $('cmt').value.trim() : ''; if (needComment && !c) { toast(label + ': add a short comment first so the other side knows what happened'); $('cmt').focus(); return; } const sel = $('edBody').querySelector('[name=status]'); if (sel) { if (![...sel.options].some(o => o.value === status)) { const o = document.createElement('option'); o.textContent = status; sel.appendChild(o); } sel.value = status; } ED.d.status = status; ED.wfLabel = label; await saveEditor(); };
   if ($('wfReady')) $('wfReady').onclick = () => readyDialog(wf('Ready for review', 'Ready for inspection', true));
   if ($('wfAccept')) $('wfAccept').onclick = wf('Closed', 'Accepted and closed', false);
+  if ($('wfSelf')) $('wfSelf').onclick = () => readyDialog(wf('Closed', 'Completed and closed by the contractor', true), true);
   if ($('wfReopen')) $('wfReopen').onclick = wf('Open', 'Reopened and sent back', true);
   if ($('wfProg')) $('wfProg').onclick = wf('In progress', 'In progress', false);
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
   requestAnimationFrame(() => Nav.refit($('edBody')));
 }
 // Marking an item ready for inspection: prompt for a photo of the fix (optional) and a short note that can be spoken and tidied by Gemini.
-function readyDialog(go) {
+function readyDialog(go, close) {
   collect(); const d = ED.d, pre = $('cmt') ? $('cmt').value.trim() : '', shots = [];
-  modal(`<h2>Ready for inspection</h2><p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>
+  modal(`<h2>${close ? 'Complete and close' : 'Ready for inspection'}</h2>${close ? '<p class="note">This item is on your own register, so you can close it yourself. A photo and a short note are the record that it was done.</p>' : ''}<p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>
     <button class="bigcam" id="rdCam">📷 Take a photo of the fix</button><div class="rdmore"><a href="#" id="rdGal">or choose one from the gallery</a></div><div id="rdPh" class="rdph"></div>
     <input type="file" id="rdFile" accept="image/*" capture="environment" hidden><input type="file" id="rdFile2" accept="image/*" multiple hidden>
     <div class="rdsec">What was done</div>
     <div class="rdgem"><button class="mic" id="rdMic" title="Hold to talk to Gemini">🎤</button><div><b>✨ Tell Gemini</b><span class="note" id="rdSt">Hold the microphone and say what was fixed. Let go and Gemini writes it up for you.</span></div></div>
     <label class="f"><span class="rdor">or write it yourself</span><textarea id="rdTxt" rows="3" placeholder="Type what was done. It is saved exactly as you write it.">${esc(pre)}</textarea></label>
     <div class="rdtidy"><button id="rdTidy">✨ Tidy my writing with Gemini (optional)</button></div>
-    <div class="act"><button id="rdX">Cancel</button><button class="go" id="rdGo">Mark ready for inspection</button></div>`);
+    <div class="act"><button id="rdX">Cancel</button><button class="go" id="rdGo">${close ? 'Close this item' : 'Mark ready for inspection'}</button></div>`);
   const st = (t, bad) => { $('rdSt').textContent = t; $('rdSt').style.color = bad ? '#a32222' : ''; };
   const draw = () => { $('rdPh').innerHTML = shots.map((p, i) => `<div class="ph"><img src="${p.data}" alt=""><button data-x="${i}">✕</button></div>`).join(''); $('rdPh').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { shots.splice(+b.dataset.x, 1); draw(); }); $('rdCam').textContent = shots.length ? '📷 Take another photo' : '📷 Take a photo of the fix'; };
   const add = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) { try { shots.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } draw(); };
@@ -757,6 +758,7 @@ function wire() {
 function workflowBar(w, con) {
   const mine = w.createdBy === S.user.email, reviewer = !con && (mine || can.edit());
   const b = [];
+  if (con && selfClose(w)) { if (w.status !== 'Closed') b.push('<button class="go" id="wfSelf">✔ Complete and close</button>'); if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>'); return b.length ? '<div class="wf">' + b.join('') + '</div>' : ''; }
   if (w.status !== 'Closed' && w.status !== 'Ready for review') b.push('<button class="go" id="wfReady">✅ Ready for inspection</button>');
   if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>');
   if (w.status === 'Ready for review' && reviewer) b.push('<button class="go" id="wfAccept">✔ Accept and close</button><button class="warn" id="wfReopen">↩ Reopen and send back</button>');

@@ -54,3 +54,7 @@ export function sevMatch(p, v) {
   const c = sevCode(t) || (/^[A-Za-z]$/.test(t) ? t.toUpperCase() : ''); if (c) { const h = L.find(s => sevCode(s) === c); if (h) return h; }
   if (/^Major/i.test(t)) return sevMajorList(p)[0] || ''; return '';
 }
+
+// Items from the contractor's own registers (sources listed in the project's selfCloseSources) can be closed by the contractor.
+// Everything else a contractor finishes goes to Ready for review for the project team to inspect.
+export const selfClose = d => !!(S.project && (S.project.selfCloseSources || []).includes(d.source || ''));

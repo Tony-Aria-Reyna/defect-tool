@@ -67,7 +67,10 @@ service cloud.firestore {
         allow update: if canEdit(pid)
           || (isContractor(pid)
               && changed().hasOnly(['status', 'photos', 'files', 'history', 'updated', 'updatedBy'])
-              && request.resource.data.status in ['Open', 'In progress', 'Ready for review']
+              && (request.resource.data.status in ['Open', 'In progress', 'Ready for review']
+                  // items from the contractor's own registers can be closed by the contractor
+                  || (request.resource.data.status == 'Closed'
+                      && resource.data.get('source', '') in get(/databases/$(db)/documents/projects/$(pid)).data.get('selfCloseSources', [])))
               && resource.data.status != 'Closed');
       }
 

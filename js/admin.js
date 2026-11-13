@@ -35,6 +35,7 @@ export function projectSettings(p) {
   <div class="grid">
     <label class="f">Responsible parties<textarea id="psResp" rows="5">${esc(lines(p.responsible.map(r => r === 'Main contractor' && p.contractor ? p.contractor : r)))}</textarea></label>
     <label class="f">Sources<textarea id="psSrc" rows="5">${esc(lines(p.sources))}</textarea></label>
+    <label class="f">Sources the contractor can close themselves (their own registers; one per line)<textarea id="psSelf" rows="2">${esc(lines(p.selfCloseSources || []))}</textarea></label>
     <label class="f">${esc(sevLabel(p))} list (one per line)<textarea id="psSev" rows="5">${esc(lines(p.severities))}</textarea></label>
     <label class="f">Name of that field (Severity, Category…)<input id="psSevL" value="${esc(sevLabel(p))}"></label>
     <label class="f">Default for new items<input id="psSevD" value="${esc(p.sevDefault || '')}" placeholder="first in the list"></label>
@@ -59,7 +60,7 @@ export function projectSettings(p) {
   $('psOk').onclick = async () => {
     const name = $('psName').value.trim(); if (!name) return toast('Enter the project name');
     const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
-      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
+      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
     if ($('psArch')) data.archived = $('psArch').checked;
     const b = busy('Saving…');
     try {
@@ -970,6 +971,7 @@ export async function importJson(file) {
       if (patch) { Object.assign(d, patch); if (it.surface) d.surface = it.surface; if (it.general) { d.ext['Location note'] = it.general; if (it.pin !== 'elev') d.zoneHit = it.general; } if (it.pin === 'unit') { d.room = ''; d.item = ''; d.zoneHit = 'Whole unit (pinned at the centre of Unit ' + unit + ')'; } d.needsPin = false; } else d.needsPin = true;
       return !d.needsPin;
     };
+    if (j.contractorCloses && j.source && can.admin() && !(S.project.selfCloseSources || []).includes(j.source)) { const list = [...(S.project.selfCloseSources || []), j.source]; try { await S.store.updateProject(S.project.id, { selfCloseSources: list }); S.project.selfCloseSources = list; $('inSt').textContent = 'Set: the contractor can close items from "' + j.source + '" themselves.'; } catch (e) { $('inSt').textContent = 'Could not save the contractor-close setting: ' + e.message; } }
     $('inX').onclick = closeModal;
     if ($('inFix')) $('inFix').onclick = async () => {
       const conv = $('inOld') && $('inOld').checked, t = new Date().toISOString(); $('inFix').disabled = true; let n = 0, same = 0;
