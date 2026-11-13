@@ -9,7 +9,10 @@ export const GUIDE = `
 RESERO DEFECTS: HOW TO USE IT ON SITE
 
 Raising a defect
-- Tap the round + button (bottom right) and choose Dictate, Take a photo, Pin on the plan, or Type it.
+- Tap the round + button (bottom right). A new defect goes in three steps: 1 pin it on the plan (or tick General defect when it has no single place), 2 add a photo, 3 hold the microphone and say what is wrong. Gemini stays locked until the pin and a photo are in, so it is not guessing. The pin fills in the unit, room, block and level.
+- Search everything: the magnifying glass at the top (or Ctrl+K) finds tools, defects, units, plans, products and documents. Spelling does not need to be exact. Each result shows where it lives and takes you straight there.
+- Starting a new project: on the projects page choose + New project, answer four questions and pick a set-up to start from (standard, the same as an existing project, or a template file). The Set-up checklist (menu) then lists what is left, with a button to each step. Menu > Save set-up as a template makes a file that carries the categories, lists and rules to the next job.
+- The list: Filters fold away under the search box; anything narrowing the list shows as a yellow chip you can tap off. Under each photo, the pin opens the plan and the camera count opens the photos. Press and hold a photo to see it large; let go to close.
 - Dictate: press and hold the microphone, say the defect the way you would to a colleague (where it is, what is wrong, who fixes it, by when), then let go. Gemini fills in the form and clears the note; anything it changed flashes yellow. Check it, then Save.
 - Or tap + New (desktop) and type.
 - Several defects in one breath is fine: the first fills the form and the others appear under "more defects heard" with a button to add them.

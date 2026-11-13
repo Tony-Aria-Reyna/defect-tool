@@ -18,6 +18,8 @@ import * as Sync from './sheetsync.js';
 import * as Placer from './placer.js';
 import { installDialog, maybeNag, canInstall } from './install.js';
 import { typicalList, templateFrom } from './typicals.js';
+import * as Search from './search.js';
+import * as Setup from './setup.js';
 const SURFACES = ['Floor', 'Wall', 'Ceiling', 'Exterior cladding', 'Roof', 'Joinery', 'Services'];
 
 let PV;                // plan viewer
@@ -133,7 +135,7 @@ export async function showProjects() {
   $('plist').innerHTML = cards.join('') + (S.sup ? '<div class="pcard new" id="pNew">+ New project</div><div class="pcard new" id="pPack" style="border-color:var(--teal)">⬇ Set up from a project pack<small style="font-weight:400;color:var(--muted)">or drag the .json file onto this page</small></div><input type="file" id="fPack" accept=".json" hidden>' : '') + (!list.length && !S.sup ? `<div class="empty">You have not been added to any projects yet.<br>Ask the project administrator to invite <b>${esc(S.user.email)}</b>.<br><br><span class="small">Your user ID: <span class="codebox">${esc(S.user.uid)}</span></span><br><br><button class="go" id="pRetry">Check for my invitation again</button><p class="note" id="pRetryMsg"></p></div>` : '');
   if ($('pRetry')) $('pRetry').onclick = async () => { $('pRetry').disabled = true; $('pRetryMsg').textContent = 'Checking…'; let r; try { r = await S.store.claimReport(); } catch (e) { r = { msg: friendly(e) }; } if (r.n) { toast('You have been added to ' + r.n + ' project' + (r.n > 1 ? 's' : '')); return showProjects(); } $('pRetryMsg').textContent = r.msg || 'Nothing found.'; $('pRetry').disabled = false; };
   $('plist').querySelectorAll('.pcard[data-id]').forEach(c => c.onclick = () => openProject(c.dataset.id));
-  if ($('pNew')) $('pNew').onclick = () => Admin.projectSettings(null);
+  if ($('pNew')) $('pNew').onclick = () => Setup.newProjectWizard();
   if ($('pPack')) { $('pPack').onclick = () => $('fPack').click(); $('fPack').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) Admin.importJson(f); }; }
 }
 
@@ -189,7 +191,7 @@ function initFilters() {
 let filtersDirty = true;
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!F.sub || d.subcontractor === F.sub) && (!q || [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor].join(' ').toLowerCase().includes(q)));
+  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!F.sub || d.subcontractor === F.sub) && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -824,6 +826,8 @@ function openMenu() {
   const a = can.admin();
   modal(`<h2>${esc(S.project.name)}</h2><p class="note">You are ${esc(ROLES[S.role] || '')}${S.sup ? ' and a system administrator' : ''} on this project.</p>
   <div class="btnlist">
+    <button id="mFind">🔍 Search everything<small>Tools, defects, units, products. Spelling does not need to be exact</small></button>
+    ${a ? `<button id="mCk">🚀 Set-up checklist (${Setup.progress().join(' of ')})<small>What this project still needs, with a button to each step</small></button>` : ''}
     ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
     ${can.edit() && unpinned().length ? `<button id="mPinQ">📍 Items to pin (${unpinned().length})<small>Go through open items that have no pin, one at a time</small></button>` : ''}
     ${can.write() ? '<button id="mTick">📄 Scan a site tick sheet<small>Photograph a printed sheet: ticks and handwriting are read by Gemini</small></button>' : ''}
@@ -832,6 +836,7 @@ function openMenu() {
     ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
     ${canInstall() ? `<button id="mInst">📲 Install ${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'on this phone' : 'as a desktop app'}<small>${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'Home screen app, stays signed in' : 'Opens in its own window from the Start menu or Dock'}</small></button>` : ''}
     ${can.realAdmin() ? `<button id="mViewAs">👁 View as…<small>${S.viewAs ? 'Currently viewing as ' + esc(ROLES[S.viewAs] || S.viewAs) + ' (tap to change or stop)' : 'Test the app as an editor, contractor or viewer'}</small></button>` : ''}
+    ${a ? '<button id="mTpl">📦 Save set-up as a template<small>Start the next project with the same categories, lists and rules</small></button>' : ''}
     <button id="mReload">🔄 Reload app<small>Get the latest version (v${APP.version} now)</small></button>
     <button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>
     <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
@@ -839,10 +844,48 @@ function openMenu() {
     <button id="mOut">⎋ Sign out<small>${esc(S.user.email)}</small></button>
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
+  on('mFind', () => Search.open()); on('mCk', () => Setup.checklist()); on('mTpl', Setup.saveTemplate);
   on('mPinQ', pinQueue); on('mTick', Tick.start); on('mSync', Sync.start); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
   on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp);
   on('mViewAs', () => { modal(`<h2>Test mode</h2><p>Try the app as another role on a <b>throwaway copy</b> of this project. Press every button you like: nothing is saved to the cloud, and leaving test mode throws the copy away.</p><div class="btnlist">${['admin', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${S.viewAs === r ? 'go' : ''}">${esc(ROLES[r] || r)}</button>`).join('')}${S.testMode ? '<button data-va="">Leave test mode</button>' : ''}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { closeModal(); b.dataset.va ? enterTestMode(b.dataset.va) : leaveTestMode(); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
+
+// Every tool in the app, for Search: what it is called, the words people might type for it, where it lives, and how to open it.
+function toolList() {
+  if (!S.project) return [];
+  const a = can.admin(), e = can.edit(), w = can.write(), M = '☰ Menu', T = [];
+  const t = (ok, icon, title, kw, where, run, sub) => { if (ok) T.push({ icon, title, kw, where, run, sub }); };
+  t(e, '＋', 'New defect', 'add raise create log record snag item pin photo dictate', ['＋ round button, bottom right'], newDefectChooser, 'Pin it, photograph it, describe it');
+  t(true, '⬇', 'Export: PDF schedule, Excel, photos', 'pdf excel xlsx csv zip print schedule report download send share list', ['Export button, top right'], openExport);
+  t(a, '🚀', 'Set-up checklist', 'setup set up getting started new project steps wizard onboarding', [M, '🚀 Set-up checklist'], () => Setup.checklist());
+  t(a, '⚙', 'Project settings', 'details name address client logo units lists trades rooms sources categories severity prefix pdf title consent', [M, '⚙ Project settings'], () => Admin.projectSettings(S.project));
+  t(a, '👥', 'Users and access', 'invite add remove person people team member role permission admin editor contractor viewer share email password login', [M, '👥 Users and access'], Admin.usersDialog);
+  t(a, '▦', 'Upload and order plans', 'drawings floor plan sheets pdf elevation wall ceiling upload add layers', [M, '▦ Plans'], Admin.plansDialog);
+  t(a, '⬠', 'Room boundaries', 'zones rooms units outline draw boundary markers areas', [M, '⬠ Room boundaries'], () => Admin.zoneEditor(PV));
+  t(a, '📦', 'Save set-up as a template', 'template copy next project reuse clone', [M, '📦 Save set-up as a template'], Setup.saveTemplate);
+  t(e && unpinned().length, '📍', 'Items to pin (' + unpinned().length + ')', 'unpinned no pin missing location queue place', [M, '📍 Items to pin'], pinQueue);
+  t(w, '📄', 'Scan a site tick sheet', 'paper printed handwriting tick ticked photograph sheet checklist scan', [M, '📄 Scan a site tick sheet'], Tick.start);
+  t(w && Sync.available(), '🔄', "Update the contractor's spreadsheet", 'sync google sheet excel register two way link miles master list', [M, "🔄 Update the contractor's spreadsheet"], Sync.start);
+  t(a && Sync.available(), '✉', 'Daily summary email', 'email summary daily notification recipients days weekend on off send test report', [M, "🔄 Update the contractor's spreadsheet", 'Daily summary email'], Sync.start);
+  t(e, '⬆', 'Import a register', 'import excel csv json backup drop file maynard marks observation load', [M, '⬆ Import register'], Admin.importDialog);
+  t(e, '✨', 'Gemini settings', 'ai key helper voice dictation interpreter model google', [M, '✨ Gemini'], () => Admin.aiSettings());
+  t(canInstall(), '📲', 'Install the app', 'install phone home screen desktop app download', [M, '📲 Install'], () => installDialog(false));
+  t(true, '🔄', 'Reload app', 'update latest version refresh not updating old', [M, '🔄 Reload app'], reloadApp, 'Now on v' + APP.version);
+  t(true, '✅', 'Site check', 'test camera microphone storage offline coverage before site', [M, '✅ Site check'], siteCheck);
+  t(true, '❓', 'Help and quick guide', 'how do i guide question instructions manual', ['? button, top right'], helpDialog);
+  t(true, '▾', 'Filters', 'filter narrow unit block level trade category subcontractor responsible', ['⚑ Defects', '☰ List', '▾ Filters button'], () => { setTab('list'); S.fOpen = true; filterChips(); });
+  t(w, '☑', 'Select several items', 'bulk multiple many close assign change status all at once tick', ['⚑ Defects', '☰ List', '☑ Select'], () => { setTab('list'); if (!S.bulk) bulkToggle(); });
+  t(true, '▦', 'Plans view', 'plan drawing map pins floor', ['▦ Plans tab'], () => setTab('plan'));
+  t(true, '◫', 'Dashboard', 'overview summary numbers progress chart key dates handover pack contacts', ['◫ Dashboard'], () => FM.setModule('dash'));
+  t(true, '▤', 'Assets and warranties', 'asset warranty warranties product guarantee register installer', ['▤ Assets & warranties'], () => FM.setModule('assets'));
+  t(true, '⟳', 'Maintenance', 'maintenance planned task schedule service due', ['⟳ Maintenance'], () => FM.setModule('maint'));
+  t(true, '✓', 'Compliance', 'compliance bwof code compliance certificate ccc consent', ['✓ Compliance'], () => FM.setModule('comp'));
+  t(true, '🗀', 'Documents', 'documents files o&m manual producer statement ps3 ps4 certificate handover', ['🗀 Documents'], () => FM.setModule('docs'));
+  t(true, '🗂', 'All projects', 'switch change project other job list', ['‹ back arrow, top left'], showProjects);
+  t(true, '⎋', 'Sign out', 'log out logout sign off account', [M, '⎋ Sign out'], () => S.store.signOut());
+  return T;
+}
+function filterBy(o) { FM.setModule('defects'); Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }, o); $('q').value = S.F.q || ''; filtersDirty = true; setTab('list'); render(); }
 
 /* ================================================================ wiring */
 function wire() {
@@ -853,6 +896,10 @@ function wire() {
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
+  Search.init({ tools: toolList, units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
+  Setup.init({ openProject, zones: () => Admin.zoneEditor(PV), sync: Sync.start, siteCheck, saveLocal });
+  $('bFind').onclick = () => Search.open();
+  document.addEventListener('keydown', e => { if (!S.project || !$('scrWork').classList.contains('on')) return; const typing = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.target.isContentEditable; if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing)) { e.preventDefault(); Search.open(); } });
   $('fTog').onclick = () => { S.fOpen = !$('fMore').classList.contains('open'); filterChips(); };
   $('bNew').onclick = async () => openEditor(await newDefect(), true, true);
   $('fab').onclick = newDefectChooser;

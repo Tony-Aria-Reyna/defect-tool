@@ -938,6 +938,7 @@ export async function importSheet(file) {
 }
 export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
+  if (j.type === 'template' && j.project) { if (!S.sup) return toast('Only a system administrator can create a project from a template'); const m = await import('./setup.js'); return m.newProjectWizard(j); }
   if (j.type === 'aicontext' && (j.text || j.typicals)) { if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change the Gemini knowledge'); const patch = {}; if (j.text) patch.aiContext = j.text; if (Array.isArray(j.typicals)) patch.typicals = j.typicals; await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch); toast('Gemini project knowledge updated' + (j.typicals ? ' with ' + j.typicals.length + ' typical defects' : ''), 5000); return; }
   if (j.type === 'history' && Array.isArray(j.items)) {
     if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');

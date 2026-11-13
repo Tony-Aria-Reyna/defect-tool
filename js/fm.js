@@ -22,6 +22,7 @@ export function start(pid) {
   setModule(S.local.lastModule && S.local.lastModule !== 'defects' ? 'defects' : 'defects');
 }
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
+export function goTo(m, q) { Object.assign(F, { q: q || '', sys: '', st: '', type: '', cat: '' }); if (m === 'maint') F.win = 'all'; setModule(m); }
 export function setModule(m) {
   if (m !== 'defects' && !Nav.isOpen('module')) Nav.open('module', () => setModule('defects')); if (m === 'defects') Nav.closed('module');
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
