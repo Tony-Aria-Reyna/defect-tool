@@ -54,16 +54,21 @@ export function start() {
   $('tyGo').onclick = async () => { const role = admin ? $('tyRole').value : roleKey(mine); S.local.tryit = { role, r: {}, n: {}, t0: Date.now() }; save(); closeModal(); if (!S.testMode || S.viewAs !== role) await X.enterTestMode(role); chip(); sheet(); };
 }
 
-// floating chip that reopens the step list while the person is trying things
+export const active = () => { const s = S.local.tryit; return !!(s && s.role && !s.sent); };
+export const count = () => { const s = st(), L = TASKS[roleKey(s.role)]; return L.filter((_, i) => s.r[i]).length + '/' + L.length; };
+export const openSteps = () => S.testMode ? sheet() : start();
+let barBusy = false;
+// floating button that reopens the step list while the person is trying things; the red practice bar carries the same link
 export function chip() {
+  if (X.bar && S.testMode && !barBusy) { barBusy = true; try { X.bar(); } finally { barBusy = false; } }
   let c = $('tryChip'); const s = S.local.tryit;
   if (!s || !s.role || s.sent) { if (c) c.remove(); return; }
   if (!c) { c = document.createElement('button'); c.id = 'tryChip'; c.className = 'trychip'; document.body.appendChild(c); c.onclick = () => S.testMode ? sheet() : start(); }
-  const L = TASKS[roleKey(s.role)], n = L.filter((_, i) => s.r[i]).length; c.innerHTML = `🧪 Try-out <b>${n}/${L.length}</b>`;
+  const L = TASKS[roleKey(s.role)], n = L.filter((_, i) => s.r[i]).length; c.innerHTML = `🧪 Try-out steps <b>${n}/${L.length}</b>`;
 }
 function sheet() {
   const s = st(), L = TASKS[roleKey(s.role)], n = L.filter((_, i) => s.r[i]).length, next = L.findIndex((_, i) => !s.r[i]);
-  modal(`<h2>Try-out: ${esc(ROLES[s.role] || s.role)}</h2><p class="note">${n} of ${L.length} done. Close this, try the step, then tap the 🧪 button (bottom left) to come back and mark it.</p>
+  modal(`<h2>Try-out: ${esc(ROLES[s.role] || s.role)}</h2><p class="note">${n} of ${L.length} done. Close this, try the step, then come back to mark it: tap the purple <b>🧪 Try-out steps</b> button (bottom left) or <b>Steps</b> in the red bar at the top.</p>
   <div class="trylist">${L.map((t, i) => `<div class="try ${s.r[i] || ''} ${i === next ? 'next' : ''}"><div class="trh"><span class="ckn">${s.r[i] === 'ok' ? '✓' : s.r[i] === 'stuck' ? '!' : s.r[i] === 'na' ? '–' : i + 1}</span><b>${esc(t[0])}</b></div><p>${esc(t[1])}</p><div class="trb"><button data-r="ok" data-i="${i}" class="${s.r[i] === 'ok' ? 'on' : ''}">👍 Easy</button><button data-r="stuck" data-i="${i}" class="${s.r[i] === 'stuck' ? 'on' : ''}">😕 Got stuck</button><button data-r="na" data-i="${i}" class="${s.r[i] === 'na' ? 'on' : ''}">Not for me</button></div>${s.r[i] === 'stuck' ? `<textarea data-n="${i}" rows="2" placeholder="What happened? What did you expect?">${esc(s.n[i] || '')}</textarea>` : ''}</div>`).join('')}</div>
   <div class="act"><button id="tsX">Close and keep trying</button><button class="${n === L.length ? 'go' : ''}" id="tsEnd">${n === L.length ? 'Finish: five quick questions' : 'Finish early'}</button></div>`, true);
   const keep = () => $('mbox').querySelectorAll('[data-n]').forEach(t => { s.n[+t.dataset.n] = t.value.trim(); });

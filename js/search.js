@@ -3,6 +3,7 @@
 import { S } from './state.js';
 import { $, esc } from './util.js';
 import { locText } from './exports.js';
+import * as Nav from './nav.js';
 
 let X = {};
 export function init(ctx) { X = ctx; }
@@ -92,8 +93,9 @@ export function open(q0) {
   el.innerHTML = `<div class="srbox"><div class="srtop"><span>🔍</span><input id="srchQ" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search tools, defects, units, products… spelling does not need to be exact"><button id="srchX" title="Close">✕</button></div><div id="srchR" class="srres"></div></div>`;
   document.body.appendChild(el);
   let rows = [], sel = 0;
-  const close = () => { el.remove(); document.removeEventListener('keydown', key, true); };
-  const go = i => { const r = rows[i]; if (!r) return; close(); try { r.e.run(); } catch (x) { console.warn(x); } };
+  const close = nav => { if (!el.isConnected) return; el.remove(); document.removeEventListener('keydown', key, true); if (nav !== true) Nav.closed('search'); };
+  const later = fn => setTimeout(() => { try { fn(); } catch (x) { console.warn(x); } }, 90);   // let the back-step settle before the next screen opens
+  const go = i => { const r = rows[i]; if (!r) return; close(); later(r.e.run); };
   const mark = () => el.querySelectorAll('.srrow').forEach((n, i) => { n.classList.toggle('on', i === sel); if (i === sel) n.scrollIntoView({ block: 'nearest' }); });
   const draw = () => {
     const q = $('srchQ').value, G = find(q, E); rows = G.flatMap(g => g.rows); sel = 0; let i = 0;
@@ -103,13 +105,13 @@ export function open(q0) {
       : `<p class="srhint">Nothing matches "${esc(q)}". Try one or two key words, or part of a word.</p>${S.project ? `<div class="srrow" data-list="1"><span class="sri">☰</span><div class="srm"><b>Look for "${esc(q)}" in the defect list</b><div class="srw">${crumbs(['⚑ Defects', '☰ List', 'Search box'])}</div></div><a class="srgo">Go ›</a></div><div class="srrow" data-help="1"><span class="sri">❓</span><div class="srm"><b>Ask the help assistant</b><div class="srw">${crumbs(['? Help'])}</div></div><a class="srgo">Open ›</a></div>` : ''}`;
     $('srchR').querySelectorAll('.srrow[data-i]').forEach(n => n.onclick = () => go(+n.dataset.i));
     $('srchR').querySelectorAll('[data-q]').forEach(a => a.onclick = () => { $('srchQ').value = a.dataset.q; draw(); $('srchQ').focus(); });
-    const l = $('srchR').querySelector('[data-list]'); if (l) l.onclick = () => { close(); X.filterBy({ q }); };
-    const h = $('srchR').querySelector('[data-help]'); if (h) h.onclick = () => { close(); X.help(q); };
+    const l = $('srchR').querySelector('[data-list]'); if (l) l.onclick = () => { close(); later(() => X.filterBy({ q })); };
+    const h = $('srchR').querySelector('[data-help]'); if (h) h.onclick = () => { close(); later(() => X.help(q)); };
     mark();
   };
   const key = e => { if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(rows.length - 1, sel + 1); mark(); } else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); mark(); } else if (e.key === 'Enter' && rows.length) { e.preventDefault(); go(sel); } };
-  document.addEventListener('keydown', key, true);
-  el.onclick = e => { if (e.target === el) close(); }; $('srchX').onclick = close;
+  document.addEventListener('keydown', key, true); Nav.open('search', () => close(true));
+  el.onclick = e => { if (e.target === el) close(); }; $('srchX').onclick = () => close();
   let tm = null; $('srchQ').oninput = () => { clearTimeout(tm); tm = setTimeout(draw, 90); };
   if (q0) $('srchQ').value = q0; draw(); $('srchQ').focus();
 }

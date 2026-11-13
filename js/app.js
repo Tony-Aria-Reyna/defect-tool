@@ -120,7 +120,7 @@ async function leaveTestMode() {
   try { const sb = S.store; cleanupProject(); S.store = S.realStore; S.user = S.realUser; S.testMode = false; S.viewAs = null; S.sup = await S.store.isSuper(); try { await sb.wipe(); } catch (e) {} await openProject(pid, true); viewAsBar(); bz.done(); toast('Back to the live project. The test copy has been discarded.'); }
   catch (e) { bz.done(); toast('Could not leave test mode cleanly: ' + e.message + '. Reload the app.', 8000); }
 }
-function viewAsBar() { Try.chip(); let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } document.body.classList.toggle('testmode', !!S.testMode); if (S.testMode) { b.innerHTML = `🧪 <b>PRACTICE</b> · <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · ${isMobile() ? 'not saved' : 'nothing you do here is saved'} · <a href="#" id="vaStop">Leave</a>`; b.classList.add('show'); requestAnimationFrame(() => document.body.style.setProperty('--tb', (b.offsetHeight + 4) + 'px')); $('vaStop').onclick = e => { e.preventDefault(); leaveTestMode(); }; } else b.classList.remove('show'); }
+function viewAsBar() { Try.chip(); let b = $('viewAsBar'); if (!b) { b = document.createElement('div'); b.id = 'viewAsBar'; document.body.appendChild(b); } document.body.classList.toggle('testmode', !!S.testMode); if (S.testMode) { b.innerHTML = `🧪 <b>PRACTICE</b> · <b>${esc(ROLES[S.viewAs] || S.viewAs)}</b> · ${isMobile() ? 'not saved' : 'nothing you do here is saved'} · ${Try.active() ? `<a href="#" id="vaTry">Steps ${Try.count()}</a> · ` : ''}<a href="#" id="vaStop">Leave</a>`; b.classList.add('show'); if ($('vaTry')) $('vaTry').onclick = e => { e.preventDefault(); Try.openSteps(); }; requestAnimationFrame(() => document.body.style.setProperty('--tb', (b.offsetHeight + 4) + 'px')); $('vaStop').onclick = e => { e.preventDefault(); leaveTestMode(); }; } else b.classList.remove('show'); }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; if (/wrong-password|invalid-credential|invalid-login/.test(c)) return 'Wrong email or password. If you have not set a password yet, tap "Create a password".'; if (/user-not-found/.test(c)) return 'No password set for this email yet. Tap "Create a password".'; if (/weak-password/.test(c)) return 'Choose a stronger password (at least 8 characters).'; if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes or use "Forgot password".'; if (/network-request-failed/.test(c)) return 'No connection. Sign-in needs data the first time; once signed in the app works offline.'; return (e && e.message) || String(e); }
 async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
 
@@ -156,7 +156,7 @@ export async function openProject(pid, quiet) {
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
     try { Sync.autoStart(); } catch (e) {}
-    applyDeepLink();
+    applyDeepLink(); Try.chip();
     S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar).then(processPendingAI); }, e => toast('Sync problem: ' + friendly(e), 5000));
     FM.start(pid); setTab('list'); b && b.done(); return true;
   } catch (e) { b && b.done(); console.error(e); if (!quiet) toast('Could not open the project: ' + friendly(e), 5000); return false; }
@@ -234,19 +234,25 @@ function filterChips() {
 // Press and hold a photo to see it large; let go and it closes. A quick tap still does what it did before.
 function peekable(im) {
   if (im._peek) return; im._peek = 1; let t = null, ov = null, sx = 0, sy = 0, last = 0;
-  const end = () => { clearTimeout(t); t = null; if (ov) { ov.remove(); ov = null; last = Date.now(); } };
-  im.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; clearTimeout(t); t = setTimeout(() => { if (!im.src) return; ov = document.createElement('div'); ov.className = 'peek'; ov.innerHTML = '<img alt=""><span>Let go to close</span>'; ov.firstChild.src = im.src; document.body.appendChild(ov); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} }, 320); });
-  im.addEventListener('pointermove', e => { if (!ov && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) { clearTimeout(t); t = null; } });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => im.addEventListener(n, end));
+  const end = () => { clearTimeout(t); t = null; ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'mouseup', 'blur'].forEach(n => window.removeEventListener(n, end, true)); if (ov) { ov.remove(); ov = null; last = Date.now(); } };
+  const show = () => { if (!im.src) return; ov = document.createElement('div'); ov.className = 'peek'; ov.innerHTML = '<img alt=""><span>Let go to close</span>'; ov.firstChild.src = im.src; document.body.appendChild(ov); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} };
+  im.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && e.button !== 0) return; sx = e.clientX; sy = e.clientY; clearTimeout(t); t = setTimeout(show, 300);
+    // the lift is watched on the whole window, so the finger can wander anywhere once the photo is up
+    ['pointerup', 'touchend', 'touchcancel', 'mouseup', 'blur'].forEach(n => window.addEventListener(n, end, true)); });
+  // before the photo is up, a real drag means the person is scrolling the list: cancel. After it is up, movement is ignored.
+  im.addEventListener('pointermove', e => { if (!ov && t && Math.hypot(e.clientX - sx, e.clientY - sy) > 14) { clearTimeout(t); t = null; } });
+  im.addEventListener('pointercancel', () => { if (!ov) end(); });   // the browser took the touch for scrolling before the photo came up
+  // once the photo is up, stop the page scrolling under the finger (that is what used to close it)
+  im.addEventListener('touchmove', e => { if (ov && e.cancelable) e.preventDefault(); }, { passive: false });
   im.addEventListener('contextmenu', e => e.preventDefault());
-  im.addEventListener('click', e => { if (Date.now() - last < 500) { e.stopImmediatePropagation(); e.stopPropagation(); e.preventDefault(); } }, true);
+  im.addEventListener('click', e => { if (Date.now() - last < 600) { e.stopImmediatePropagation(); e.stopPropagation(); e.preventDefault(); } }, true);
 }
 export async function gallery(photos, i, title) {
   photos = (photos || []).slice(); if (!photos.length) return; let n = i || 0, sx = null;
   const g = document.createElement('div'); g.className = 'gal'; g.innerHTML = `<div class="galh"><span id="galT"></span><button id="galX" title="Close">✕</button></div><img id="galI" alt="" draggable="false"><button class="gnav l" id="galP">‹</button><button class="gnav r" id="galN">›</button>`; document.body.appendChild(g);
   const show = async () => { n = (n + photos.length) % photos.length; g.querySelector('#galT').textContent = (title ? title + ' · ' : '') + 'photo ' + (n + 1) + ' of ' + photos.length; g.querySelector('#galI').src = await photoSrc(photos[n]); g.querySelectorAll('.gnav').forEach(b => b.style.display = photos.length > 1 ? '' : 'none'); };
-  const close = () => { g.remove(); document.removeEventListener('keydown', key); }, key = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') { n++; show(); } if (e.key === 'ArrowLeft') { n--; show(); } };
-  g.querySelector('#galX').onclick = close; g.querySelector('#galP').onclick = e => { e.stopPropagation(); n--; show(); }; g.querySelector('#galN').onclick = e => { e.stopPropagation(); n++; show(); };
+  const close = nav => { if (!g.isConnected) return; g.remove(); document.removeEventListener('keydown', key); if (nav !== true) Nav.closed('gallery'); }, key = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') { n++; show(); } if (e.key === 'ArrowLeft') { n--; show(); } };
+  Nav.open('gallery', () => close(true)); g.querySelector('#galX').onclick = () => close(); g.querySelector('#galP').onclick = e => { e.stopPropagation(); n--; show(); }; g.querySelector('#galN').onclick = e => { e.stopPropagation(); n++; show(); };
   g.onclick = e => { if (e.target === g) close(); }; document.addEventListener('keydown', key);
   g.addEventListener('pointerdown', e => { sx = e.clientX; }); g.addEventListener('pointerup', e => { if (sx != null && Math.abs(e.clientX - sx) > 50 && photos.length > 1) { n += e.clientX < sx ? 1 : -1; show(); } sx = null; });
   show();
@@ -906,7 +912,7 @@ function wire() {
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   Search.init({ tools: toolList, units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
-  Try.init({ enterTestMode, leaveTestMode, saveLocal });
+  Try.init({ enterTestMode, leaveTestMode, saveLocal, bar: viewAsBar });
   Setup.init({ openProject, zones: () => Admin.zoneEditor(PV), sync: Sync.start, siteCheck, saveLocal });
   $('bFind').onclick = () => Search.open();
   document.addEventListener('keydown', e => { if (!S.project || !$('scrWork').classList.contains('on')) return; const typing = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.target.isContentEditable; if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing)) { e.preventDefault(); Search.open(); } });
