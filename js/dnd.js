@@ -13,7 +13,10 @@ export function initDrop(ctx) {
   addEventListener('dragleave', e => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) ov.classList.remove('show'); });
   addEventListener('drop', async e => {
     if (!hasFiles(e)) return; e.preventDefault(); depth = 0; ov.classList.remove('show');
+    // a single dropped file can also hand over a live link to itself (Chrome and Edge); it has to be asked for before anything else happens
+    let hp = null; try { const its = [...(e.dataTransfer.items || [])].filter(i => i.kind === 'file'); if (its.length === 1 && its[0].getAsFileSystemHandle) hp = its[0].getAsFileSystemHandle(); } catch (x) {}
     const files = await collect(e.dataTransfer);
+    if (hp && files.length === 1) { try { const h = await hp; if (h && h.kind === 'file') files[0]._handle = h; } catch (x) {} }
     if (!files.length) return;
     if (!S.project) { if (files.length === 1 && ext(files[0]) === 'json' && S.sup) return X.Admin.importJson(files[0]).catch(err => toast(err.message, 6000)); toast(S.sup ? 'Drop a project pack (.json) here, or open a project first' : 'Open a project first, then drop the files'); return; }
     if (!can.write()) { toast('Your role on this project cannot upload files'); return; }
