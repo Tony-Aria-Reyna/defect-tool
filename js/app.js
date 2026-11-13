@@ -212,8 +212,9 @@ export async function render() {
   const L = filtered();
   $('lmeta').textContent = L.length + ' of ' + D.length + ' shown'; filterChips();
   $('list').innerHTML = L.length ? L.map(d => { const sev = isMajor(d) ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
-    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}<div class="thc"${ph || d.plan ? '' : ' hidden'}>${ph ? `<img class="th" data-ph="${esc(d.id)}" alt="" draggable="false">` : ''}<div class="thb">${d.plan ? `<button class="loc" data-loc="${esc(d.id)}" title="Show on the plan">📍</button>` : ''}${(d.photos || []).length ? `<button data-gal="${esc(d.id)}" title="Open the photos">📷 ${d.photos.length}</button>` : ''}</div></div><div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.subcontractor ? `<span class="tag">${esc(d.subcontractor)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.general && !d.plan ? '<span class="tag">General</span>' : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}<div class="thc"${ph || d.plan ? '' : ' hidden'}>${ph ? `<div class="thw"><img class="th" data-ph="${esc(d.id)}" alt="" draggable="false"><button class="phn" data-gal="${esc(d.id)}" title="Open the photos">📷 ${d.photos.length}</button></div>` : ''}${d.plan && d.x != null ? `<img class="snip" data-sn="${esc(d.id)}" alt="Location on the plan" title="Tap to see where it is. Press and hold for a quick look." draggable="false">` : ''}</div><div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.subcontractor ? `<span class="tag">${esc(d.subcontractor)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.general && !d.plan ? '<span class="tag">General</span>' : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
   $('list').querySelectorAll('[data-gal]').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.gal); if (d) gallery(d.photos, 0, d.id + ' · ' + (d.title || '')); });
+  snipWatch($('list'));
   $('list').querySelectorAll('.loc[data-loc]').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
   $('list').querySelectorAll('[data-pick]').forEach(cb => { cb.onclick = e => e.stopPropagation(); cb.onchange = () => { cb.checked ? S.bulk.add(cb.dataset.pick) : S.bulk.delete(cb.dataset.pick); cb.closest('.card').classList.toggle('picked', cb.checked); bulkBar(); }; });
   $('list').querySelectorAll('.card').forEach(el => el.onclick = () => { if (S.bulk) { const cb = el.querySelector('[data-pick]'); if (cb) { cb.checked = !cb.checked; cb.onchange(); } return; } const d = S.defects.find(x => x.id === el.dataset.id); S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); });
@@ -231,11 +232,64 @@ function filterChips() {
   $('fChips').innerHTML = on.length ? `<span class="fcl">Showing only:</span>` + on.map(o => `<button data-fx="${o[0]}">${esc(o[1])} ✕</button>`).join('') + (on.length > 1 ? '<button class="all" data-fx="*">Clear all</button>' : '') : '';
   $('fChips').querySelectorAll('button').forEach(b => b.onclick = () => { const k = b.dataset.fx; if (k === '*') { $('clr').click(); return; } S.F[k] = (k === 'review' || k === 'toReview') ? false : ''; if (k === 'q') $('q').value = ''; filtersDirty = true; render(); });
 }
+// A square cut-out of the plan centred on an item's pin. Plan images are decoded once and cut-outs are remembered.
+const planImgs = new Map(), snips = new Map();
+const planImage = p => { if (!planImgs.has(p.img)) planImgs.set(p.img, (async () => loadImage(await imgUrl(p.img)))().catch(e => { planImgs.delete(p.img); throw e; })); return planImgs.get(p.img); };
+export async function snip(d, px, span) {
+  const p = S.plans.find(q => q.id === d.plan); if (!p || d.x == null) return '';
+  const key = [p.img, d.x, d.y, d.status, px, span].join('|'); if (snips.has(key)) return snips.get(key);
+  const im = await planImage(p), c = document.createElement('canvas'), x = c.getContext('2d'); c.width = c.height = px;
+  const sc = px / (p.w / (span || 3.2)), cx = d.x * p.w * sc, cy = d.y * p.h * sc;
+  x.fillStyle = '#fff'; x.fillRect(0, 0, px, px); x.drawImage(im, px / 2 - cx, px / 2 - cy, p.w * sc, p.h * sc);
+  const rr = Math.max(5, px * 0.075); x.fillStyle = SCOL[d.status] || '#d64545'; x.beginPath(); x.arc(px / 2, px / 2, rr, 0, 7); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = Math.max(2, px * 0.02); x.stroke();
+  const u = c.toDataURL('image/jpeg', 0.82); if (snips.size > 1500) snips.clear(); snips.set(key, u); return u;
+}
+// Wire one plan cut-out image: tap opens the location window (not the full plans), press and hold shows it large.
+function snipWire(im, d) { im.onclick = e => { e.stopPropagation(); showLocation(d); }; peekable(im, () => snip(d, 900, 2.4)); }
+let snipObs = null;
+function snipWatch(root) {
+  if (snipObs) snipObs.disconnect();
+  const fill = async im => { if (im.dataset.done) return; im.dataset.done = 1; const d = S.defects.find(x => x.id === im.dataset.sn); if (!d) return; try { im.src = await snip(d, 120); snipWire(im, d); } catch (e) { im.remove(); } };
+  const L = [...root.querySelectorAll('img.snip[data-sn]')]; if (!L.length) return;
+  if (!('IntersectionObserver' in window)) { L.slice(0, 60).forEach(fill); return; }
+  snipObs = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { snipObs.unobserve(e.target); fill(e.target); } }), { rootMargin: '300px' }); L.forEach(im => snipObs.observe(im));
+}
+// The words a person wrote on an item (a comment, or the note given with a status change), newest first.
+const WF_LABELS = /^(Ready for inspection|Reopened and sent back|Accepted and closed|In progress|Completed and closed by the contractor): ([\s\S]+)$/;
+const SYS_TXT = /^(Changed |Raised|Imported|Added from|Pin placed|Unit |Filled in|Site note|Status |Ticked|Marked|Handwritten|Resolution note|Category set|Ready for inspection\.|Reopened and sent back\.|Accepted and closed\.|In progress\.|Completed and closed)/i;
+function humanNotes(d) {
+  return (d.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(h => { const t = String(h.txt || ''), m = WF_LABELS.exec(t); if (m) return { h, label: m[1], text: m[2] }; if (!t.trim() || SYS_TXT.test(t)) return null; return { h, label: '', text: t }; }).filter(Boolean);
+}
+// The latest thing someone else said (so a contractor sees the reviewer's words and the reviewer sees the contractor's); failing that, the latest note of all.
+function lastNote(d) { const L = humanNotes(d); return L.find(n => n.h.who !== S.user.name) || L[0] || null; }
+const lastNoteHtml = (d, title) => { const n = lastNote(d); return n ? `<div class="lastc"><div class="lch">${esc(title || 'Latest comment')} · ${esc(n.h.who || '')} · ${esc(nzDT(n.h.t))}${n.label ? ` <span class="hk">${esc(n.label)}</span>` : ''}</div><div class="lct">${esc(n.text)}</div></div>` : ''; };
+// A comment, or the note that goes with a change of status. The words are typed or spoken here, not on the main sheet.
+function noteDialog(o) {
+  const d = ED.d, con = can.contractor();
+  modal(`<h2>${esc(o.title)}</h2><p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>${lastNoteHtml(d, 'Last comment')}
+    <label class="f">${esc(o.ask)}${o.required ? '' : ' <span class="muted small">(optional)</span>'}<div class="ndrow"><textarea id="ndTxt" rows="3" placeholder="${esc(o.ph || '')}"></textarea><button class="mic sm" id="ndMic" title="Hold to talk">🎤</button></div></label><p class="note small" id="ndSt">Type it, or hold the microphone and say it.</p>
+    ${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="ndFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}
+    <div class="act"><button id="ndX">Cancel</button><button class="${o.warn ? 'warn' : 'go'}" id="ndGo">${esc(o.btn)}</button></div>`);
+  const st = (t, bad) => { $('ndSt').textContent = t; $('ndSt').style.color = bad ? '#a32222' : ''; };
+  holdToTalk($('ndMic'), () => dictate($('ndTxt'), $('ndMic'), st, () => {}));
+  $('ndX').onclick = () => { stopDictation(); closeModal(); };
+  $('ndGo').onclick = async () => { stopDictation(); const txt = $('ndTxt').value.trim(); if (o.required && !txt) { st(o.need || 'Add a short note first.', true); $('ndTxt').focus(); return; } if ($('cmt')) $('cmt').value = txt; if ($('cmtFor')) $('cmtFor').value = $('ndFor') ? $('ndFor').value : ''; closeModal(); await o.go(); };
+  setTimeout(() => $('ndTxt') && !isMobile() && $('ndTxt').focus(), 60);
+}
+// One "Add photo" tile: on a phone it offers the camera or the gallery; on a computer it goes straight to the files.
+function addPhotoMenu(anchor) {
+  if (!isMobile()) { $('fPhoto').click(); return; }
+  const old = document.querySelector('.phmenu'); if (old) { old.remove(); return; }
+  const m = document.createElement('div'); m.className = 'phmenu'; m.innerHTML = '<button data-k="cam">📷 Take a photo</button><button data-k="gal">🖼 Choose from gallery</button>'; anchor.parentNode.insertBefore(m, anchor.nextSibling);
+  const off = e => { if (!m.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) { m.remove(); document.removeEventListener('pointerdown', off, true); } };
+  m.querySelectorAll('button').forEach(b => b.onclick = () => { m.remove(); document.removeEventListener('pointerdown', off, true); $(b.dataset.k === 'cam' ? 'fCam' : 'fPhoto').click(); });
+  setTimeout(() => document.addEventListener('pointerdown', off, true), 0);
+}
 // Press and hold a photo to see it large; let go and it closes. A quick tap still does what it did before.
-function peekable(im) {
+function peekable(im, big) {
   if (im._peek) return; im._peek = 1; let t = null, ov = null, sx = 0, sy = 0, last = 0;
   const end = () => { clearTimeout(t); t = null; ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'mouseup', 'blur'].forEach(n => window.removeEventListener(n, end, true)); if (ov) { ov.remove(); ov = null; last = Date.now(); } };
-  const show = () => { if (!im.src) return; ov = document.createElement('div'); ov.className = 'peek'; ov.innerHTML = '<img alt=""><span>Let go to close</span>'; ov.firstChild.src = im.src; document.body.appendChild(ov); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} };
+  const show = () => { if (!im.src) return; ov = document.createElement('div'); ov.className = 'peek'; ov.innerHTML = '<img alt=""><span>Let go to close</span>'; ov.firstChild.src = im.src; document.body.appendChild(ov); if (big) Promise.resolve(big()).then(u => { if (u && ov) ov.firstChild.src = u; }).catch(() => {}); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} };
   im.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && e.button !== 0) return; sx = e.clientX; sy = e.clientY; clearTimeout(t); t = setTimeout(show, 300);
     // the lift is watched on the whole window, so the finger can wander anywhere once the photo is up
     ['pointerup', 'touchend', 'touchcancel', 'mouseup', 'blur'].forEach(n => window.addEventListener(n, end, true)); });
@@ -581,13 +635,21 @@ export function openEditor(d, isNew, isDraft) {
   // An existing item opens as a working record: status and place, the action buttons, photos and the response box first; the form details fold away underneath.
   if (!isNew) {
     const B = $('edBody'), hs = [...B.querySelectorAll('h3.sec')], hPh = hs.find(h => /^Photos/.test(h.textContent)), hCls = hs.find(h => /^Classification/.test(h.textContent)), tg = B.querySelector('[name=title]').closest('.grid');
-    const sum = document.createElement('div'); sum.className = 'sumline'; sum.innerHTML = `<span class="pill" style="background:${SCOL[w.status] || '#999'}">${esc(w.status)}</span><b>${esc(w.id || '')}</b><span>${esc(locText(w) || (w.general ? 'General defect' : 'No location'))}</span>${w.plan ? '<button class="mini" id="sumPin">📍 Plan</button>' : ''}`;
+    const L0 = filtered(), ix = L0.findIndex(x => x.id === w.id), pinned = w.plan && w.x != null;
+    const sum = document.createElement('div'); sum.className = 'sumline'; sum.innerHTML = `<div class="sumt"><div><span class="pill" style="background:${SCOL[w.status] || '#999'}">${esc(w.status)}</span> <b>${esc(w.id || '')}</b>${ix >= 0 && L0.length > 1 ? ` <span class="muted small">${ix + 1} of ${L0.length}</span>` : ''}</div><div class="suml">${esc(locText(w) || (w.general ? 'General defect' : 'No location yet'))}</div></div>${pinned ? '<img class="snip big" id="sumSnip" alt="Location on the plan" draggable="false">' : (!ro && !con && S.plans.length && !w.general ? '<button class="mini" id="sumSet">📍 Pin it</button>' : '')}`;
     B.insertBefore(sum, B.firstElementChild);
-    [hPh, $('phs'), $('cmtBox')].forEach(n => n && B.insertBefore(n, tg));
+    const lc = document.createElement('div'); lc.innerHTML = lastNoteHtml(w); if (lc.firstChild) sum.after(lc.firstChild);
+    const cn = B.querySelector(':scope > p.note.muted.small'); if (cn && /You can add photos/.test(cn.textContent)) cn.remove();
+    [hPh, $('phs')].forEach(n => n && B.insertBefore(n, tg));
+    if ($('cmtBox')) $('cmtBox').hidden = true;   // comments and responses are written in the pop-up that goes with the button pressed
+    // the plan cut-out now sits in the top strip; the pin buttons move into Location details
+    const hLoc = hs.find(h => /^Location/.test(h.textContent)), lb = $('locBox'), lm = $('locMore'); if (hLoc) hLoc.remove();
+    if (lb && lm) { const row = document.createElement('div'); row.className = 'pinrow'; ['setPin', 'clrPin', 'genBtn', 'goPin'].forEach(id => { const b = $(id); if (b && id !== 'goPin') row.appendChild(b); else if (b) b.remove(); }); lm.appendChild(row); lb.style.display = 'none'; lm.querySelector('summary').textContent = 'Location details' + (pinned ? '' : ' (not pinned)'); }
+    if (pinned) snip(w, 200).then(u => { const im = $('sumSnip'); if (im && u) { im.src = u; snipWire(im, ED.d); } }).catch(() => {});
+    if ($('sumSet')) $('sumSet').onclick = () => $('setPin') && $('setPin').click();
     const dc = B.querySelector('.dict'); if (dc) { const dd = document.createElement('details'); dd.className = 'ext'; dd.innerHTML = '<summary>✨ Dictate a change with Gemini</summary>'; B.insertBefore(dd, tg); dd.appendChild(dc); if (w.aiPending || w.transcript && !w.title) dd.open = true; }
     const hT = document.createElement('h3'); hT.className = 'sec'; hT.textContent = 'The defect'; B.insertBefore(hT, tg);
     if (hCls) { const gr = hCls.nextElementSibling, dd = document.createElement('details'); dd.className = 'ext clsd'; dd.innerHTML = `<summary>Details <span class="muted small">${esc([w.severity, w.trade, w.subcontractor || w.responsible, w.targetDate ? 'due ' + nzDate(w.targetDate) : ''].filter(Boolean).join(' · '))}</span></summary>`; B.insertBefore(dd, hCls); dd.appendChild(gr); hCls.remove(); if (!isMobile()) dd.open = true; }
-    if ($('sumPin')) $('sumPin').onclick = () => showLocation(ED.d);
   }
   drawLoc(); renderPhotos();
   $('edDel').style.display = isNew || !can.admin() ? 'none' : ''; $('edSave').style.display = ro ? 'none' : '';
@@ -622,28 +684,28 @@ function stageGate() {
 }
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
-  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addcam">📷<span>Camera</span></div><div class="addph" id="addph">🖼<span>From gallery</span></div>' : '');
+  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">＋<span>Add photo</span></div>' : '');
   $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? window.open(im.src, '_blank') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
-  if ($('addph')) $('addph').onclick = () => $('fPhoto').click();
-  if ($('addcam')) $('addcam').onclick = () => $('fCam').click();
+  if ($('addph')) $('addph').onclick = () => addPhotoMenu($('addph'));
   if ($('addfile')) $('addfile').onclick = () => $('fAttach').click();
   $('locC').onclick = () => showLocation(ED.d); $('locC').style.cursor = 'zoom-in'; $('locC').title = 'Open the plan at this location';
   $('fls').querySelectorAll('[data-f]').forEach(a => a.onclick = async ev => { ev.preventDefault(); const f = (ED.d.files || [])[+a.dataset.f]; if (!f) return; const u = f.data || (f.url ? await imgUrl(f.url) : ''); if (u) window.open(u, '_blank'); else toast('This file is still waiting to upload'); });
   $('fls').querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { const i = +b.dataset.fx; const f = ED.d.files[i]; if (f.path && !f.isNew) (ED.removed = ED.removed || []).push(f.path); ED.d.files.splice(i, 1); openEditor(ED.d, ED.isNew, true); });
   const wf = (status, label, needComment) => async () => { collect(); const c = $('cmt') ? $('cmt').value.trim() : ''; if (needComment && !c) { toast(label + ': add a short comment first so the other side knows what happened'); $('cmt').focus(); return; } const sel = $('edBody').querySelector('[name=status]'); if (sel) { if (![...sel.options].some(o => o.value === status)) { const o = document.createElement('option'); o.textContent = status; sel.appendChild(o); } sel.value = status; } ED.d.status = status; ED.wfLabel = label; await saveEditor(); };
   if ($('wfReady')) $('wfReady').onclick = () => readyDialog(wf('Ready for review', 'Ready for inspection', true));
-  if ($('wfAccept')) $('wfAccept').onclick = wf('Closed', 'Accepted and closed', false);
+  if ($('wfAccept')) $('wfAccept').onclick = () => noteDialog({ title: 'Accept and close', ask: 'Closing note', ph: 'e.g. Inspected on site, work accepted', btn: 'Accept and close', go: wf('Closed', 'Accepted and closed', false) });
   if ($('wfSelf')) $('wfSelf').onclick = () => readyDialog(wf('Closed', 'Completed and closed by the contractor', true), true);
-  if ($('wfReopen')) $('wfReopen').onclick = wf('Open', 'Reopened and sent back', true);
-  if ($('wfProg')) $('wfProg').onclick = wf('In progress', 'In progress', false);
+  if ($('wfReopen')) $('wfReopen').onclick = () => noteDialog({ title: 'Reopen and send back', ask: 'What still needs doing', ph: 'Say exactly what is still wrong so it is fixed first time', btn: 'Reopen and send back', warn: true, required: true, need: 'Say what still needs doing so the contractor knows.', go: wf('Open', 'Reopened and sent back', true) });
+  if ($('wfProg')) $('wfProg').onclick = () => noteDialog({ title: 'Mark in progress', ask: 'Note', ph: 'e.g. Painter booked for Tuesday', btn: 'Mark in progress', go: wf('In progress', 'In progress', false) });
+  if ($('wfCmt')) $('wfCmt').onclick = () => noteDialog({ title: can.contractor() ? 'Add a response' : 'Add a comment', ask: can.contractor() ? 'Your response' : 'Comment', ph: 'Saved with your name and the time', btn: 'Save comment', required: true, go: saveEditor });
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
-  requestAnimationFrame(() => Nav.refit($('edBody')));
+  requestAnimationFrame(() => { Nav.refit($('edBody')); if (ED && !ED.isNew) ED.snap = edSnap(); });
 }
 // Marking an item ready for inspection: prompt for a photo of the fix (optional) and a short note that can be spoken and tidied by Gemini.
 function readyDialog(go, close) {
-  collect(); const d = ED.d, pre = $('cmt') ? $('cmt').value.trim() : '', shots = [];
-  modal(`<h2>${close ? 'Complete and close' : 'Ready for inspection'}</h2>${close ? '<p class="note">This item is on your own register, so you can close it yourself. A photo and a short note are the record that it was done.</p>' : ''}<p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>
+  collect(); const d = ED.d, pre = '', shots = [];
+  modal(`<h2>${close ? 'Complete and close' : 'Ready for inspection'}</h2>${close ? '<p class="note">This item is on your own register, so you can close it yourself. A photo and a short note are the record that it was done.</p>' : ''}<p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>${lastNoteHtml(d, 'Last comment')}
     <button class="bigcam" id="rdCam">📷 Take a photo of the fix</button><div class="rdmore"><a href="#" id="rdGal">or choose one from the gallery</a></div><div id="rdPh" class="rdph"></div>
     <input type="file" id="rdFile" accept="image/*" capture="environment" hidden><input type="file" id="rdFile2" accept="image/*" multiple hidden>
     <div class="rdsec">What was done</div>
@@ -718,7 +780,19 @@ async function deleteDefect() {
     if (!isNaN(n)) { let hi = 0; S.defects.forEach(d => { if (d.id !== id && d.id.startsWith(pre)) { const k = parseInt(d.id.slice(pre.length), 10); if (!isNaN(k) && k > hi) hi = k; } }); if (n > hi) { if (S.store.releaseRef) await S.store.releaseRef(S.project.id, n, hi); S.project.seq = Math.min(S.project.seq || 0, hi); msg = `Deleted. The next defect will be ${pre}${String(hi + 1).padStart(3, '0')}.`; } }
     toast(msg, 4000); } catch (e) { toast('Could not delete: ' + friendly(e)); }
 }
-function step(dir) { if (!ED || ED.isNew) return; const L = filtered(); const i = L.findIndex(x => x.id === ED.d.id); const n = L[i + dir]; if (n) { S.sel = n.id; openEditor(n); renderPins(); } }
+const edSnap = () => JSON.stringify([FIELDS.map(f => { const el = $('edBody').querySelector(`[name=${f}]`); return el ? el.value : ''; }), (ED.d.photos || []).map(p => p.id || p.path), ED.d.plan, ED.d.x, ED.d.y]);
+async function step(dir) {
+  if (!ED || ED.isNew) return; const L = filtered(); const i = L.findIndex(x => x.id === ED.d.id); const n = L[i + dir];
+  if (!n) { toast(dir > 0 ? 'That is the last item in this list' : 'That is the first item in this list'); return; }
+  if (ED.snap && ED.snap !== edSnap() && !(await confirmBox('Leave this item without saving your changes?', 'Leave'))) return;
+  const b = $('edBody'); b.classList.add(dir > 0 ? 'outl' : 'outr'); setTimeout(() => { b.classList.remove('outl', 'outr'); S.sel = n.id; openEditor(n); renderPins(); b.classList.add(dir > 0 ? 'inr' : 'inl'); setTimeout(() => b.classList.remove('inr', 'inl'), 220); }, 110);
+}
+// Swipe left or right on a record to move through the items in the current list.
+function swipeWire(el) {
+  let sx = 0, sy = 0, ok = false;
+  el.addEventListener('touchstart', e => { const t = e.target; ok = e.touches.length === 1 && !t.closest('canvas, .mic, select') && t !== document.activeElement && !(document.querySelector('.peek')); sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  el.addEventListener('touchend', e => { if (!ok || !ED || ED.isNew || document.querySelector('.peek')) return; const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy; if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 2.2) step(dx < 0 ? 1 : -1); }, { passive: true });
+}
 
 /* ---- Gemini ---- */
 const AIMAP = { title: 'title', description: 'desc', action: 'action', unit: 'unit', room: 'room', surface: 'surface', item: 'item', block: 'block', level: 'level', element: 'element', type: 'type', severity: 'severity', trade: 'trade', responsible: 'responsible', status: 'status', targetDate: 'targetDate' };
@@ -928,7 +1002,7 @@ function wire() {
   if (S.local.noList) $('main').classList.add('nolist');
   $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); $('zfull').textContent = '⛶'; requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); $('zfull').textContent = on ? '✕' : '⛶'; $('zfull').title = on ? 'Exit full screen' : 'Full screen'; requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
-  $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1);
+  $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1); swipeWire($('edBody'));
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') dismissModal(); });
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
@@ -941,13 +1015,13 @@ function wire() {
 // One-tap workflow: the responsible party marks it ready; the raiser (or an admin/editor) accepts or sends it back.
 function workflowBar(w, con) {
   const mine = w.createdBy === S.user.email, reviewer = !con && (mine || can.edit());
-  const b = [];
-  if (con && selfClose(w)) { if (w.status !== 'Closed') b.push('<button class="go" id="wfSelf">✔ Complete and close</button>'); if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>'); return b.length ? '<div class="wf">' + b.join('') + '</div>' : ''; }
+  const b = [], cm = `<button id="wfCmt" class="cmt">💬 ${con ? 'Respond' : 'Comment'}</button>`, wrap = x => '<div class="wf">' + x.join('') + cm + '</div>';
+  if (con && selfClose(w)) { if (w.status !== 'Closed') b.push('<button class="go" id="wfSelf">✔ Complete and close</button>'); if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>'); return wrap(b); }
   if (w.status !== 'Closed' && w.status !== 'Ready for review') b.push('<button class="go" id="wfReady">✅ Ready for inspection</button>');
   if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>');
   if (w.status === 'Ready for review' && reviewer) b.push('<button class="go" id="wfAccept">✔ Accept and close</button><button class="warn" id="wfReopen">↩ Reopen and send back</button>');
-  if (w.status === 'Ready for review' && !reviewer) return '<p class="note">Marked ready for inspection; waiting for ' + esc(w.createdBy || 'the project team') + ' to review.</p>';
-  return b.length ? '<div class="wf">' + b.join('') + '</div>' : '';
+  if (w.status === 'Ready for review' && !reviewer) return '<p class="note">Marked ready for inspection; waiting for ' + esc(w.createdBy || 'the project team') + ' to review.</p>' + wrap([]);
+  return wrap(b);
 }
 function typicalPicker() {
   const list = typicalList(S.project); const cur = collect(); const room = (cur.room || '').toLowerCase();
