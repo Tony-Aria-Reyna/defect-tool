@@ -565,3 +565,9 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 #mk .mkhint{height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 #mk .bar .pgo{background:var(--teal);color:var(--navy);font-weight:700}
+
+#mk .bar.tools button{width:46px;height:46px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:8px}
+#mk .bar svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#mk .bar .ic{width:40px;padding:6px 0;display:flex;align-items:center;justify-content:center}#mk .bar .ic svg{width:20px;height:20px}
+#mk .bar.tools{gap:4px;overflow:visible}#mk .bar.tools button{flex:1 1 0;min-width:0;width:auto;max-width:56px;height:44px}
+#mk .bar.props{gap:4px}#mk .bar.props .ic{width:36px;flex:none;font-size:14px}#mk .bar.props .sw{flex:none}

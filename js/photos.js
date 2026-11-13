@@ -76,8 +76,16 @@ export async function markup(src, onSave) {
 }
 const base = () => { const c = $('mkc'); return { lw: Math.max(4, c.width / 180), fs: Math.max(18, c.width / 32), tol: Math.max(16, c.width / 45) }; };
 const fsOf = s => base().fs * (s.fs || 1), lwOf = s => base().lw * (s.w || 1);
-const lines = s => String(s.text || '').split('\n');
-function textBox(s) { const x = $('mkc').getContext('2d'), fs = fsOf(s); x.font = `bold ${fs}px sans-serif`; const L = lines(s), w = Math.max(...L.map(t => x.measureText(t).width), fs), h = L.length * fs * 1.2; return { x: s.p[0][0], y: s.p[0][1], w, h, fs }; }
+// A text label is a box: the words wrap to its width (s.bw) and sit left, centre or right (s.al).
+function wrapText(s) {
+  const x = $('mkc').getContext('2d'), fs = fsOf(s); x.font = `bold ${fs}px sans-serif`; const out = [];
+  String(s.text || '').split('\n').forEach(par => { if (!s.bw) { out.push(par); return; } let ln = ''; par.split(/\s+/).forEach(w => { const t = ln ? ln + ' ' + w : w; if (ln && x.measureText(t).width > s.bw) { out.push(ln); ln = w; } else ln = t; }); out.push(ln); });
+  return out;
+}
+const lines = s => wrapText(s);
+function textBox(s) { const x = $('mkc').getContext('2d'), fs = fsOf(s), L = wrapText(s); x.font = `bold ${fs}px sans-serif`; const nat = Math.max(...L.map(t => x.measureText(t).width), fs), w = s.bw ? Math.max(s.bw, 0) : nat, h = L.length * fs * 1.2; return { x: s.p[0][0], y: s.p[0][1], w, h, fs, L }; }
+// A new label starts no wider than the photo allows, so long text wraps instead of running off the edge.
+function fitText(s) { const c = $('mkc'), x = c.getContext('2d'), fs = fsOf(s), m = c.width * 0.03; x.font = `bold ${fs}px sans-serif`; const nat = Math.max(...String(s.text || '').split('\n').map(t => x.measureText(t).width), fs); let px = Math.max(m, s.p[0][0]); const room = c.width - m - px, want = Math.min(nat, c.width * 0.7); if (room < Math.min(want, c.width * 0.4)) px = Math.max(m, c.width - m - want); s.bw = Math.ceil(Math.min(nat, c.width - m - px)) + 2; const h = wrapText(s).length * fs * 1.2; s.p = [[px, Math.max(m, Math.min(s.p[0][1], c.height - m - h))]]; }
 // The rectangle that contains a mark, in photo pixels.
 function bbox(s) {
   if (s.tool === 'text') { const b = textBox(s); return { x0: b.x - 6, y0: b.y - 4, x1: b.x + b.w + 6, y1: b.y + b.h + 4 }; }
@@ -87,7 +95,7 @@ function bbox(s) {
 function handles(s) {
   if (s.tool === 'arrow' || s.tool === 'dim' || s.tool === 'line') return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }];
   if (s.tool === 'poly') return s.p.map((q, i) => ({ k: i, p: q }));
-  const b = bbox(s); if (s.tool === 'text') return [{ k: 'se', p: [b.x1, b.y1] }];
+  const b = bbox(s); if (s.tool === 'text') return [{ k: 'w', p: [b.x0, (b.y0 + b.y1) / 2] }, { k: 'e', p: [b.x1, (b.y0 + b.y1) / 2] }, { k: 'se', p: [b.x1, b.y1] }];
   return [{ k: 'nw', p: [b.x0, b.y0] }, { k: 'ne', p: [b.x1, b.y0] }, { k: 'sw', p: [b.x0, b.y1] }, { k: 'se', p: [b.x1, b.y1] }];
 }
 function draw() {
@@ -101,7 +109,7 @@ function draw() {
       if (s === MK.cur) { const r = Math.max(8, c.width / 100); s.p.forEach((q, j) => { x.beginPath(); x.arc(q[0], q[1], j ? r * 0.7 : r * 1.25, 0, 7); x.fillStyle = j ? col : '#fff'; x.fill(); x.lineWidth = Math.max(3, c.width / 350); x.strokeStyle = j ? '#fff' : col; x.stroke(); }); }
       return; }
     const a = s.p[0], b = s.p[s.p.length - 1];
-    if (s.tool === 'text') { const t = textBox(s); x.font = `bold ${t.fs}px sans-serif`; x.textBaseline = 'top'; x.textAlign = 'start'; x.save(); x.globalAlpha = 0.85; x.fillStyle = col === '#ffffff' ? '#111' : '#fff'; x.fillRect(t.x - 6, t.y - 4, t.w + 12, t.h + 8); x.restore(); lines(s).forEach((ln, i) => x.fillText(ln, t.x, t.y + i * t.fs * 1.2)); return; }
+    if (s.tool === 'text') { const t = textBox(s); x.font = `bold ${t.fs}px sans-serif`; x.textBaseline = 'top'; x.textAlign = 'start'; x.save(); x.globalAlpha = 0.85; x.fillStyle = col === '#ffffff' ? '#111' : '#fff'; x.fillRect(t.x - 6, t.y - 4, t.w + 12, t.h + 8); x.restore(); const al = s.al || 'l'; x.textAlign = al === 'c' ? 'center' : al === 'r' ? 'right' : 'left'; const tx = al === 'c' ? t.x + t.w / 2 : al === 'r' ? t.x + t.w : t.x; t.L.forEach((ln, i) => x.fillText(ln, tx, t.y + i * t.fs * 1.2)); x.textAlign = 'start'; return; }
     if (s.tool === 'circle') { x.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2 + 1, Math.abs(b[1] - a[1]) / 2 + 1, 0, 0, 7); x.stroke(); return; }
     if (s.tool === 'rect') { x.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); return; }
     if (s.tool === 'dim') {   // dimension line: ticks at both ends, label centred
@@ -135,15 +143,18 @@ function hit(pt) {
 }
 const hitHandle = pt => { const s = MK.sel; if (!s) return null; const r = base().tol * 1.25; return handles(s).find(h => Math.hypot(pt[0] - h.p[0], pt[1] - h.p[1]) < r) || null; };
 const snap = () => { MK.undo.push(JSON.stringify(MK.strokes)); if (MK.undo.length > 60) MK.undo.shift(); MK.redo = []; };
-function setTool(t) { MK.tool = t; document.querySelectorAll('#mk [data-tool]').forEach(x => { const on = x.dataset.tool === t; x.classList.toggle('on', on); if (on) try { x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {} }); const hint = $('mkHint'); if (hint) hint.textContent = t === 'select' ? 'Tap a mark to select it. Drag it to move, drag a white dot to resize.' : t === 'poly' ? 'Tap each corner. Tap the first (white) dot to close the shape, or Finish to leave it open.' : t === 'text' ? 'Tap where the text should go.' : t === 'pen' ? 'Draw freehand. Tap Select when you are done.' : 'Drag on the photo to draw. It is then selected so you can adjust it.'; }
+function setTool(t) { MK.tool = t; document.querySelectorAll('#mk [data-tool]').forEach(x => { const on = x.dataset.tool === t; x.classList.toggle('on', on); if (on) try { x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {} }); const NAMES = { select: 'Select', poly: 'Shape', arrow: 'Arrow', circle: 'Circle', rect: 'Box', line: 'Line', text: 'Text', dim: 'Dimension', pen: 'Pen' }; const hint = $('mkHint'); if (hint) hint.textContent = NAMES[t] + ': ' + (t === 'select' ? 'Tap a mark to select it. Drag it to move, drag a white dot to resize.' : t === 'poly' ? 'Tap each corner. Tap the first (white) dot to close the shape, or Finish to leave it open.' : t === 'text' ? 'Tap where the text should go. Drag the side dots to change its width.' : t === 'pen' ? 'Draw freehand. Tap Select when you are done.' : 'Drag on the photo to draw. It is then selected so you can adjust it.'); }
 // The row of options for the selected mark (or the defaults for the next one).
 function props() {
   const el = $('mkProps'); if (!el || !MK) return; const s = MK.sel && MK.strokes.includes(MK.sel) ? MK.sel : null, cur = s ? (s.col || COLS[0]) : MK.col, hasText = s && (s.tool === 'text' || s.tool === 'dim');
   const drawing = MK.cur && MK.cur.tool === 'poly' ? MK.cur.p.length : 0;
-  const key = [s ? MK.strokes.indexOf(s) : -1, cur, hasText, MK.undo.length, MK.redo.length, drawing, s && s.tool === 'poly' ? !!s.closed : ''].join('|'); if (el.dataset.k === key) return; el.dataset.k = key; el.scrollLeft = 0;
+  const AL = { l: '<svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h8M3 15h11"/></svg>', c: '<svg viewBox="0 0 20 20"><path d="M3 5h14M6 10h8M4.5 15h11"/></svg>', r: '<svg viewBox="0 0 20 20"><path d="M3 5h14M9 10h8M6 15h11"/></svg>' };
+  const key = [s ? MK.strokes.indexOf(s) : -1, cur, hasText, s ? s.al || 'l' : '', MK.undo.length, MK.redo.length, drawing, s && s.tool === 'poly' ? !!s.closed : ''].join('|'); if (el.dataset.k === key) return; el.dataset.k = key; el.scrollLeft = 0;
   if (drawing) { el.innerHTML = `<button data-pg="close" ${drawing < 3 ? 'disabled style="opacity:.4"' : ''} class="pgo">⬠ Close shape</button><button data-pg="open" ${drawing < 2 ? 'disabled style="opacity:.4"' : ''}>✔ Finish (leave open)</button><button data-pg="back">↶ Last point</button><button data-pg="x">Cancel shape</button>`; el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => polyEnd(b.dataset.pg)); return; }
-  el.innerHTML = COLS.map(c => `<button class="sw ${c === cur ? 'on' : ''}" data-col="${c}" style="background:${c}" title="Colour"></button>`).join('') + (s ? `<span class="sep"></span><button data-a="del" class="del">🗑 Delete</button>${hasText ? '<button data-a="edit">✎ Edit text</button>' : ''}${s.tool === 'poly' ? `<button data-a="toggle">${s.closed ? 'Open shape' : 'Close shape'}</button>` : ''}<button data-a="smaller" title="Thinner or smaller">A−</button><button data-a="bigger" title="Thicker or bigger">A+</button><button data-a="dup">⧉ Copy</button>` : '<span class="muted small" style="color:#aaa;align-self:center;margin-left:6px">Colour for the next mark</span>');
-  el.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { MK.col = b.dataset.col; if (s) { snap(); s.col = MK.col; } draw(); });
+  const ib = (a, icon, title, cls) => `<button class="ic ${cls || ''}" data-a="${a}" title="${title}" aria-label="${title}">${icon}</button>`;
+  el.innerHTML = `<button class="sw on" id="mkCol" style="background:${cur}" title="Colour: tap to change"></button>` + (s ? (hasText ? ib('edit', '✎', 'Edit the text') : '') + (s.tool === 'text' ? ['l', 'c', 'r'].map(a => `<button class="ic ${(s.al || 'l') === a ? 'on' : ''}" data-al="${a}" title="${a === 'l' ? 'Align left' : a === 'c' ? 'Centre' : 'Align right'}">${AL[a]}</button>`).join('') : '') + (s.tool === 'poly' ? `<button data-a="toggle">${s.closed ? 'Open it' : 'Close it'}</button>` : '') + ib('smaller', 'A−', 'Thinner or smaller') + ib('bigger', 'A+', 'Thicker or bigger') + ib('dup', '⧉', 'Copy') + ib('del', '🗑', 'Delete', 'del') : '<span class="muted small" style="color:#aaa;align-self:center;margin-left:6px">Colour for the next mark. Tap it to change.</span>');
+  $('mkCol').onclick = () => { MK.col = COLS[(COLS.indexOf(cur) + 1) % COLS.length]; if (s) { snap(); s.col = MK.col; } draw(); };
+  el.querySelectorAll('[data-al]').forEach(b => b.onclick = () => { snap(); s.al = b.dataset.al; draw(); });
   el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => { const a = b.dataset.a;
     if (a === 'del') { snap(); MK.strokes = MK.strokes.filter(q => q !== s); MK.sel = null; }
     else if (a === 'dup') { snap(); const off = base().tol * 1.5, n = JSON.parse(JSON.stringify(s)); n.p = n.p.map(q => [q[0] + off, q[1] + off]); MK.strokes.push(n); MK.sel = n; }
@@ -179,21 +190,21 @@ export function initMarkup() {
     else if (e.key === 'Delete' || e.key === 'Backspace') { if (MK.sel) { e.preventDefault(); del(); } }
     else if (e.key.startsWith('Arrow') && MK.sel) { e.preventDefault(); const st = (e.shiftKey ? 10 : 2) * c.width / 800, dx = e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, dy = e.key === 'ArrowUp' ? -st : e.key === 'ArrowDown' ? st : 0; snap(); MK.sel.p = MK.sel.p.map(q => [q[0] + dx, q[1] + dy]); draw(); }
     if (e.key === 'Enter' && MK.cur && MK.cur.tool === 'poly') { e.preventDefault(); polyEnd('open'); }
-    if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; MK.hover = null; draw(); } else if (drag && drag.orig) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; drag = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
+    if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; MK.hover = null; draw(); } else if (drag && drag.orig) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; MK.sel.bw = drag.orig.bw; drag = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
   addEventListener('keyup', e => { if (e.key === ' ') space = false; });
   cv.addEventListener('wheel', e => { if (!MK) return; e.preventDefault(); const r = cv.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top, ns = Math.max(1, Math.min(8, V.s * Math.exp(-e.deltaY * 0.0015))); V.x = cx - (cx - V.x) * ns / V.s; V.y = cy - (cy - V.y) * ns / V.s; V.s = ns; if (V.s === 1) { V.x = 0; V.y = 0; } applyV(); }, { passive: false });
-  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur && MK.cur.tool === 'poly') { if (MK.cur.p.length > 1) MK.cur.p.pop(); } else if (MK.cur) { MK.cur = null; } if (drag && drag.orig && MK.sel) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; } drag = null; draw(); } });
+  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur && MK.cur.tool === 'poly') { if (MK.cur.p.length > 1) MK.cur.p.pop(); } else if (MK.cur) { MK.cur = null; } if (drag && drag.orig && MK.sel) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; MK.sel.bw = drag.orig.bw; } drag = null; draw(); } });
   cv.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], r = cv.getBoundingClientRect(), ns = Math.max(1, Math.min(8, pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, cx = pinch.cx - r.left, cy = pinch.cy - r.top; V.x = cx - (cx - pinch.x) * ns / pinch.s + (mx - pinch.cx); V.y = cy - (cy - pinch.y) * ns / pinch.s + (my - pinch.cy); V.s = ns; applyV(); } });
   const upV = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (V.s <= 1.001) resetV(); };
   cv.addEventListener('pointerup', upV); cv.addEventListener('pointercancel', upV);
   c.addEventListener('pointerdown', async e => {
     if (!MK) return; if (pts.size >= 2) return;
     if (e.ctrlKey || e.button === 1 || space) { pan = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y }; c.setPointerCapture(e.pointerId); c.style.cursor = 'grabbing'; return; }
-    c.setPointerCapture(e.pointerId); const p = pt(e), keep = s => ({ p: s.p.map(q => q.slice()), fs: s.fs, box: bbox(s) });
+    c.setPointerCapture(e.pointerId); const p = pt(e), keep = s => ({ p: s.p.map(q => q.slice()), fs: s.fs, bw: s.bw, box: bbox(s) });
     // a handle of the selected mark always wins, whichever tool is active
     const h = hitHandle(p); if (h) { drag = { kind: 'h', k: h.k, from: p, orig: keep(MK.sel), moved: false }; return; }
     if (MK.tool === 'select') { const s = hit(p); MK.sel = s; drag = s ? { kind: 'm', from: p, orig: keep(s), moved: false } : null; draw(); return; }
-    if (MK.tool === 'text') { const t = await askText('Text', '', true); if (t) { snap(); const n = { tool: 'text', p: [p], text: t, col: MK.col }; MK.strokes.push(n); MK.sel = n; setTool('select'); draw(); } return; }
+    if (MK.tool === 'text') { const t = await askText('Text', '', true); if (t) { snap(); const n = { tool: 'text', p: [p], text: t, col: MK.col }; fitText(n); MK.strokes.push(n); MK.sel = n; setTool('select'); draw(); } return; }
     if (MK.tool === 'poly') { // one tap per corner
       const s = MK.cur, near = (q, k) => Math.hypot(p[0] - q[0], p[1] - q[1]) < base().tol * (k || 1.2);
       if (!s || s.tool !== 'poly') { MK.sel = null; MK.cur = { tool: 'poly', p: [p], col: MK.col }; }
@@ -210,7 +221,9 @@ export function initMarkup() {
       if (drag.kind === 'm') s.p = o.p.map(q => [q[0] + dx, q[1] + dy]);
       else if (typeof drag.k === 'number') { s.p = o.p.map(q => q.slice()); s.p[drag.k] = p; }
       else if (drag.k === 'a') s.p = [p, o.p[o.p.length - 1]]; else if (drag.k === 'b') s.p = [o.p[0], p];
-      else if (s.tool === 'text') { const lh = base().fs * 1.2 * lines(s).length; s.fs = Math.max(0.4, Math.min(6, (p[1] - s.p[0][1] - 4) / lh)); }
+      else if (s.tool === 'text' && drag.k === 'e') s.bw = Math.max(fsOf(s) * 2, p[0] - 6 - s.p[0][0]);
+      else if (s.tool === 'text' && drag.k === 'w') { const right = o.box.x1 - 6, nx = Math.min(p[0] + 6, right - fsOf(s) * 2); s.p = [[nx, o.p[0][1]]]; s.bw = right - nx; }
+      else if (s.tool === 'text') { const n = lines(s).length, k = Math.max(0.4, Math.min(6, (p[1] - s.p[0][1] - 4) / (base().fs * 1.2 * n))), was = s.fs || 1; s.fs = k; if (s.bw) s.bw = (o.bw || s.bw) * k / (o.fs || 1); }
       else { // a corner: the opposite corner stays where it is
         const b = o.box, fx = drag.k.includes('w') ? b.x1 : b.x0, fy = drag.k.includes('n') ? b.y1 : b.y0;
         if (s.tool === 'pen') { const sx = (p[0] - fx) / ((drag.k.includes('w') ? b.x0 : b.x1) - fx || 1), sy = (p[1] - fy) / ((drag.k.includes('n') ? b.y0 : b.y1) - fy || 1); s.p = o.p.map(q => [fx + (q[0] - fx) * sx, fy + (q[1] - fy) * sy]); }
