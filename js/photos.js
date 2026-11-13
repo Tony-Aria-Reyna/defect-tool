@@ -62,84 +62,148 @@ export async function flushOutbox() {
 }
 export async function outboxCount() { try { return (await obAll()).length; } catch (e) { return 0; } }
 
-/* ---- markup ---- */
+/* ---- markup ----
+   Marks are objects, not paint: tap one to select it, drag it to move it, drag a handle to resize or reshape it,
+   change its colour or size, edit its text, duplicate or delete it. Undo and redo cover every change. */
 let MK = null;
+const COLS = ['#ff2d2d', '#ffd400', '#1e88e5', '#111111', '#ffffff'];
 export async function markup(src, onSave) {
   let im; try { im = await loadImage(src); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
   const c = $('mkc'); c.width = im.width; c.height = im.height;
   try { c.getContext('2d').drawImage(im, 0, 0); c.toDataURL(); } catch (e) { toast('This photo cannot be marked up until the storage CORS setting is in place (see README).', 5000); return; }
-  MK = { im, strokes: [], tool: 'pen', cur: null, sel: null, onSave }; document.querySelectorAll('#mk [data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === 'pen')); $('mkDel').style.display = 'none'; $('mkc').style.transform = ''; draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
+  MK = { im, strokes: [], tool: 'arrow', cur: null, sel: null, onSave, col: COLS[0], undo: [], redo: [] };
+  $('mkc').style.transform = ''; setTool('arrow'); draw(); Nav.open('markup', () => { $('mk').classList.remove('show'); MK = null; }); $('mk').classList.add('show');
+}
+const base = () => { const c = $('mkc'); return { lw: Math.max(4, c.width / 180), fs: Math.max(18, c.width / 32), tol: Math.max(16, c.width / 45) }; };
+const fsOf = s => base().fs * (s.fs || 1), lwOf = s => base().lw * (s.w || 1);
+const lines = s => String(s.text || '').split('\n');
+function textBox(s) { const x = $('mkc').getContext('2d'), fs = fsOf(s); x.font = `bold ${fs}px sans-serif`; const L = lines(s), w = Math.max(...L.map(t => x.measureText(t).width), fs), h = L.length * fs * 1.2; return { x: s.p[0][0], y: s.p[0][1], w, h, fs }; }
+// The rectangle that contains a mark, in photo pixels.
+function bbox(s) {
+  if (s.tool === 'text') { const b = textBox(s); return { x0: b.x - 6, y0: b.y - 4, x1: b.x + b.w + 6, y1: b.y + b.h + 4 }; }
+  const xs = s.p.map(q => q[0]), ys = s.p.map(q => q[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+// Where the grab handles of a mark sit: the two ends of a line, the four corners of a shape, one corner of a text label.
+function handles(s) {
+  if (s.tool === 'arrow' || s.tool === 'dim' || s.tool === 'line') return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }];
+  const b = bbox(s); if (s.tool === 'text') return [{ k: 'se', p: [b.x1, b.y1] }];
+  return [{ k: 'nw', p: [b.x0, b.y0] }, { k: 'ne', p: [b.x1, b.y0] }, { k: 'sw', p: [b.x0, b.y1] }, { k: 'se', p: [b.x1, b.y1] }];
 }
 function draw() {
-  const c = $('mkc'), x = c.getContext('2d'); x.drawImage(MK.im, 0, 0); const lw = Math.max(4, c.width / 180), fs = Math.max(18, c.width / 32);
+  const c = $('mkc'), x = c.getContext('2d'); x.setLineDash([]); x.globalAlpha = 1; x.drawImage(MK.im, 0, 0); const B = base();
   x.lineCap = x.lineJoin = 'round';
-  [...MK.strokes, MK.cur].filter(Boolean).forEach((s, i) => {
-    const sel = s === MK.sel; x.lineWidth = lw; x.strokeStyle = sel ? '#ffd400' : (s.col || '#ff2d2d'); x.fillStyle = x.strokeStyle;
-    x.beginPath();
+  [...MK.strokes, MK.cur].filter(Boolean).forEach(s => {
+    const col = s.col || COLS[0], lw = lwOf(s); x.lineWidth = lw; x.strokeStyle = col; x.fillStyle = col; x.beginPath();
     if (s.tool === 'pen') { s.p.forEach((q, j) => j ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1])); x.stroke(); return; }
     const a = s.p[0], b = s.p[s.p.length - 1];
-    if (s.tool === 'text') { x.font = `bold ${fs}px sans-serif`; x.textBaseline = 'top'; const w = x.measureText(s.text || '').width; x.save(); x.globalAlpha = 0.85; x.fillStyle = '#fff'; x.fillRect(a[0] - 6, a[1] - 4, w + 12, fs + 8); x.restore(); x.fillText(s.text || '', a[0], a[1]); if (sel) x.strokeRect(a[0] - 6, a[1] - 4, w + 12, fs + 8); return; }
+    if (s.tool === 'text') { const t = textBox(s); x.font = `bold ${t.fs}px sans-serif`; x.textBaseline = 'top'; x.textAlign = 'start'; x.save(); x.globalAlpha = 0.85; x.fillStyle = col === '#ffffff' ? '#111' : '#fff'; x.fillRect(t.x - 6, t.y - 4, t.w + 12, t.h + 8); x.restore(); lines(s).forEach((ln, i) => x.fillText(ln, t.x, t.y + i * t.fs * 1.2)); return; }
     if (s.tool === 'circle') { x.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2 + 1, Math.abs(b[1] - a[1]) / 2 + 1, 0, 0, 7); x.stroke(); return; }
+    if (s.tool === 'rect') { x.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); return; }
     if (s.tool === 'dim') {   // dimension line: ticks at both ends, label centred
-      x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), t = lw * 3;
+      x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), t = lw * 3, fs = fsOf(s);
       [a, b].forEach(q => { x.beginPath(); x.moveTo(q[0] - t * Math.sin(ang), q[1] + t * Math.cos(ang)); x.lineTo(q[0] + t * Math.sin(ang), q[1] - t * Math.cos(ang)); x.stroke(); });
       const label = s.text || '?'; x.font = `bold ${fs}px sans-serif`; x.textBaseline = 'middle'; x.textAlign = 'center'; const w = x.measureText(label).width, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-      x.save(); x.translate(mx, my); let r = ang; if (r > Math.PI / 2 || r < -Math.PI / 2) r += Math.PI; x.rotate(r); x.globalAlpha = 0.9; x.fillStyle = '#fff'; x.fillRect(-w / 2 - 6, -fs * 0.8 - fs * 0.6, w + 12, fs + 6); x.globalAlpha = 1; x.fillStyle = sel ? '#b08900' : (s.col || '#ff2d2d'); x.fillText(label, 0, -fs * 0.8); x.restore(); x.textAlign = 'start'; return;
+      x.save(); x.translate(mx, my); let r = ang; if (r > Math.PI / 2 || r < -Math.PI / 2) r += Math.PI; x.rotate(r); x.globalAlpha = 0.9; x.fillStyle = '#fff'; x.fillRect(-w / 2 - 6, -fs * 0.8 - fs * 0.6, w + 12, fs + 6); x.globalAlpha = 1; x.fillStyle = col === '#ffffff' ? '#111' : col; x.fillText(label, 0, -fs * 0.8); x.restore(); x.textAlign = 'start'; return;
     }
-    x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), h = lw * 5;
+    x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); if (s.tool === 'line') return; const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), h = lw * 5;
     x.beginPath(); x.moveTo(b[0], b[1]); x.lineTo(b[0] - h * Math.cos(ang - 0.45), b[1] - h * Math.sin(ang - 0.45)); x.moveTo(b[0], b[1]); x.lineTo(b[0] - h * Math.cos(ang + 0.45), b[1] - h * Math.sin(ang + 0.45)); x.stroke();
   });
+  // selection: a dashed outline and round handles, drawn over everything and never saved into the photo
+  const s = MK.sel; if (s && MK.strokes.includes(s)) { const b = bbox(s), pad = B.lw * 2, r = Math.max(9, c.width / 90);
+    x.save(); x.lineWidth = Math.max(2, c.width / 500); x.strokeStyle = '#1e88e5'; x.setLineDash([r, r * 0.8]); x.strokeRect(b.x0 - pad, b.y0 - pad, b.x1 - b.x0 + pad * 2, b.y1 - b.y0 + pad * 2); x.setLineDash([]);
+    handles(s).forEach(h => { x.beginPath(); x.arc(h.p[0], h.p[1], r, 0, 7); x.fillStyle = '#fff'; x.fill(); x.lineWidth = Math.max(3, c.width / 350); x.strokeStyle = '#1e88e5'; x.stroke(); }); x.restore(); }
+  props();
 }
-// Hit test for the select tool: returns the mark whose geometry is within tolerance of the point.
+// Which mark is under a point (top-most first).
 function hit(pt) {
-  const c = $('mkc'), tol = Math.max(14, c.width / 60), fs = Math.max(18, c.width / 32), x = c.getContext('2d');
+  const tol = base().tol;
   const segD = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1; let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2; t = Math.max(0, Math.min(1, t)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
   for (let i = MK.strokes.length - 1; i >= 0; i--) {
     const s = MK.strokes[i], a = s.p[0], b = s.p[s.p.length - 1];
-    if (s.tool === 'text') { x.font = `bold ${fs}px sans-serif`; const w = x.measureText(s.text || '').width; if (pt[0] >= a[0] - 6 && pt[0] <= a[0] + w + 6 && pt[1] >= a[1] - 4 && pt[1] <= a[1] + fs + 4) return s; continue; }
+    if (s.tool === 'text') { const q = bbox(s); if (pt[0] >= q.x0 && pt[0] <= q.x1 && pt[1] >= q.y0 && pt[1] <= q.y1) return s; continue; }
     if (s.tool === 'pen') { for (let j = 1; j < s.p.length; j++) if (segD(pt, s.p[j - 1], s.p[j]) < tol) return s; continue; }
-    if (s.tool === 'circle') { const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, rx = Math.abs(b[0] - a[0]) / 2 + 1, ry = Math.abs(b[1] - a[1]) / 2 + 1; const d = Math.hypot((pt[0] - cx) / rx, (pt[1] - cy) / ry); if (Math.abs(d - 1) * Math.min(rx, ry) < tol) return s; continue; }
-    if (segD(pt, a, b) < tol * 1.5) return s;
+    if (s.tool === 'circle') { const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, rx = Math.abs(b[0] - a[0]) / 2 + 1, ry = Math.abs(b[1] - a[1]) / 2 + 1; const d = Math.hypot((pt[0] - cx) / rx, (pt[1] - cy) / ry); if (Math.abs(d - 1) * Math.min(rx, ry) < tol || (s === MK.sel && d < 1)) return s; continue; }
+    if (s.tool === 'rect') { const q = bbox(s), inX = pt[0] > q.x0 - tol && pt[0] < q.x1 + tol, inY = pt[1] > q.y0 - tol && pt[1] < q.y1 + tol; if (inX && inY && (Math.min(Math.abs(pt[0] - q.x0), Math.abs(pt[0] - q.x1), Math.abs(pt[1] - q.y0), Math.abs(pt[1] - q.y1)) < tol || s === MK.sel)) return s; continue; }
+    if (segD(pt, a, b) < tol * 1.3) return s;
   }
   return null;
 }
-function askText(title, cur) { return new Promise(res => { const d = document.createElement('div'); d.className = 'mkask'; d.innerHTML = `<div><b>${title}</b><input id="mkTxt" value="${(cur || '').replace(/"/g, '&quot;')}" placeholder="e.g. 850 mm, or Gap here"><div class="act"><button id="mkTxtX">Cancel</button><button class="go" id="mkTxtOk">OK</button></div></div>`; $('mk').appendChild(d); const i = d.querySelector('#mkTxt'); setTimeout(() => i.focus(), 30); const done = v => { d.remove(); res(v); }; d.querySelector('#mkTxtOk').onclick = () => done(i.value.trim()); d.querySelector('#mkTxtX').onclick = () => done(null); i.onkeydown = e => { if (e.key === 'Enter') done(i.value.trim()); if (e.key === 'Escape') done(null); }; }); }
+const hitHandle = pt => { const s = MK.sel; if (!s) return null; const r = base().tol * 1.25; return handles(s).find(h => Math.hypot(pt[0] - h.p[0], pt[1] - h.p[1]) < r) || null; };
+const snap = () => { MK.undo.push(JSON.stringify(MK.strokes)); if (MK.undo.length > 60) MK.undo.shift(); MK.redo = []; };
+function setTool(t) { MK.tool = t; document.querySelectorAll('#mk [data-tool]').forEach(x => { const on = x.dataset.tool === t; x.classList.toggle('on', on); if (on) try { x.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {} }); const hint = $('mkHint'); if (hint) hint.textContent = t === 'select' ? 'Tap a mark to select it. Drag it to move, drag a white dot to resize.' : t === 'text' ? 'Tap where the text should go.' : t === 'pen' ? 'Draw freehand. Tap Select when you are done.' : 'Drag on the photo to draw. It is then selected so you can adjust it.'; }
+// The row of options for the selected mark (or the defaults for the next one).
+function props() {
+  const el = $('mkProps'); if (!el || !MK) return; const s = MK.sel && MK.strokes.includes(MK.sel) ? MK.sel : null, cur = s ? (s.col || COLS[0]) : MK.col, hasText = s && (s.tool === 'text' || s.tool === 'dim');
+  const key = [s ? MK.strokes.indexOf(s) : -1, cur, hasText, MK.undo.length, MK.redo.length].join('|'); if (el.dataset.k === key) return; el.dataset.k = key;
+  el.innerHTML = COLS.map(c => `<button class="sw ${c === cur ? 'on' : ''}" data-col="${c}" style="background:${c}" title="Colour"></button>`).join('') + (s ? `<span class="sep"></span><button data-a="del" class="del">🗑 Delete</button>${hasText ? '<button data-a="edit">✎ Edit text</button>' : ''}<button data-a="smaller" title="Thinner or smaller">A−</button><button data-a="bigger" title="Thicker or bigger">A+</button><button data-a="dup">⧉ Copy</button>` : '<span class="muted small" style="color:#aaa;align-self:center;margin-left:6px">Colour for the next mark</span>');
+  el.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { MK.col = b.dataset.col; if (s) { snap(); s.col = MK.col; } draw(); });
+  el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => { const a = b.dataset.a;
+    if (a === 'del') { snap(); MK.strokes = MK.strokes.filter(q => q !== s); MK.sel = null; }
+    else if (a === 'dup') { snap(); const off = base().tol * 1.5, n = JSON.parse(JSON.stringify(s)); n.p = n.p.map(q => [q[0] + off, q[1] + off]); MK.strokes.push(n); MK.sel = n; }
+    else if (a === 'edit') { const t = await askText(s.tool === 'dim' ? 'Dimension' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; } }
+    else { snap(); const k = a === 'bigger' ? 1.25 : 0.8; if (s.tool === 'text') s.fs = Math.max(0.4, Math.min(5, (s.fs || 1) * k)); else { s.w = Math.max(0.4, Math.min(4, (s.w || 1) * k)); if (s.tool === 'dim') s.fs = Math.max(0.4, Math.min(5, (s.fs || 1) * k)); } }
+    draw(); });
+}
+function askText(title, cur, multi) { return new Promise(res => { const d = document.createElement('div'); d.className = 'mkask'; d.innerHTML = `<div><b>${title}</b>${multi ? '<textarea id="mkTxt" rows="3" placeholder="e.g. Gap here. Press Enter for a new line."></textarea>' : '<input id="mkTxt" placeholder="e.g. 850 mm">'}<div class="act"><button id="mkTxtX">Cancel</button><button class="go" id="mkTxtOk">OK</button></div></div>`; $('mk').appendChild(d); const i = d.querySelector('#mkTxt'); i.value = cur || ''; setTimeout(() => i.focus(), 30); const done = v => { d.remove(); res(v); }; d.querySelector('#mkTxtOk').onclick = () => done(i.value.trim()); d.querySelector('#mkTxtX').onclick = () => done(null); i.onkeydown = e => { if (e.key === 'Enter' && (!multi || e.ctrlKey || e.metaKey)) { e.preventDefault(); done(i.value.trim()); } if (e.key === 'Escape') done(null); }; }); }
 export function initMarkup() {
   const c = $('mkc'), pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
-  let dragFrom = null, moved = false, dragOrig = null;
+  let drag = null, lastTap = { t: 0, s: null };
   // Pan and zoom of the photo while marking up: Ctrl+drag, middle button or Space on a computer; two fingers on a phone; wheel to zoom.
   const V = { x: 0, y: 0, s: 1 }, cv = c.parentElement, pts = new Map(); let pan = null, pinch = null, space = false;
   const applyV = () => { c.style.transform = `translate(${V.x}px,${V.y}px) scale(${V.s})`; };
   const resetV = () => { V.x = 0; V.y = 0; V.s = 1; applyV(); };
   c.style.transformOrigin = '0 0'; cv.style.overflow = 'hidden';
-  addEventListener('keydown', e => { if (!MK) return; if (e.key === ' ' && e.target === document.body) { space = true; e.preventDefault(); } if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; draw(); } else if (dragFrom && MK.sel && dragOrig) { MK.sel.p = dragOrig; dragFrom = null; dragOrig = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
+  const undo = () => { if (!MK.undo.length) return; MK.redo.push(JSON.stringify(MK.strokes)); MK.strokes = JSON.parse(MK.undo.pop()); MK.sel = null; draw(); };
+  const redo = () => { if (!MK.redo.length) return; MK.undo.push(JSON.stringify(MK.strokes)); MK.strokes = JSON.parse(MK.redo.pop()); MK.sel = null; draw(); };
+  const del = () => { if (MK.sel) { snap(); MK.strokes = MK.strokes.filter(s => s !== MK.sel); MK.sel = null; draw(); } };
+  addEventListener('keydown', e => { if (!MK || document.querySelector('.mkask')) return; const k = e.key.toLowerCase();
+    if (e.key === ' ' && e.target === document.body) { space = true; e.preventDefault(); }
+    if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); }
+    else if ((e.ctrlKey || e.metaKey) && k === 'd' && MK.sel) { e.preventDefault(); const b = document.querySelector('#mkProps [data-a=dup]'); if (b) b.click(); }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { if (MK.sel) { e.preventDefault(); del(); } }
+    else if (e.key.startsWith('Arrow') && MK.sel) { e.preventDefault(); const st = (e.shiftKey ? 10 : 2) * c.width / 800, dx = e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, dy = e.key === 'ArrowUp' ? -st : e.key === 'ArrowDown' ? st : 0; snap(); MK.sel.p = MK.sel.p.map(q => [q[0] + dx, q[1] + dy]); draw(); }
+    if (e.key === 'Escape') { if (MK.cur) { MK.cur = null; draw(); } else if (drag && drag.orig) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; drag = null; draw(); } else if (MK.sel) { MK.sel = null; draw(); } } });
   addEventListener('keyup', e => { if (e.key === ' ') space = false; });
   cv.addEventListener('wheel', e => { if (!MK) return; e.preventDefault(); const r = cv.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top, ns = Math.max(1, Math.min(8, V.s * Math.exp(-e.deltaY * 0.0015))); V.x = cx - (cx - V.x) * ns / V.s; V.y = cy - (cy - V.y) * ns / V.s; V.s = ns; if (V.s === 1) { V.x = 0; V.y = 0; } applyV(); }, { passive: false });
-  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur) { MK.cur = null; draw(); } } });
+  cv.addEventListener('pointerdown', e => { if (!MK) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: V.s, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: V.x, y: V.y }; if (MK.cur) { MK.cur = null; } if (drag && drag.orig && MK.sel) { MK.sel.p = drag.orig.p; MK.sel.fs = drag.orig.fs; } drag = null; draw(); } });
   cv.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], r = cv.getBoundingClientRect(), ns = Math.max(1, Math.min(8, pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, cx = pinch.cx - r.left, cy = pinch.cy - r.top; V.x = cx - (cx - pinch.x) * ns / pinch.s + (mx - pinch.cx); V.y = cy - (cy - pinch.y) * ns / pinch.s + (my - pinch.cy); V.s = ns; applyV(); } });
   const upV = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (V.s <= 1.001) resetV(); };
   cv.addEventListener('pointerup', upV); cv.addEventListener('pointercancel', upV);
   c.addEventListener('pointerdown', async e => {
     if (!MK) return; if (pts.size >= 2) return;
     if (e.ctrlKey || e.button === 1 || space) { pan = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y }; c.setPointerCapture(e.pointerId); c.style.cursor = 'grabbing'; return; }
-    c.setPointerCapture(e.pointerId); const p = pt(e); moved = false;
-    if (MK.tool === 'select') { const s = hit(p); MK.sel = s; dragFrom = s ? p : null; dragOrig = s ? s.p.map(q => q.slice()) : null; draw(); return; }
-    if (MK.tool === 'text') { const t = await askText('Text', ''); if (t) { MK.strokes.push({ tool: 'text', p: [p], text: t }); MK.sel = null; draw(); } return; }
-    MK.cur = { tool: MK.tool, p: [p] }; draw();
+    c.setPointerCapture(e.pointerId); const p = pt(e), keep = s => ({ p: s.p.map(q => q.slice()), fs: s.fs, box: bbox(s) });
+    // a handle of the selected mark always wins, whichever tool is active
+    const h = hitHandle(p); if (h) { drag = { kind: 'h', k: h.k, from: p, orig: keep(MK.sel), moved: false }; return; }
+    if (MK.tool === 'select') { const s = hit(p); MK.sel = s; drag = s ? { kind: 'm', from: p, orig: keep(s), moved: false } : null; draw(); return; }
+    if (MK.tool === 'text') { const t = await askText('Text', '', true); if (t) { snap(); const n = { tool: 'text', p: [p], text: t, col: MK.col }; MK.strokes.push(n); MK.sel = n; setTool('select'); draw(); } return; }
+    MK.sel = null; MK.cur = { tool: MK.tool, p: [p], col: MK.col }; draw();
   });
   c.addEventListener('pointermove', e => {
     if (!MK) return; if (pan) { V.x = pan.vx + (e.clientX - pan.x); V.y = pan.vy + (e.clientY - pan.y); applyV(); return; } if (pts.size >= 2) return; const p = pt(e);
-    if (MK.tool === 'select') { if (MK.sel && dragFrom) { const dx = p[0] - dragFrom[0], dy = p[1] - dragFrom[1]; MK.sel.p = MK.sel.p.map(q => [q[0] + dx, q[1] + dy]); dragFrom = p; moved = true; draw(); } return; }
+    if (drag && MK.sel) { const s = MK.sel, o = drag.orig, dx = p[0] - drag.from[0], dy = p[1] - drag.from[1];
+      if (!drag.moved) { if (Math.hypot(dx, dy) < base().tol * 0.25) return; drag.moved = true; snap(); }
+      if (drag.kind === 'm') s.p = o.p.map(q => [q[0] + dx, q[1] + dy]);
+      else if (drag.k === 'a') s.p = [p, o.p[o.p.length - 1]]; else if (drag.k === 'b') s.p = [o.p[0], p];
+      else if (s.tool === 'text') { const lh = base().fs * 1.2 * lines(s).length; s.fs = Math.max(0.4, Math.min(6, (p[1] - s.p[0][1] - 4) / lh)); }
+      else { // a corner: the opposite corner stays where it is
+        const b = o.box, fx = drag.k.includes('w') ? b.x1 : b.x0, fy = drag.k.includes('n') ? b.y1 : b.y0;
+        if (s.tool === 'pen') { const sx = (p[0] - fx) / ((drag.k.includes('w') ? b.x0 : b.x1) - fx || 1), sy = (p[1] - fy) / ((drag.k.includes('n') ? b.y0 : b.y1) - fy || 1); s.p = o.p.map(q => [fx + (q[0] - fx) * sx, fy + (q[1] - fy) * sy]); }
+        else s.p = [[fx, fy], p];
+      }
+      draw(); return; }
     if (!MK.cur) return; if (MK.cur.tool === 'pen') MK.cur.p.push(p); else MK.cur.p = [MK.cur.p[0], p]; draw();
   });
-  c.addEventListener('pointerup', async () => {
+  const up = async () => {
     if (!MK) return; if (pan) { pan = null; c.style.cursor = ''; return; }
-    if (MK.tool === 'select') { dragOrig = null; if (MK.sel && !moved && (MK.sel.tool === 'text' || MK.sel.tool === 'dim')) { const t = await askText(MK.sel.tool === 'dim' ? 'Dimension' : 'Text', MK.sel.text); if (t !== null) { MK.sel.text = t; draw(); } } dragFrom = null; return; }
-    if (MK.cur) { const s = MK.cur; MK.cur = null; if (s.p.length > 1 && (s.tool === 'pen' || Math.hypot(s.p[1][0] - s.p[0][0], s.p[1][1] - s.p[0][1]) > 6)) { if (s.tool === 'dim') { const t = await askText('Dimension (what you measured)', ''); if (t === null) { draw(); return; } s.text = t; } MK.strokes.push(s); } draw(); }
-  });
-  document.querySelectorAll('#mk [data-tool]').forEach(b => b.onclick = () => { MK.tool = b.dataset.tool; if (MK.tool !== 'select') MK.sel = null; document.querySelectorAll('#mk [data-tool]').forEach(x => x.classList.toggle('on', x === b)); $('mkDel').style.display = MK.tool === 'select' ? '' : 'none'; draw(); });
-  $('mkUndo').onclick = () => { MK.strokes.pop(); MK.sel = null; draw(); };
-  $('mkDel').onclick = () => { if (MK.sel) { MK.strokes = MK.strokes.filter(s => s !== MK.sel); MK.sel = null; draw(); } };
+    if (drag) { const d = drag, s = MK.sel; drag = null;
+      if (!d.moved && s && d.kind === 'm') { const now = Date.now(); if (lastTap.s === s && now - lastTap.t < 450 && (s.tool === 'text' || s.tool === 'dim')) { const t = await askText(s.tool === 'dim' ? 'Dimension' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; draw(); } lastTap = { t: 0, s: null }; } else lastTap = { t: now, s }; }
+      return; }
+    if (MK.cur) { const s = MK.cur; MK.cur = null; if (s.p.length > 1 && (s.tool === 'pen' || Math.hypot(s.p[1][0] - s.p[0][0], s.p[1][1] - s.p[0][1]) > 6)) { if (s.tool === 'dim') { const t = await askText('Dimension (what you measured)', ''); if (t === null) { draw(); return; } s.text = t; } snap(); MK.strokes.push(s); if (s.tool !== 'pen') { MK.sel = s; setTool('select'); } } draw(); }
+  };
+  c.addEventListener('pointerup', up); c.addEventListener('pointercancel', () => { if (MK && MK.cur) { MK.cur = null; draw(); } drag = null; });
+  document.querySelectorAll('#mk [data-tool]').forEach(b => b.onclick = () => { setTool(b.dataset.tool); if (MK.tool !== 'select') MK.sel = null; draw(); });
+  $('mkUndo').onclick = undo; $('mkRedo').onclick = redo;
   $('mkCancel').onclick = () => { $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); };
   $('mkSave').onclick = () => { const m = MK; m.sel = null; draw(); $('mk').classList.remove('show'); MK = null; Nav.closed('markup'); if (m.strokes.length) m.onSave(c.toDataURL('image/jpeg', 0.82)); };
 }

@@ -498,8 +498,8 @@ async function onPlace(x, y) {
   const pl = placing; stopPlacing();
   if (pl.mode === 'pick') { toast('✓ Point recorded', 1200); pl.resolve({ x, y }); return; }
   if (pl.mode === 'queue') { pl.resolve({ x, y, plan: S.curPlan }); return; }
-  if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); ED.focusDesc = true; const el = $('edBody').querySelector('[name=title]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
-  else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); }
+  if (pl.mode === 'new') { const d = await newDefect(); applyZone(d, x, y, S.curPlan); openEditor(d, true, true); nextStep(); }
+  else { applyZone(pl.draft, x, y, S.curPlan); openEditor(pl.draft, pl.isNew, true); if (pl.isNew) nextStep(); }
 }
 // Where a unit shows on the elevations: the middle of the stretch of elevation that lands in that unit, preferring its deck or patio face.
 export function elevSpot(unit) {
@@ -675,7 +675,7 @@ export function openEditor(d, isNew, isDraft) {
   if (!$('sheet').classList.contains('show')) Nav.open('editor', () => closeEditor());
   $('sheet').classList.add('show');
   // straight after a pin is dropped the cursor goes into the title, so typing or dictating can start at once
-  if (ED.focusDesc) { ED.focusDesc = false; const el = $('edBody').querySelector('[name=title]'); if (el) setTimeout(() => { el.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }, 80); }
+  if (ED.focusDesc) { ED.focusDesc = false; nextStep(); }
 }
 function aiStatus(m, err) { const s = $('aiSt'); if (s) { s.textContent = m || ''; s.style.color = err ? '#b00000' : ''; } if (err && m) toast(m, 5000); }
 // Full-size plan window showing where a defect is, with a plain X to close.
@@ -692,6 +692,12 @@ async function drawLoc() {
   if (!p || d.x == null) { c.style.display = 'none'; return; } c.style.display = '';
   try { const im = await loadImage(await imgUrl(p.img)); const W = c.width, H = c.height, s = 3 * W / p.w, cx = d.x * p.w * s, cy = d.y * p.h * s; x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.drawImage(im, W / 2 - cx, H / 2 - cy, p.w * s, p.h * s); x.fillStyle = SCOL[d.status] || '#d64545'; x.beginPath(); x.arc(W / 2, H / 2, 9, 0, 7); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke(); }
   catch (e) { c.style.display = 'none'; }
+}
+// After a step of a new defect is done, take the person to the next one: pin, then photo, then describe.
+function nextStep() {
+  if (!ED || !ED.isNew) return; const d = ED.d, show = id => { const n = $(id); if (n) setTimeout(() => { try { (n.closest('.stgcard') || n).scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }, 80); };
+  if (!(d.photos || []).length) { show('stg2'); if (isMobile() && !can.contractor()) setTimeout(() => { if (ED && ED.isNew && !(ED.d.photos || []).length && !document.querySelector('.phsheet')) addPhotoMenu(); }, 350); }
+  else show('stg3');
 }
 function stageGate() {
   if (!ED || !ED.staged) return true; const d = ED.d, pin = !!((d.plan && d.x != null) || d.general), ph = (d.photos || []).length > 0, dict = $('edBody').querySelector('.dict');
@@ -1037,7 +1043,8 @@ function wire() {
   if (S.local.noList) $('main').classList.add('nolist');
   $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); $('zfull').textContent = '⛶'; requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); $('zfull').textContent = on ? '✕' : '⛶'; $('zfull').title = on ? 'Exit full screen' : 'Full screen'; requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
-  $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1); swipeWire($('edBody'));
+  $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edBody').addEventListener('input', e => { const t = e.target; if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; } });
+  $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1); swipeWire($('edBody'));
   $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') dismissModal(); });
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
@@ -1085,6 +1092,6 @@ function newDefectChooser() {
 }
 async function addPhotos(fs) {
   if (!ED) return;
-  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {} for (const f of fs) { try { ED.d.photos.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } renderPhotos(); }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {} for (const f of fs) { try { ED.d.photos.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } renderPhotos(); if (ED && ED.isNew) nextStep(); }
 window.addEventListener('rd-defects-changed', () => { filtersDirty = true; render(); });
 boot();

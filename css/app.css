@@ -552,3 +552,14 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .plantabs.elev .pte{display:inline-flex}.plantabs.elev .ptf{display:none}
 .plantabs .pte .seg button{min-width:0;white-space:nowrap;padding:6px 12px;font-size:13px}
 .plantabs #ptBack{border:1px solid var(--line);border-radius:16px;padding:6px 10px;font-size:12px;font-weight:600;background:#fff;white-space:nowrap;flex:none}
+
+#mk .bar.props{padding-top:0;align-items:center;min-height:40px}
+#mk .bar .sw{width:30px;height:30px;border-radius:50%;padding:0;border:2px solid #555}#mk .bar .sw.on{border-color:#fff;box-shadow:0 0 0 2px var(--teal)}
+#mk .bar .sep{width:1px;height:24px;background:#555;margin:0 4px}#mk .bar .del{background:#7a2020}
+#mk .mkhint{color:#bbb;font-size:12px;padding:0 10px 6px;background:#222}
+.mkask textarea{width:100%;box-sizing:border-box;font-size:16px;padding:8px;margin:8px 0;border:1px solid var(--line);border-radius:6px}
+
+#mk .bar.row{flex-wrap:nowrap;overflow-x:auto;padding-top:0;scrollbar-width:none}#mk .bar.row::-webkit-scrollbar{display:none}
+#mk .bar.row button,#mk .bar.row .sw{flex:none;white-space:nowrap}
+#mk .bar.props{height:44px;min-height:44px;box-sizing:content-box}
+#mk .mkhint{height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
