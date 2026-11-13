@@ -338,7 +338,10 @@ function markTabs() {
   const isFloor = p && p.block && p.level && p.kind !== 'elevation' && pt.querySelector('[data-blk]'); if (isFloor) S.lastFloor = p.id;
   pt.querySelectorAll('[data-blk]').forEach(b => b.classList.toggle('on', !!isFloor && b.dataset.blk === String(p.block)));
   pt.querySelectorAll('[data-lvl]').forEach(b => b.classList.toggle('on', !!isFloor && b.dataset.lvl === String(p.level)));
-  const se = $('ptElev'); if (se) { se.value = p && p.kind === 'elevation' ? p.id : ''; se.classList.toggle('on', !!se.value); }
+  const se = $('ptElev'); if (se) { se.value = ''; }
+  // on an elevation the strip turns into one tap per elevation, so an exterior walk-round can flick between them
+  const onEl = !!(p && p.kind === 'elevation' && pt.querySelector('.pte')); pt.classList.toggle('elev', onEl);
+  pt.querySelectorAll('[data-el]').forEach(b => { const on = b.dataset.el === S.curPlan; b.classList.toggle('on', on); if (on && onEl) requestAnimationFrame(() => b.scrollIntoView({ block: 'nearest', inline: 'nearest' })); });
 }
 function renderPlanTabs() {
   const pt = $('plantabs');
@@ -350,7 +353,10 @@ function renderPlanTabs() {
   const fl = sorted.filter(p => gOf(p) === 'floor'), keyed = fl.length > 1 && fl.every(p => p.block && p.level) && new Set(fl.map(p => p.block + '|' + p.level)).size === fl.length;
   if (keyed) {
     const blocks = uniq(fl.map(p => p.block)).sort(natural), levels = uniq(fl.map(p => p.level)).sort((a, b) => lvlRank(a) - lvlRank(b)), others = sorted.filter(p => gOf(p) === 'site'), el = sorted.filter(p => gOf(p) === 'elev');
-    pt.innerHTML = `<span class="seg"><em>Block</em>${blocks.map(b => `<button data-blk="${esc(b)}">${esc(String(b).replace(/^block\s*/i, ''))}</button>`).join('')}</span><span class="seg"><em>Level</em>${levels.map(l => `<button data-lvl="${esc(l)}" title="${esc(l)}">${esc(lvlShort(l))}</button>`).join('')}</span>` + (others.length ? '<span class="ptsep"></span>' + others.map(tabBtn).join('') : '') + (el.length ? `<span class="ptsep"></span><select id="ptElev" class="ptsel"><option value="">📐 Elevations (${el.length})</option>${el.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select>` : '');
+    const elShort = n => String(n).replace(/elevations?/gi, '').replace(/\bblocks?\b/gi, '').replace(/[()]/g, ' ').replace(/^[\s\-–:,]+|[\s\-–:,]+$/g, '').replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ').trim() || n;
+    pt.innerHTML = `<span class="pte"><button id="ptBack" title="Back to the floor plans">⬚ Floor plans</button><span class="seg"><em>Elevations</em>${el.map(p => `<button data-el="${esc(p.id)}" title="${esc(p.name)}">${esc(elShort(p.name))}</button>`).join('')}</span></span><span class="ptf"><span class="seg"><em>Block</em>${blocks.map(b => `<button data-blk="${esc(b)}">${esc(String(b).replace(/^block\s*/i, ''))}</button>`).join('')}</span><span class="seg"><em>Level</em>${levels.map(l => `<button data-lvl="${esc(l)}" title="${esc(l)}">${esc(lvlShort(l))}</button>`).join('')}</span>` + (others.length ? '<span class="ptsep"></span>' + others.map(tabBtn).join('') : '') + (el.length ? `<span class="ptsep"></span><select id="ptElev" class="ptsel"><option value="">📐 Elevations (${el.length})</option>${el.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select>` : '') + '</span>';
+    pt.querySelectorAll('[data-el]').forEach(b => b.onclick = () => showPlan(b.dataset.el));
+    $('ptBack').onclick = () => showPlan((fl.find(p => p.id === S.lastFloor) || fl[0]).id);
     const go = (b, l) => { const t = fl.find(p => p.block === b && p.level === l) || fl.find(p => p.block === b) || fl.find(p => p.level === l); if (t) showPlan(t.id); };
     const cur = () => fl.find(p => p.id === S.curPlan) || fl.find(p => p.id === S.lastFloor) || fl[0];
     pt.querySelectorAll('[data-blk]').forEach(b => b.onclick = () => go(b.dataset.blk, cur().level));
