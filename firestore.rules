@@ -62,7 +62,9 @@ service cloud.firestore {
 
       match /defects/{id} {
         allow read: if isMember(pid);
-        allow create: if canEdit(pid);
+        // contractors can add items to their own registers only
+        allow create: if canEdit(pid)
+          || (isContractor(pid) && request.resource.data.get('source', '') in proj(pid).get('selfCloseSources', []));
         allow delete: if isAdmin(pid);
         allow update: if canEdit(pid)
           || (isContractor(pid)
