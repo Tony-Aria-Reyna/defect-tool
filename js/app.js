@@ -5,7 +5,7 @@ import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal } from './util.js';
 import { PlanView } from './planview.js';
-import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt } from './ai.js';
+import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
 import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel, setProjectCtx } from './exports.js';
 import * as Admin from './admin.js';
@@ -570,7 +570,7 @@ export function openEditor(d, isNew, isDraft) {
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
   const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status || (s === 'Closed' && selfClose(w))) : p.statuses;
-  $('edBody').innerHTML = `${w.aiPending ? '<div class="ainote show" id="aiWait">📵 Site note recorded out of coverage. Gemini will fill in the form when the phone is back in service. You can still edit and pin it now. <a href="#" id="aiWaitX">Already filled in? Clear this notice</a></div>' : ''}${w.aiReview ? '<div class="ainote show">✨ Gemini filled this in from your site note while you were out of coverage. Check the fields, then Save to mark it checked.</div>' : ''}
+  $('edBody').innerHTML = `${w.aiPending ? '<div class="ainote show" id="aiWait">📵 Site note recorded out of coverage. Gemini will fill in the form when the phone is back in service. You can still edit and pin it now.' + (w.transcript ? '<br><span class="muted">Spoken note: “' + esc(w.transcript) + '”</span>' : '') + ' <a href="#" id="aiWaitX">Already filled in? Clear this notice</a></div>' : ''}${w.aiReview ? '<div class="ainote show">✨ Gemini filled this in from your site note while you were out of coverage. Check the fields, then Save to mark it checked.</div>' : ''}
   ${!ro && !con && (isNew || w.createdBy === S.user.email || (!w.createdBy && can.admin())) ? `<div class="dict">
     <div class="row1"><button class="mic" id="mic" title="Hold to talk"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
     <textarea id="dt" placeholder="Hold the mic and say what is wrong, e.g. &quot;silicone to the shower tray is patchy and there is a gap behind the vanity, contractor to redo before handover&quot;. The pin gives the unit and room.">${esc(w.transcript || '')}</textarea></div>
@@ -826,15 +826,21 @@ function swipeWire(el) {
 
 /* ---- Gemini ---- */
 const AIMAP = { title: 'title', description: 'desc', action: 'action', unit: 'unit', room: 'room', surface: 'surface', item: 'item', block: 'block', level: 'level', element: 'element', type: 'type', severity: 'severity', trade: 'trade', responsible: 'responsible', status: 'status', targetDate: 'targetDate' };
+// Ask Gemini to turn a spoken note into defect records. If a description comes back as the speaker's own words, ask once more for a proper rewrite.
+async function aiDefects(text, cur, photo) {
+  const ask = async strict => { const raw = await aiCall(aiPrompt(text, cur, strict), photo); let o; try { o = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { throw new Error('Gemini sent back something I could not read. Try again.'); } return { o, list: Array.isArray(o) ? o : (o.defects || [o]) }; };
+  let r = await ask(false);
+  if (r.list.some(x => tooVerbatim(text, x.description))) { try { const r2 = await ask(true); if (r2.list.length) r = r2; } catch (e) { console.warn('rewrite', e); } }
+  return r;
+}
 async function interpret() {
   if (!stageGate()) { toast('Pin it and add a photo first, then Gemini can fill in the form', 4500); return; }
   const text = $('dt').value.trim(); if (!text) { toast('Say or type the defect first'); return; }
   const cur = collect(); const btn = $('aiGo'); btn.disabled = true; aiStatus('Asking Gemini…'); $('aiNote').classList.remove('show');
   try {
     const ph = $('aiPh').checked && cur.photos[0] ? await photoSrc(cur.photos[0]) : null;
-    const raw = await aiCall(aiPrompt(text, cur), ph && ph.startsWith('data:') ? ph : null);
-    let o; try { o = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { throw new Error('Gemini sent back something I could not read. Try again.'); }
-    const list = Array.isArray(o) ? o : (o.defects || [o]); if (!list.length) throw new Error('Gemini did not find a defect in that note.');
+    const { o, list } = await aiDefects(text, cur, ph && ph.startsWith('data:') ? ph : null);
+    if (!list.length) throw new Error('Gemini did not find a defect in that note.');
     applyAI(list[0]); if (ED.d.aiPending) { ED.d.aiPending = false; const n = $('aiWait'); if (n) n.remove(); }
     const extra = list.slice(1), qs = (o.questions || []).filter(Boolean); let h = '';
     if (qs.length) h += '<b>Check:</b> ' + qs.map(esc).join(' · ');
@@ -852,10 +858,9 @@ async function interpret() {
 function queueNote(text) {
   const d = ED.d; d.aiPending = true; d.transcript = text;
   if (!d.title) { const el = $('edBody').querySelector('[name=title]'); el.value = d.title = 'Site note: ' + text.replace(/\s+/g, ' ').slice(0, 60); }
-  if (!d.desc) { const el = $('edBody').querySelector('[name=desc]'); el.value = d.desc = text; }
   const m = /\bunit\s*(?:number\s*)?(\d{1,3})\b/i.exec(text); const b = $('edBody');
   if (m && !d.unit && unitList(S.project).includes(m[1])) { const el = b.querySelector('[name=unit]'); if (el) { el.value = m[1]; el.dispatchEvent(new Event('change')); } d.unit = m[1]; collect(); if (!d.plan) { const z = findZone(d.unit, ''); if (z) { applyZone(d, z.x, z.y, z.plan.id); d.zoneHit = 'Pinned at the centre of Unit ' + d.unit + ' (move it if needed)'; drawLoc(); } } }
-  aiStatus('No coverage. Saved as a site note; Gemini will fill in the form when you are back in service, then it will show under "To check".');
+  aiStatus('No coverage. Your words are kept with the item as a spoken note; Gemini will write the description when you are back in service, then it will show under "To check".');
 }
 let aiBusy = false;
 export async function processPendingAI() {
@@ -865,7 +870,7 @@ export async function processPendingAI() {
   try {
     for (const d of todo) {
       if (!S.project || S.project.id !== pid) break;
-      let o; try { const raw = await aiCall(aiPrompt(d.transcript, d)); o = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { if (!navigator.onLine || /Could not reach|Failed to fetch|network/i.test(e.message)) break; console.warn('pending AI', d.id, e); continue; }
+      let o; try { o = (await aiDefects(d.transcript, d)).o; } catch (e) { if (!navigator.onLine || /Could not reach|Failed to fetch|network/i.test(e.message)) break; console.warn('pending AI', d.id, e); continue; }
       const list = Array.isArray(o) ? o : (o.defects || [o]); if (!list.length) continue;
       const t = new Date().toISOString(), x = list[0], patch = { aiPending: false, aiReview: true, updated: t, updatedBy: S.user.email };
       Object.entries(AIMAP).forEach(([k, f]) => { if (x[k] != null && x[k] !== '') patch[f] = String(x[k]).replace(/—/g, ', '); });

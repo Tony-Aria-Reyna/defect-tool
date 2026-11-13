@@ -64,7 +64,15 @@ export async function aiCall(prompt, imgDataUrl) {
   return ((((j.candidates || [])[0] || {}).content || {}).parts || []).map(p => p.text || '').join('');
 }
 
-export function aiPrompt(text, cur) {
+// True when a description is still the speaker's own words: mostly the same word pairs as the note, or spoken-style phrasing.
+export function tooVerbatim(note, desc) {
+  const w = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean), n = w(note), d = w(desc); if (d.length < 5) return false;
+  if (/\b(i|i'm|im|we|we've|you know|um+|uh+|gonna|kind of|sort of|i think|i guess|can you|please (add|log|record|note)|so yeah|basically|okay so)\b/i.test(String(desc))) return true;
+  if (n.length < 6) return false;
+  const pairs = a => new Set(a.slice(1).map((x, i) => a[i] + ' ' + x)), pn = pairs(n), pd = pairs(d); let hit = 0; pd.forEach(p => { if (pn.has(p)) hit++; });
+  return hit / pd.size > 0.6;
+}
+export function aiPrompt(text, cur, strict) {
   const p = S.project, zones = [];
   S.plans.forEach(pl => (pl.zones || []).forEach(z => { if (z.kind === 'unit') zones.push(`Unit ${z.unit} = ${[z.block && 'Block ' + z.block, z.level].filter(Boolean).join(', ')}`); }));
   const roomNames = [...new Set(S.plans.flatMap(pl => (pl.zones || []).filter(z => z.kind !== 'unit' && z.name).map(z => z.name)))];
@@ -81,12 +89,19 @@ TYPICAL DEFECT TITLES (reuse one of these as the title when the note matches it,
 ${((S.fm || {}).systems || []).length ? 'SPECIFIED SYSTEMS: ' + S.fm.systems.map(x => x.name).join('; ') + '.' : ''}
 ${((S.fm || {}).assets || []).length ? 'BUILDING ELEMENTS AND PRODUCTS (use these names for "element"): ' + [...new Set(S.fm.assets.map(x => x.element).filter(Boolean))].slice(0, 120).join('; ') + '.' : ''}
 
+HOW TO WRITE IT. The note is someone talking naturally while walking the site. It is raw material, never the wording. Readers are the contractor, subcontractors and consultants, and they must see a register entry, not a transcript.
+- "description": what is wrong, on which element, and the extent (how much, how many, which side). Third person, present tense, complete sentences. No "I", "we" or "you". No filler or conversational words (um, so, basically, I think, I guess, kind of, you know). Nothing addressed to you or to the app ("can you add", "log this", "make a note"). Do not open with the unit or room: the location has its own fields.
+- "action": the instruction to the contractor, starting with a verb (Remove, Replace, Reseal, Make good, Investigate). Move anything the speaker says should be done into "action", not "description".
+- "title": the defect in a few words, as it would appear in a schedule (for example "Shower tray silicone incomplete").
+- Use correct trade and product terms, and the element and product names listed above where they fit. Keep every fact that was said (measurements, counts, product names, dates, who is to do it). Add nothing that was not said or is not visible in the photo.
+EXAMPLE. Spoken: "okay so in here the um the silicone round the shower tray is pretty rough, there's a gap down the left side by the wall, about 200 long, and I think the painter's got overspray on the glass as well, they'll need to redo that before handover". One defect is written as: title "Shower tray silicone incomplete", description "Silicone seal to the shower tray is uneven, with an unsealed gap of approximately 200 mm on the left-hand side at the wall junction.", action "Remove and reapply the silicone seal to the full perimeter of the shower tray before handover." The overspray is a second defect: title "Paint overspray on shower glass", description "Paint overspray is present on the shower glass.", action "Remove overspray from the shower glass without scratching the surface."
+${strict ? 'IMPORTANT: your previous answer repeated the speaker\'s own words in the description. Rewrite every description and action from scratch in the register style above.\n' : ''}
 THE SITE NOTE (dictated, may contain speech-to-text errors; fix obvious mishearings such as "gyp" for GIB or "unit to" for unit 2):
 """${text}"""
 
 CURRENT FORM VALUES (keep anything the note does not change): ${JSON.stringify({ unit: cur.unit, room: cur.room, surface: cur.surface, item: cur.item, block: cur.block, level: cur.level, element: cur.element, title: cur.title, status: cur.status })}
 
 Return JSON only, in this shape:
-{"defects":[{"title":"short name, max 8 words","description":"clear professional description, 1-3 sentences, New Zealand English, no em dashes, what is wrong and where","action":"what must be done to fix it, imperative","unit":"unit number or empty","room":"room or area","surface":"one of Floor, Wall, Ceiling, Exterior cladding, Roof, Joinery, Services, or empty","item":"the fixture or fitting the defect is on, e.g. Kitchen unit, Vanity, Shower, WC, Supertub, Heat pump, Window, Door, or empty","block":"block or empty","level":"level or empty","element":"building element or product","type":"one of ${JSON.stringify(p.types)}","severity":"one of ${JSON.stringify(p.severities.filter(s => s !== 'To triage'))}","trade":"one of ${JSON.stringify(p.trades)}","responsible":"one of ${JSON.stringify(p.responsible)}","status":"one of ${JSON.stringify(p.statuses)} (default Open)","targetDate":"YYYY-MM-DD if a date or timeframe is said (today is ${todayISO()}), else empty"}],"questions":["anything unclear the user should check, max 2, else empty"]}
+{"defects":[{"title":"short name, max 8 words","description":"register-style description written as set out above, 1-3 sentences, New Zealand English, no em dashes; never the speaker's own wording","action":"what must be done to fix it, imperative","unit":"unit number or empty","room":"room or area","surface":"one of Floor, Wall, Ceiling, Exterior cladding, Roof, Joinery, Services, or empty","item":"the fixture or fitting the defect is on, e.g. Kitchen unit, Vanity, Shower, WC, Supertub, Heat pump, Window, Door, or empty","block":"block or empty","level":"level or empty","element":"building element or product","type":"one of ${JSON.stringify(p.types)}","severity":"one of ${JSON.stringify(p.severities.filter(s => s !== 'To triage'))}","trade":"one of ${JSON.stringify(p.trades)}","responsible":"one of ${JSON.stringify(p.responsible)}","status":"one of ${JSON.stringify(p.statuses)} (default Open)","targetDate":"YYYY-MM-DD if a date or timeframe is said (today is ${todayISO()}), else empty"}],"questions":["anything unclear the user should check, max 2, else empty"]}
 Rules: one record per separate defect mentioned. ${p.sevLabel ? `The "severity" field is this project's ${sevLabel(p)}: choose it using the definitions in the project knowledge above${p.sevDefault ? `, and use "${p.sevDefault}" when the note gives no indication` : ''}.` : `Use a "Major" severity only if it stops the building being used for its intended purpose, is a safety or compliance issue, or the user says it is major.`} Do not invent details that were not said.`;
 }
