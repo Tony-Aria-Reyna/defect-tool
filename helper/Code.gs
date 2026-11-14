@@ -39,7 +39,10 @@ function doPost(e) {
   // Claude first when a CLAUDE_KEY is set (Script property; optional CLAUDE_MODEL). If Claude fails (credit used up, outage), Gemini answers instead.
   const ck = props.getProperty('CLAUDE_KEY'), gk = props.getProperty('GEMINI_KEY'); if (!ck && !gk) return out({ error: 'nokey' });
   let claudeErr = '';
-  if (ck) { const c = claudeCall_(ck, props.getProperty('CLAUDE_MODEL') || 'claude-opus-5-5', b); if (c.ok) return out(c); claudeErr = c.error; if (!gk) return out({ error: 'Claude: ' + claudeErr }); }
+  // The admin can pick the model and effort in the app (b.model, b.effort); only known values are accepted.
+  const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], pickM = MODELS.indexOf(b.model) >= 0 ? b.model : null, geminiOnly = b.model === 'gemini';
+  if (ck && !geminiOnly) { const c = claudeCall_(ck, pickM || props.getProperty('CLAUDE_MODEL') || 'claude-opus-5-5', b); if (c.ok) return out(c); claudeErr = c.error; if (!gk) return out({ error: 'Claude: ' + claudeErr }); }
+  if (!gk) return out({ error: 'Gemini was chosen but the helper has no GEMINI_KEY.' });
   const parts = [{ text: String(b.prompt || '').slice(0, 60000) }];
   if (b.file && b.file.data) parts.push({ inline_data: { mime_type: b.file.mime || 'image/jpeg', data: b.file.data } });
   const call = model => UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': gk }, muteHttpExceptions: true,
@@ -65,15 +68,15 @@ function claudeCall_(key, model, b) {
   try {
     const r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      payload: JSON.stringify({ model: model, max_tokens: 4096, temperature: 0.2,
+      payload: JSON.stringify(Object.assign({ model: model, max_tokens: 16000 }, ['low', 'medium', 'high', 'xhigh', 'max'].indexOf(b.effort) >= 0 ? { output_config: { effort: b.effort } } : {}, {
         system: 'You are the assistant inside a construction defects app used on New Zealand building sites. Use New Zealand English. Reply with one valid JSON value only: no code fences, no text before or after it.',
-        messages: [{ role: 'user', content: content }] }) });
+        messages: [{ role: 'user', content: content }] })) });
     const code = r.getResponseCode(), j = JSON.parse(r.getContentText() || '{}');
     if (code !== 200) return { ok: false, error: ((j.error && j.error.message) || ('HTTP ' + code)).slice(0, 200) };
     let t = (j.content || []).filter(p => p.type === 'text').map(p => p.text).join('').trim();
     t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const a = t.search(/[\[{]/), z = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']')); if (a > 0 || (z >= 0 && z < t.length - 1)) { if (a >= 0 && z > a) t = t.slice(a, z + 1); }
-    return { ok: true, model: j.model || model, via: 'claude', text: t };
+    return { ok: true, model: j.model || model, effort: ['low', 'medium', 'high', 'xhigh', 'max'].indexOf(b.effort) >= 0 ? b.effort : 'default', via: 'claude', text: t };
   } catch (x) { return { ok: false, error: String(x.message || x).slice(0, 200) }; }
 }
 
