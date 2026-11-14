@@ -323,9 +323,25 @@ function histHtml(h) {
   let body = esc(txt).replace(/status [^→;.]+? → [^;.]+(; |\.)?/i, '').replace(/(^|; |Changed )([a-z ]+?) ([^;→]+?) → ([^;.]+)/gi, (m0, pre, k, a, b) => `${pre}<b>${k}</b> <s>${a}</s> → <b>${b}</b>`).replace(/^Changed \.?$/, '').trim();
   return `<div class="h ${sys ? 'sys' : 'cm'}" style="--c:${to ? (SCOL[to] || '#888') : sys ? '#c9ced6' : '#2f6fd0'}"><div class="hh"><b>${esc(nzDT(h.t))}</b> · ${esc(h.who || '')}${raised ? ' <span class="hk">raised</span>' : !sys ? ' <span class="hk c">comment</span>' : ''}</div>${to ? `<div class="hs">${from ? pill(from) + ' <span class="ar">→</span> ' : '<span class="ar">now</span> '}${pill(to)}</div>` : ''}${body ? `<div class="ht">${body}</div>` : ''}</div>`;
 }
+// On the plan, say when a filter is hiding pins, and offer to clear it there and then.
+const DEF_STATUS = ['Open', 'In progress', 'Ready for review', 'Disputed'];
+function activeFilterNames() {
+  const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + (k === 'unit' && F[k] === '-' ? 'common areas' : F[k]));
+  if (F.q) on.unshift('search "' + F.q + '"'); if (F.review) on.push('to check'); if (F.toReview) on.push('for me to inspect');
+  const st = [...F.status]; if (!F.review && !F.toReview && (st.length !== DEF_STATUS.length || !DEF_STATUS.every(x => F.status.has(x)))) on.push('status ' + (st.length ? st.join(', ') : 'none'));
+  return on;
+}
+function planFilterBar(onPlan, ids) {
+  let bar = $('pfBar'); if (!bar) { bar = document.createElement('div'); bar.id = 'pfBar'; bar.className = 'pfbar'; $('planPane').insertBefore(bar, $('vp')); }
+  const on = activeFilterNames(); if (!on.length) { bar.style.display = 'none'; return; }
+  const shown = onPlan.filter(d => ids.has(d.id)).length, open = onPlan.filter(d => d.status !== 'Closed').length;
+  bar.innerHTML = `<span>⚑ <b>Filter on</b>: ${esc(on.join(' · '))}<br><small>${shown} of ${onPlan.length} pins on this plan shown${open !== onPlan.length ? ' (' + open + ' not closed)' : ''}</small></span><button id="pfClr">Clear filter</button>`;
+  bar.style.display = ''; $('pfClr').onclick = () => $('clr').click();
+}
 function renderPins() {
   if (!PV || !S.project) return; const ids = new Set(filtered().map(d => d.id));
-  PV.setPins(S.defects.filter(d => ((d.plan === S.curPlan && d.x != null) || (d.plan2 === S.curPlan && d.x2 != null)) && ids.has(d.id)).map(d => ({ id: d.id, x: d.plan === S.curPlan ? d.x : d.x2, y: d.plan === S.curPlan ? d.y : d.y2, colour: SCOL[d.status] || '#999', label: pinLabel(d), sel: S.sel === d.id, title: d.id + ' ' + (d.title || '') })));
+  const onPlan = S.defects.filter(d => (d.plan === S.curPlan && d.x != null) || (d.plan2 === S.curPlan && d.x2 != null)); planFilterBar(onPlan, ids);
+  PV.setPins(onPlan.filter(d => ids.has(d.id)).map(d => ({ id: d.id, x: d.plan === S.curPlan ? d.x : d.x2, y: d.plan === S.curPlan ? d.y : d.y2, colour: SCOL[d.status] || '#999', label: pinLabel(d), sel: S.sel === d.id, title: d.id + ' ' + (d.title || '') })));
 }
 
 /* ================================================================ plans */
