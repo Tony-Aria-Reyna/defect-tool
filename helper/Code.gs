@@ -39,7 +39,7 @@ function doPost(e) {
   // Claude first when a CLAUDE_KEY is set (Script property; optional CLAUDE_MODEL). If Claude fails (credit used up, outage), Gemini answers instead.
   const ck = props.getProperty('CLAUDE_KEY'), gk = props.getProperty('GEMINI_KEY'); if (!ck && !gk) return out({ error: 'nokey' });
   let claudeErr = '';
-  if (ck) { const c = claudeCall_(ck, props.getProperty('CLAUDE_MODEL') || 'claude-sonnet-5-5', b); if (c.ok) return out(c); claudeErr = c.error; if (!gk) return out({ error: 'Claude: ' + claudeErr }); }
+  if (ck) { const c = claudeCall_(ck, props.getProperty('CLAUDE_MODEL') || 'claude-opus-5-5', b); if (c.ok) return out(c); claudeErr = c.error; if (!gk) return out({ error: 'Claude: ' + claudeErr }); }
   const parts = [{ text: String(b.prompt || '').slice(0, 60000) }];
   if (b.file && b.file.data) parts.push({ inline_data: { mime_type: b.file.mime || 'image/jpeg', data: b.file.data } });
   const call = model => UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': gk }, muteHttpExceptions: true,
