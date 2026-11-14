@@ -1,6 +1,6 @@
 // Resero Defects - Gemini helper (Google Apps Script). Same pattern as Family Screen:
 // the Gemini key lives in Script properties, never in the app or on GitHub.
-// Setup: script.google.com > New project > paste this > change KEY below to any long random code >
+// Setup: script.google.com > New project > paste this > change KEY below to any long random code > (optional) add CLAUDE_KEY from platform.claude.com to use Claude, with Gemini as the backup >
 // Project Settings > Script properties > add GEMINI_KEY = your key from aistudio.google.com >
 // Deploy > New deployment > Web app > Execute as: Me, Who has access: Anyone > copy the /exec address.
 // In the app: menu > Gemini > Helper web address = that address, Helper key = the KEY below.
@@ -10,7 +10,7 @@ function doPost(e) {
   let b; try { b = JSON.parse(e.postData.contents); } catch (x) { return out({ error: 'bad request' }); }
   if (b.key !== KEY) return out({ error: 'not allowed · helper key ends ' + KEY.slice(-4) });
   const props = PropertiesService.getScriptProperties();
-  if (b.action === 'ping') return out({ ok: true, hasKey: !!props.getProperty('GEMINI_KEY') });
+  if (b.action === 'ping') return out({ ok: true, hasKey: !!(props.getProperty('CLAUDE_KEY') || props.getProperty('GEMINI_KEY')), claude: !!props.getProperty('CLAUDE_KEY'), gemini: !!props.getProperty('GEMINI_KEY') });
   // ---- contractor's register kept as a Google Sheet (columns Unit | Description | Contractor | Interior/Exterior? | Completed) ----
   // The sheet is fixed by the first link (Script property REGISTER_SHEET); to point at another sheet, change that property here.
   if (b.action === 'sheetLink') {
@@ -36,7 +36,10 @@ function doPost(e) {
   if (b.action === 'summaryGet') { try { return out({ ok: true, cfg: summaryConfig_() }); } catch (x) { return out({ error: 'Summary needs authorising: run authoriseHelper in the script editor (' + x.message + ')' }); } }
   if (b.action === 'summarySet') { try { return out({ ok: true, cfg: summarySet_(b) }); } catch (x) { return out({ error: 'Could not save the summary settings: ' + x.message }); } }
   if (b.action === 'summaryTest') { try { const to = (b.to || []).map(x => String(x).trim()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 5); return out({ ok: true, stats: summaryRun_(to, true), to: to }); } catch (x) { return out({ error: 'Could not send the test: ' + x.message }); } }
-  const gk = props.getProperty('GEMINI_KEY'); if (!gk) return out({ error: 'nokey' });
+  // Claude first when a CLAUDE_KEY is set (Script property; optional CLAUDE_MODEL). If Claude fails (credit used up, outage), Gemini answers instead.
+  const ck = props.getProperty('CLAUDE_KEY'), gk = props.getProperty('GEMINI_KEY'); if (!ck && !gk) return out({ error: 'nokey' });
+  let claudeErr = '';
+  if (ck) { const c = claudeCall_(ck, props.getProperty('CLAUDE_MODEL') || 'claude-sonnet-5-5', b); if (c.ok) return out(c); claudeErr = c.error; if (!gk) return out({ error: 'Claude: ' + claudeErr }); }
   const parts = [{ text: String(b.prompt || '').slice(0, 60000) }];
   if (b.file && b.file.data) parts.push({ inline_data: { mime_type: b.file.mime || 'image/jpeg', data: b.file.data } });
   const call = model => UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': gk }, muteHttpExceptions: true,
@@ -48,9 +51,30 @@ function doPost(e) {
     if (ok.length) { model = ok[0]; props.setProperty('GEMINI_MODEL', model); r = call(model); }
   }
   const j = JSON.parse(r.getContentText() || '{}');
-  if (r.getResponseCode() !== 200) return out({ error: (j.error && j.error.message) || ('Gemini ' + r.getResponseCode()) });
+  if (r.getResponseCode() !== 200) return out({ error: (claudeErr ? 'Claude: ' + claudeErr + ' | ' : '') + ((j.error && j.error.message) || ('Gemini ' + r.getResponseCode())) });
   const t = (((j.candidates || [])[0] || {}).content || {}).parts || [];
-  return out({ ok: true, model, text: t.map(p => p.text || '').join('') });
+  return out({ ok: true, model, via: 'gemini', fallback: claudeErr || undefined, text: t.map(p => p.text || '').join('') });
+}
+
+// One request to Claude (the Messages API). The app's prompts ask for JSON, so Claude is told to reply with JSON only,
+// and anything around the JSON (a code fence, a stray sentence) is trimmed off before it goes back to the app.
+function claudeCall_(key, model, b) {
+  const content = [];
+  if (b.file && b.file.data) content.push({ type: 'image', source: { type: 'base64', media_type: b.file.mime || 'image/jpeg', data: b.file.data } });
+  content.push({ type: 'text', text: String(b.prompt || '').slice(0, 60000) });
+  try {
+    const r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({ model: model, max_tokens: 4096, temperature: 0.2,
+        system: 'You are the assistant inside a construction defects app used on New Zealand building sites. Use New Zealand English. Reply with one valid JSON value only: no code fences, no text before or after it.',
+        messages: [{ role: 'user', content: content }] }) });
+    const code = r.getResponseCode(), j = JSON.parse(r.getContentText() || '{}');
+    if (code !== 200) return { ok: false, error: ((j.error && j.error.message) || ('HTTP ' + code)).slice(0, 200) };
+    let t = (j.content || []).filter(p => p.type === 'text').map(p => p.text).join('').trim();
+    t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const a = t.search(/[\[{]/), z = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']')); if (a > 0 || (z >= 0 && z < t.length - 1)) { if (a >= 0 && z > a) t = t.slice(a, z + 1); }
+    return { ok: true, model: j.model || model, via: 'claude', text: t };
+  } catch (x) { return { ok: false, error: String(x.message || x).slice(0, 200) }; }
 }
 
 // ================= Daily register summary (email) =================

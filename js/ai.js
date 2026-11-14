@@ -50,15 +50,17 @@ export async function aiCall(prompt, imgDataUrl) {
       // The request never came back. Work out why before blaming the signal: try again without the photo, then ask the helper if it is there at all.
       if (!navigator.onLine) throw new Error('offline');
       let ok = false;
-      if (data) { try { t = await post({ action: 'ai', prompt }); ok = true; aiCall.note = 'The photo could not be sent to Gemini this time, so it worked from your words only.'; } catch (e2) {} }
+      if (data) { try { t = await post({ action: 'ai', prompt }); ok = true; aiCall.note = 'The photo could not be sent to the AI this time, so it worked from your words only.'; } catch (e2) {} }
       if (!ok) { let ping = ''; try { ping = await post({ action: 'ping' }); } catch (e3) {}
-        throw new Error(ping ? 'The Gemini helper is running but the request failed inside it. Open the helper in Apps Script (Executions) to see the error, or tell Tony.' : 'Could not reach the Gemini helper from this phone, although the phone is online. The helper may need redeploying (Apps Script > Deploy > Manage deployments).'); }
+        throw new Error(ping ? 'The AI helper is running but the request failed inside it. Open the helper in Apps Script (Executions) to see the error, or tell Tony.' : 'Could not reach the AI helper from this phone, although the phone is online. The helper may need redeploying (Apps Script > Deploy > Manage deployments).'); }
     }
-    let j; try { j = JSON.parse(t); } catch (e) { throw new Error('The Gemini helper sent back something unexpected. Check its web address in Project settings.'); }
-    if (j.error) throw new Error(j.error === 'nokey' ? 'The Gemini helper has no key yet (Script properties GEMINI_KEY).' : /not allowed/.test(j.error) ? 'Helper key does not match. The script\'s key ends "' + String(j.error).slice(-4) + '", the one you entered ends "' + String(h.helperKey || '').slice(-4) + '".' : 'Gemini said: ' + String(j.error).slice(0, 160));
+    let j; try { j = JSON.parse(t); } catch (e) { throw new Error('The AI helper sent back something unexpected. Check its web address in Project settings.'); }
+    if (j.error) throw new Error(j.error === 'nokey' ? 'The AI helper has no key yet (Script properties GEMINI_KEY).' : /not allowed/.test(j.error) ? 'Helper key does not match. The script\'s key ends "' + String(j.error).slice(-4) + '", the one you entered ends "' + String(h.helperKey || '').slice(-4) + '".' : 'The AI said: ' + String(j.error).slice(0, 160));
+    aiCall.last = { via: j.via || 'gemini', model: j.model || '', fallback: j.fallback || '' };
+    if (j.fallback && !aiCall.note) aiCall.note = 'Claude was not available (' + String(j.fallback).slice(0, 80) + '), so Gemini answered.';
     return j.text;
   }
-  const key = S.local.geminiKey; if (!key) throw new Error('nokey');
+  const key = S.local.geminiKey; if (!key) throw new Error('nokey'); aiCall.last = { via: 'gemini', model: S.local.geminiModel || 'gemini', fallback: '' };
   const parts = [{ text: prompt }]; if (data) parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
   const model = S.local.geminiModel || 'gemini-3.6-flash';
   const call = m => fetch('https://generativelanguage.googleapis.com/v1beta/models/' + m + ':generateContent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } }) });
@@ -68,7 +70,7 @@ export async function aiCall(prompt, imgDataUrl) {
     const ok = (l.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini-[\d.]+-flash$/.test(m.name)).map(m => m.name.replace('models/', '')).sort((a, b) => parseFloat(b.split('-')[1]) - parseFloat(a.split('-')[1]));
     if (ok.length) { S.local.geminiModel = ok[0]; saveLocal(); r = await call(ok[0]); }
   }
-  const j = await r.json(); if (!r.ok) throw new Error('Gemini said: ' + ((j.error && j.error.message) || r.status));
+  const j = await r.json(); if (!r.ok) throw new Error('The AI said: ' + ((j.error && j.error.message) || r.status));
   return ((((j.candidates || [])[0] || {}).content || {}).parts || []).map(p => p.text || '').join('');
 }
 

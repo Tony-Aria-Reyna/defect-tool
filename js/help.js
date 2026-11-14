@@ -118,8 +118,8 @@ export async function siteCheck() {
   try { const st = await navigator.mediaDevices.getUserMedia({ audio: true }); st.getTracks().forEach(t => t.stop()); upd('Microphone permission', 'ok', 'Allowed'); } catch (e) { upd('Microphone permission', 'warn', 'Not allowed yet: tap the mic once and choose Allow'); }
   const ob = await outboxCount(); row('Photos waiting to upload', ob ? 'warn' : 'ok', ob ? ob + ' waiting; they upload when online' : 'None');
   if (!pid) return;
-  row('Gemini interpreter', 'wait', '');
-  try { const t = await aiCall('Reply with JSON {"ok":true}'); upd('Gemini interpreter', /ok/.test(t) ? 'ok' : 'warn', /ok/.test(t) ? (S.ai.helperUrl ? 'Project helper' : 'Personal key on this device') : 'Unexpected reply'); } catch (e) { upd('Gemini interpreter', 'bad', e.message === 'nokey' ? 'No key on this device: ☰ > Gemini > paste key > Test' : e.message); }
+  row('AI interpreter', 'wait', '');
+  try { const t = await aiCall('Reply with JSON {"ok":true}'); upd('AI interpreter', /ok/.test(t) ? (aiCall.last && aiCall.last.fallback ? 'warn' : 'ok') : 'warn', /ok/.test(t) ? (S.ai.helperUrl ? 'Project helper, answered by ' : 'Personal key on this device, answered by ') + (aiCall.last && aiCall.last.via === 'claude' ? 'Claude (' + aiCall.last.model + ')' : 'Gemini' + (aiCall.last && aiCall.last.fallback ? ', because Claude said: ' + aiCall.last.fallback.slice(0, 80) : '')) : 'Unexpected reply'); } catch (e) { upd('AI interpreter', 'bad', e.message === 'nokey' ? 'No key on this device: ☰ > Gemini > paste key > Test' : e.message); }
   if (S.store.mode === 'demo') { row('Database and photo storage', 'warn', 'Demo mode: data stays in this browser only'); return; }
   row('Save to the database', 'wait', '');
   try {

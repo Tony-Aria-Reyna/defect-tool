@@ -1134,7 +1134,7 @@ function guessTrade(s) { for (const [re, t] of TRADE_RX) if (re.test(s) && S.pro
 /* ================================================================ Gemini settings */
 export function aiSettings(msg) {
   const a = can.admin(), h = S.ai || {};
-  modal(`<h2>Gemini interpreter</h2>${msg ? `<p class="note" style="color:#b00000">${esc(msg)}</p>` : ''}
+  modal(`<h2>AI interpreter</h2><p class="note">The project helper uses Claude when the helper has a CLAUDE_KEY, with Gemini as the backup. Test shows which one answered.</p>${msg ? `<p class="note" style="color:#b00000">${esc(msg)}</p>` : ''}
   <h3 class="sec">For everyone on this project${a ? '' : ' (set by the project admin)'}</h3>
   <p class="note">Recommended: a Google Apps Script helper holds the Gemini key, so it is never on anyone's device (see helper/Code.gs in the GitHub repo). Only project members can read these two values.</p>
   <div class="grid"><label class="f">Helper web address<input id="aiU" value="${esc(h.helperUrl || '')}" ${a ? '' : 'disabled'} placeholder="https://script.google.com/macros/s/…/exec"></label><label class="f">Helper key<input id="aiK" type="password" value="${esc(h.helperKey || '')}" ${a ? '' : 'disabled'}></label></div>
@@ -1145,7 +1145,7 @@ export function aiSettings(msg) {
   const grab = async () => { S.local.geminiKey = $('aiP').value.trim(); S.local.geminiModel = $('aiM').value.trim() || 'gemini-3.6-flash'; S.local.autoAI = $('aiA').checked; saveLocal(); if (a) { const v = { helperUrl: $('aiU').value.trim(), helperKey: $('aiK').value.trim() }; await S.store.setPrivate(S.project.id, v); S.ai = v; } };
   $('aiX').onclick = closeModal;
   $('aiOk').onclick = async () => { try { await grab(); closeModal(); toast('Saved'); } catch (e) { toast(e.message); } };
-  $('aiT').onclick = async () => { try { await grab(); toast('Testing…'); const t = await aiCall('Reply with JSON {"ok":true}'); toast(/ok/.test(t) ? 'Gemini is working' : 'Unexpected reply: ' + String(t).slice(0, 80), 4000); } catch (e) { toast(e.message === 'nokey' ? 'Add a helper or a personal key first' : e.message, 5000); } };
+  $('aiT').onclick = async () => { try { await grab(); toast('Testing…'); const t = await aiCall('Reply with JSON {"ok":true}'); toast(/ok/.test(t) ? 'Working: answered by ' + (aiCall.last && aiCall.last.via === 'claude' ? 'Claude (' + aiCall.last.model + ')' : 'Gemini' + (aiCall.last && aiCall.last.fallback ? ', because Claude said: ' + aiCall.last.fallback.slice(0, 80) : '')) : 'Unexpected reply: ' + String(t).slice(0, 80), 6000); } catch (e) { toast(e.message === 'nokey' ? 'Add a helper or a personal key first' : e.message, 5000); } };
 }
 
 /* ================================================================ one-drop project pack */
