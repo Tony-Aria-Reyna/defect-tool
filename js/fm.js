@@ -356,7 +356,8 @@ async function uploadFiles(files, ctx) {
 }
 const guessType = n => { const m = TYPE_BY_FOLDER.find(([re]) => re.test(n)); return m ? m[1] : 'Other'; };
 export async function uploadFolder(files) {
-  const skip = /(^|\/)(_|~\$|\.|desktop\.ini|thumbs\.db)|Defect Manager\//i;
+  // skipped: working folders (_...), superseded versions, Office lock files, and the pack's own registers and guide
+  const skip = /(^|\/)(_|~\$|\.|desktop\.ini|thumbs\.db)|Defect Manager\/|(^|\/)Superseded\/|^([^\/]*\/)?[^\/]*(Register\.xlsx|START HERE[^\/]*\.md)$/i;
   const list = files.filter(f => !skip.test(f.relPath || f.webkitRelativePath || f.name)).map(f => ({ f, path: f.relPath || f.webkitRelativePath || f.name }));
   const have = new Set(fm().docs.map(d => d.srcPath + '|' + d.size));
   const todo = list.filter(x => !have.has(x.path + '|' + x.f.size));
