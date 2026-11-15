@@ -266,16 +266,30 @@ function humanNotes(d) {
 function lastNote(d) { const L = humanNotes(d); return L.find(n => n.h.who !== S.user.name) || L[0] || null; }
 const lastNoteHtml = (d, title) => { const n = lastNote(d); return n ? `<div class="lastc"><div class="lch">${esc(title || 'Latest comment')} · ${esc(n.h.who || '')} · ${esc(nzDT(n.h.t))}${n.label ? ` <span class="hk">${esc(n.label)}</span>` : ''}</div><div class="lct">${esc(n.text)}</div></div>` : ''; };
 // A comment, or the note that goes with a change of status. The words are typed or spoken here, not on the main sheet.
+let ND_FILES = [], noteDropRef = null;
+export const noteDropOpen = () => !!(noteDropRef && $('ndDrop') && $('modal').classList.contains('show'));
+export function noteDrop(fs) { if (noteDropRef) noteDropRef(fs); }
 function noteDialog(o) {
   const d = ED.d, con = can.contractor();
   modal(`<h2>${esc(o.title)}</h2><p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>${lastNoteHtml(d, 'Last comment')}
     <label class="f">${esc(o.ask)}${o.required ? '' : ' <span class="muted small">(optional)</span>'}<div class="ndrow"><textarea id="ndTxt" rows="3" placeholder="${esc(o.ph || '')}"></textarea><button class="mic sm" id="ndMic" title="Hold to talk">🎤</button></div></label><p class="note small" id="ndSt">Type it, or hold the microphone and say it.</p>
+    <div class="nddrop" id="ndDrop"><b>Attach to this ${o.warn ? 'note' : 'response'}</b> <span class="muted small">Drop files or photos here, or</span> <button class="mini" id="ndPick">choose files</button><input type="file" id="ndFiles" multiple hidden><div id="ndList"></div></div>
     ${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="ndFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}
     <div class="act"><button id="ndX">Cancel</button><button class="${o.warn ? 'warn' : 'go'}" id="ndGo">${esc(o.btn)}</button></div>`);
   const st = (t, bad) => { $('ndSt').textContent = t; $('ndSt').style.color = bad ? '#a32222' : ''; };
   holdToTalk($('ndMic'), () => dictate($('ndTxt'), $('ndMic'), st, () => {}));
   $('ndX').onclick = () => { stopDictation(); closeModal(); };
-  $('ndGo').onclick = async () => { stopDictation(); const txt = $('ndTxt').value.trim(); if (o.required && !txt) { st(o.need || 'Add a short note first.', true); $('ndTxt').focus(); return; } if ($('cmt')) $('cmt').value = txt; if ($('cmtFor')) $('cmtFor').value = $('ndFor') ? $('ndFor').value : ''; closeModal(); await o.go(); };
+  ND_FILES = []; const drawList = () => { $('ndList').innerHTML = ND_FILES.map((f, i) => `<span class="chip">📎 ${esc(f.name)}<button data-nx="${i}">✕</button></span>`).join(''); $('ndList').querySelectorAll('[data-nx]').forEach(b => b.onclick = () => { ND_FILES.splice(+b.dataset.nx, 1); drawList(); }); };
+  noteDropRef = fs => { for (const f of fs) { if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB and was left out'); continue; } ND_FILES.push(f); } drawList(); };
+  $('ndPick').onclick = e => { e.preventDefault(); $('ndFiles').click(); }; $('ndFiles').onchange = e => { noteDropRef([...e.target.files]); e.target.value = ''; };
+  $('ndGo').onclick = async () => { stopDictation(); let txt = $('ndTxt').value.trim(); const forWho = $('ndFor') ? $('ndFor').value : ''; if (o.required && !txt && !ND_FILES.length) { st(o.need || 'Add a short note first.', true); $('ndTxt').focus(); return; }
+    const fs = ND_FILES.slice(); ND_FILES = []; noteDropRef = null; closeModal();
+    if (fs.length) { // the files go onto the item, and the comment records them as its appendix
+      const isImg = f => /^image\//.test(f.type) || /\.(jpe?g|png|heic|webp)$/i.test(f.name), im = fs.filter(isImg), docs = fs.filter(f => !isImg(f));
+      if (im.length) await addPhotos(im); if (docs.length) await addFiles(docs);
+      txt = (txt || 'Supporting documents attached') + ' [Attached: ' + fs.map(f => f.name).join('; ') + ']'; }
+    if ($('cmt')) $('cmt').value = txt; if ($('cmtFor')) $('cmtFor').value = forWho; await o.go(); };
+  $('ndX').addEventListener('click', () => { ND_FILES = []; noteDropRef = null; });
   setTimeout(() => $('ndTxt') && !isMobile() && $('ndTxt').focus(), 60);
 }
 // One "Add photo" tile: on a phone it offers the camera or the gallery; on a computer it goes straight to the files.
@@ -1072,7 +1086,7 @@ function wire() {
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
   document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) dismissModal(); else if (document.querySelector('.askov')) return; else if ($('sheet').classList.contains('show')) tryCloseEditor(); else if (placing) stopPlacing(); });
   document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button,.btn,.chip,label.opt,[data-p],[data-view],[data-el]'); if (!b || b.disabled) return; b.classList.add('tapped'); setTimeout(() => b.classList.remove('tapped'), 220); }, true);
-  initDrop({ Admin, FM, addPhotos, addFiles, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
+  initDrop({ Admin, FM, addPhotos, addFiles, noteDrop, noteDropOpen, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
 }
 // Quick-pick a typical defect: fills title, description, action, trade, type, severity and element; keeps location and photos.
 // One-tap workflow: the responsible party marks it ready; the raiser (or an admin/editor) accepts or sends it back.

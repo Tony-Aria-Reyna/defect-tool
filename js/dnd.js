@@ -49,6 +49,7 @@ const ext = f => (/\.([a-z0-9]+)$/i.exec(f.name) || [])[1]?.toLowerCase() || '';
 const isImg = f => /^image\//.test(f.type) || ['jpg', 'jpeg', 'png', 'heic', 'webp'].includes(ext(f));
 async function route(files) {
   const w = where(), folder = files.some(f => f.relPath && f.relPath.includes('/'));
+  if (X.noteDropOpen && X.noteDropOpen()) return X.noteDrop(files);   // a comment or response is being written: the files become its appendix
   if (w === 'defect') { const im = files.filter(isImg), docs = files.filter(f => !isImg(f)); if (im.length) await X.addPhotos(im); if (docs.length) await X.addFiles(docs); return; }
   if (w === 'asset') return X.FM.dropDocs(files, X.FM.assetDropTarget());
   if (w === 'plans') { if (!can.admin()) return toast('Only project admins can add plans'); closeModal(); return X.Admin.uploadPlans(files.filter(f => ext(f) === 'pdf' || isImg(f))); }
