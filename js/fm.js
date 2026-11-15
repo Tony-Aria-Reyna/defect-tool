@@ -4,6 +4,7 @@ import { STATUS_COLOURS as SCOL } from './config.js';
 import * as Pack from './pack.js';
 import * as Nav from './nav.js';
 import { aiCall } from './ai.js';
+import * as DV from './docview.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
@@ -14,7 +15,8 @@ const UNITS = { weeks: 'week', months: 'month', years: 'year' };
 
 let X = {}, unsubs = [], cur = 'defects';
 const F = { q: '', sys: '', st: '', type: '', cat: '', win: '90', resp: '' };
-export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads(); }
+export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads();
+  DV.init({ getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
 const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [] });
 export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [] };
@@ -154,6 +156,15 @@ function assets() {
   $('aX').onclick = exportFmRegister;
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = () => editAsset(fm().assets.find(a => a.id === r.dataset.id)));
 }
+// "Where this is required": the clauses marked in the contract or specification that apply to an asset or a task
+function reqHtml(kind, id, hint) {
+  const L = DV.marksFor(kind, id);
+  return L.map(({ d, m }) => `<div class="reqsnip" data-rd="${esc(d.id)}" data-rm="${esc(m.id)}" title="Open this clause in the document">${m.snip ? `<img data-snip="${esc(m.snip)}" alt="">` : ''}<div><b>${esc(m.period || m.kind || 'Requirement')}</b><small>${esc(DV.markLine({ d, m }))}</small>${m.text && !m.snip ? `<small>${esc(m.text.slice(0, 200))}</small>` : ''}</div></div>`).join('') || `<p class="muted small">${hint}</p>`;
+}
+function wireReq(reopen) {
+  document.querySelectorAll('#s2Body img[data-snip]').forEach(async i => { try { i.src = await S.store.resolveUrl(i.dataset.snip); } catch (e) { i.remove(); } });
+  document.querySelectorAll('#s2Body .reqsnip').forEach(r => r.onclick = async () => { const d = fm().docs.find(x => x.id === r.dataset.rd); if (!d) return; await tryCloseSheet(); if ($('sheet2').classList.contains('show')) return; DV.open(d, { markId: r.dataset.rm, ret: reopen }); });
+}
 function editAsset(a) {
   const isNew = !a; a = a ? JSON.parse(JSON.stringify(a)) : { id: uid(), ref: nextRef(fm().assets, 'A'), system: F.sys || SYSTEMS[1], status: 'Not received', warranties: [], om: true, maint: false, audience: 'FM' };
   const ro = !can.edit(); const docsL = fm().docs.filter(d => (d.assetIds || []).includes(a.id)); const tasksL = fm().tasks.filter(t => t.assetId === a.id);
@@ -171,6 +182,8 @@ function editAsset(a) {
     <div class="full" id="aCareW" style="${a.audience === 'FM' ? 'display:none' : ''}"><label class="f">Care note for residents (Home User Guide, plain English)<textarea id="aCare">${esc(a.careNote || '')}</textarea></label>${ro ? '' : '<button class="mini" id="aCareAi" style="margin-top:4px">✨ Draft with Gemini</button>'}</div>
     ${area('Received / variance / action', 'aN', a.notes)}${field('Source (spec / consent reference)', 'aSrc', a.source, '', true)}
   </div>
+  <h3 class="sec">Where this is required <span class="sp"></span>${can.edit() && !isNew ? '<button class="mini" id="aReq">▭ Mark in the contract or specification</button>' : ''}</h3>
+  ${reqHtml('asset', a.id, 'No clause marked yet. Marking the clause shows everyone exactly where the contract or specification asks for this.')}
   <h3 class="sec">Warranties <span class="sp"></span>${ro ? '' : '<button class="mini" id="aWadd">+ Add</button>'}</h3><div id="aW">${(a.warranties || []).map(wr).join('') || '<p class="muted small">No warranty periods recorded.</p>'}</div>
   <h3 class="sec">Documents <span class="sp"></span>${can.write() ? '<button class="mini" id="aDup">⬆ Upload for this asset</button>' : ''}</h3>
   ${docsL.map(d => `<div class="prow"><div class="g"><a href="#" data-open="${esc(d.id)}">${esc(d.title)}</a><small>${esc(d.type)}${d.expiry ? ' · expires ' + nzDate(d.expiry) : ''}</small></div></div>`).join('') || '<p class="muted small">None linked yet. Link documents from the Documents tab, or upload here.</p>'}
@@ -188,6 +201,9 @@ function editAsset(a) {
     try { const t = await aiCall(`Write a short care note (2 to 4 sentences, plain New Zealand English, no em dashes, warm and respectful) for an older resident living in a new social housing unit, about this item in their home: ${val('aE')} (${val('aP')}). Explain simply how to use and look after it, and to report faults to their landlord rather than fixing it themselves. Return JSON {"note":"..."}.`); let n = ''; try { n = JSON.parse(String(t).replace(/^```(?:json)?\s*|\s*```$/g, '')).note; } catch (e) { n = String(t); } $('aCare').value = String(n || '').replace(/\u2014/g, ', '); }
     catch (e) { toast(e.message === 'nokey' ? 'Set up Gemini first (☰ > Gemini)' : e.message, 5000); } finally { btn.disabled = false; btn.textContent = '✨ Draft with Gemini'; } };
   if ($('aWadd')) $('aWadd').onclick = () => { collectW(); a.warranties.push({ label: '', party: val('aI') || val('aP'), months: '', start: '' }); redrawW(); };
+  const reA = () => { const x = fm().assets.find(q => q.id === a.id); if (x) editAsset(x); };
+  wireReq(reA);
+  if ($('aReq')) $('aReq').onclick = async () => { await tryCloseSheet(); if ($('sheet2').classList.contains('show')) return; DV.findClause({ asset: { id: a.id, element: a.element }, query: a.element + ' warranty', ret: reA }); };
   if ($('aDup')) $('aDup').onclick = () => pickDocs({ assetIds: [a.id], system: val('aS') || a.system });
   if ($('aTadd')) $('aTadd').onclick = () => { closeSheet(); editTask(null, { assetId: a.id, system: a.system, title: 'Maintain ' + a.element }); };
   document.querySelectorAll('[data-open]').forEach(l => l.onclick = e => { e.preventDefault(); openDoc(fm().docs.find(d => d.id === l.dataset.open)); });
@@ -195,11 +211,12 @@ function editAsset(a) {
 
 /* ================================================================ MAINTENANCE */
 function maint() {
+  if (F.reg) return maintRegister();
   const T = fm().tasks, q = F.q.toLowerCase(), win = F.win === 'all' ? 1e9 : +F.win;
   const L = T.filter(t => (!F.sys || t.system === F.sys) && (!F.cat || t.category === F.cat) && (!F.resp || t.responsible === F.resp) && (!q || [t.title, t.instructions, t.ss, t.responsible].join(' ').toLowerCase().includes(q)) && (days(t.nextDue) == null || days(t.nextDue) <= win)).sort((a, b) => (a.nextDue || '9999').localeCompare(b.nextDue || '9999'));
   const groups = [['Overdue', t => days(t.nextDue) < 0], ['Next 30 days', t => days(t.nextDue) >= 0 && days(t.nextDue) <= 30], ['31 to 90 days', t => days(t.nextDue) > 30 && days(t.nextDue) <= 90], ['Later', t => days(t.nextDue) > 90], ['No date set', t => days(t.nextDue) == null]];
   const resp = [...new Set(T.map(t => t.responsible).filter(Boolean))].sort();
-  $('fmView').innerHTML = `<div class="fbar"><h2>Maintenance</h2><input type="search" id="mQ" placeholder="Search tasks…" value="${esc(F.q)}"><select id="mW">${[['30', 'Due in 30 days'], ['90', 'Due in 90 days'], ['365', 'Due in 12 months'], ['all', 'All tasks']].map(([v, l]) => `<option value="${v}" ${F.win === v ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="mC"><option value="">All categories</option>${TASK_CATS.map(c => `<option ${c === F.cat ? 'selected' : ''}>${c}</option>`).join('')}</select><select id="mS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="mR"><option value="">Anyone responsible</option>${resp.map(r => `<option ${r === F.resp ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>${can.edit() ? '<button class="btn2 go" id="mNew">+ Task</button>' : ''}${can.edit() && T.some(t => !t.nextDue) ? `<button class="btn2" id="mSch">Schedule ${T.filter(t => !t.nextDue).length} undated</button>` : ''}<button class="btn2" id="mIcs">📅 .ics</button><button class="btn2" id="mX">⬇ Excel</button></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Maintenance</h2><input type="search" id="mQ" placeholder="Search tasks…" value="${esc(F.q)}"><select id="mW">${[['30', 'Due in 30 days'], ['90', 'Due in 90 days'], ['365', 'Due in 12 months'], ['all', 'All tasks']].map(([v, l]) => `<option value="${v}" ${F.win === v ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="mC"><option value="">All categories</option>${TASK_CATS.map(c => `<option ${c === F.cat ? 'selected' : ''}>${c}</option>`).join('')}</select><select id="mS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="mR"><option value="">Anyone responsible</option>${resp.map(r => `<option ${r === F.resp ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>${can.edit() ? '<button class="btn2 go" id="mNew">+ Task</button>' : ''}${can.edit() && T.some(t => !t.nextDue) ? `<button class="btn2" id="mSch">Schedule ${T.filter(t => !t.nextDue).length} undated</button>` : ''}<button class="btn2" id="mReg" title="Every task by building system, to read or print">▤ Register</button><button class="btn2" id="mIcs">📅 .ics</button><button class="btn2" id="mX">⬇ Excel</button></div>
   ${T.length ? `<table class="ftable"><tr><th>Task</th><th class="hm">Building system</th><th>Frequency</th><th class="hm">Responsible</th><th class="hm">Last done</th><th>Next due</th><th></th></tr>
   ${groups.map(([g, fn]) => { const r = L.filter(fn); return r.length ? `<tr class="grp"><td colspan="7">${g} (${r.length})</td></tr>` + r.map(t => `<tr class="click" data-id="${esc(t.id)}"><td><b>${esc(t.title)}</b>${t.ss ? ` <span class="st st-info">${esc(t.ss)}</span>` : ''}<br><span class="muted small">${esc(t.category || '')}</span></td><td class="hm">${esc(sysShort(t.system))}</td><td>${esc(freqText(t))}</td><td class="hm">${esc(t.responsible || '')}</td><td class="hm">${t.lastDone ? nzDate(t.lastDone) : '-'}</td><td>${dueBadge(t.nextDue)}</td><td>${can.write() ? `<button class="btn2 sm teal" data-done="${esc(t.id)}">Done</button>` : ''}</td></tr>`).join('') : ''; }).join('')}</table>
   ${!L.length ? '<div class="empty2">Nothing due in this window. Choose "All tasks" to see everything.</div>' : ''}` : '<div class="empty2">No maintenance tasks yet. Add them here, or import the starter maintenance plan from ☰ > Import register.</div>'}`;
@@ -211,9 +228,35 @@ function maint() {
     $('usX').onclick = closeModal;
     $('usOk').onclick = async () => { const st = $('usD').value, now = $('usNow').checked, b = busy('Scheduling…'); try { for (const t of fm().tasks.filter(t => !t.nextDue)) await S.store.patchItem(S.project.id, 'tasks', t.id, { nextDue: now || !t.freqN ? st : addFreq(st, t.freqN, t.freqUnit) }); b.done(); closeModal(); toast('Scheduled'); } catch (e) { b.done(); toast(e.message, 6000); } };
   };
-  $('mIcs').onclick = exportIcs; $('mX').onclick = exportFmRegister;
+  $('mIcs').onclick = exportIcs; $('mX').onclick = exportFmRegister; $('mReg').onclick = () => { F.reg = true; maint(); };
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = e => { if (e.target.closest('[data-done]')) return; editTask(fm().tasks.find(t => t.id === r.dataset.id)); });
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeTask(fm().tasks.find(t => t.id === b.dataset.done)));
+}
+// The maintenance register: every task, grouped by building system, with what it protects and where it is required.
+function regRows() {
+  const q = F.q.toLowerCase();
+  return fm().tasks.filter(t => (!F.sys || t.system === F.sys) && (!F.cat || t.category === F.cat) && (!q || [t.title, t.instructions, t.ss, t.responsible, t.standard].join(' ').toLowerCase().includes(q)))
+    .sort((a, b) => natural(a.system || 'zz', b.system || 'zz') || natural(a.title, b.title))
+    .map(t => { const a = fm().assets.find(x => x.id === t.assetId), req = DV.marksFor('task', t.id).map(DV.markLine);
+      return { t, sys: t.system || 'No building system', cells: [t.title + (t.ss ? ' [' + t.ss + ']' : ''), freqText(t), t.responsible || '', t.standard || '', a ? a.element + (a.maint ? ' (warranty depends on this maintenance)' : '') : '', req.join('; '), t.nextDue ? nzDate(t.nextDue) : 'Not scheduled'] }; });
+}
+const REG_HEAD = ['Task', 'How often', 'Who does it', 'Standard / reference', 'Asset it protects', 'Where it is required', 'Next due'];
+function maintRegister() {
+  const R = regRows(); let last = '';
+  $('fmView').innerHTML = `<div class="fbar"><h2>Maintenance register</h2><input type="search" id="mQ" placeholder="Search tasks…" value="${esc(F.q)}"><select id="mC"><option value="">All categories</option>${TASK_CATS.map(c => `<option ${c === F.cat ? 'selected' : ''}>${c}</option>`).join('')}</select><select id="mS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<button class="btn2" id="mBack">‹ Due dates</button><button class="btn2 go" id="mPrint">🖨 Print</button><button class="btn2" id="mX">⬇ Excel</button></div>
+  <p class="muted small">${R.length} task${R.length === 1 ? '' : 's'}, grouped by building system. Following this schedule is what keeps the maintenance-dependent warranties valid.</p>
+  ${R.length ? `<table class="ftable reg"><tr>${REG_HEAD.map(h => `<th>${h}</th>`).join('')}</tr>${R.map(r => { const g = r.sys !== last ? `<tr class="grp"><td colspan="7">${esc(r.sys)}</td></tr>` : ''; last = r.sys; return g + `<tr class="click" data-id="${esc(r.t.id)}">${r.cells.map((c, i) => `<td>${i === 0 ? '<b>' + esc(c) + '</b>' : esc(c)}</td>`).join('')}</tr>`; }).join('')}</table>` : '<div class="empty2">No maintenance tasks match.</div>'}`;
+  $('mQ').oninput = e => { F.q = e.target.value; maint(); $('mQ').focus(); $('mQ').setSelectionRange(F.q.length, F.q.length); };
+  $('mC').onchange = e => { F.cat = e.target.value; maint(); }; $('mS').onchange = e => { F.sys = e.target.value; maint(); };
+  $('mBack').onclick = () => { F.reg = false; maint(); }; $('mX').onclick = exportFmRegister;
+  $('mPrint').onclick = () => printRegister(R);
+  document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = () => editTask(fm().tasks.find(t => t.id === r.dataset.id)));
+}
+function printRegister(R) {
+  const w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups for this site to print the register', 6000);
+  let last = '';
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(S.project.name)} - Maintenance register</title><style>body{font:11px/1.35 Calibri,Arial,sans-serif;color:#111;margin:14mm}h1{font-size:18px;color:#011C35;margin:0}p{color:#555;margin:2px 0 10px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top}th{background:#011C35;color:#fff}tr.g td{background:#e8eef3;font-weight:700;color:#011C35}thead{display:table-header-group}tr{page-break-inside:avoid}@page{size:A4 landscape;margin:10mm}</style></head><body><h1>Maintenance register</h1><p>${esc(S.project.name)}${S.project.client ? ' · ' + esc(S.project.client) : ''} · printed ${nzDate(todayISO())} · ${R.length} tasks</p><table><thead><tr>${REG_HEAD.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${R.map(r => { const g = r.sys !== last ? `<tr class="g"><td colspan="7">${esc(r.sys)}</td></tr>` : ''; last = r.sys; return g + `<tr>${r.cells.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`; }).join('')}</tbody></table></body></html>`);
+  w.document.close(); w.focus(); setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
 }
 function editTask(t, preset) {
   const isNew = !t; t = t ? JSON.parse(JSON.stringify(t)) : { id: uid(), category: 'Planned maintenance', freqN: 12, freqUnit: 'months', system: F.sys || SYSTEMS[3], nextDue: '', responsible: '', ...(preset || {}) };
@@ -229,9 +272,11 @@ function editTask(t, preset) {
     ${area('Instructions', 'tI', t.instructions)}
   </div><datalist id="ssl">${fm().systems.map(s => `<option>${esc(s.ss)}</option>`).join('')}</datalist><datalist id="respl">${[...new Set(fm().tasks.map(x => x.responsible).filter(Boolean))].map(r => `<option>${esc(r)}</option>`).join('')}</datalist>
   <p class="note">Set "Every" to 0 for a one-off task. When a task is marked done, the next due date moves on by the frequency.</p>
+  <h3 class="sec">Where this is required</h3>${reqHtml('task', t.id, 'No clause marked yet. In a contract, specification or manual, mark the clause that asks for this task and link it here.')}
   ${(t.history || []).length ? `<h3 class="sec">History</h3><div class="hist">${t.history.slice().reverse().map(h => `<div><b>${esc(nzDate(h.date || h.t))}</b> · ${esc(h.who)}: ${esc(h.notes || 'Done')}</div>`).join('')}</div>` : ''}`,
   { ro, onSave: async () => { const o = { ...t, title: val('tT'), category: val('tC'), ss: val('tSs'), system: val('tS'), assetId: val('tA'), freqN: +val('tN') || 0, freqUnit: val('tU'), nextDue: val('tD'), responsible: val('tR'), standard: val('tStd'), instructions: val('tI'), updated: nowISO(), updatedBy: S.user.email }; if (!o.title) { toast('Enter the task'); return false; } await S.store.saveItem(S.project.id, 'tasks', o); },
     onDelete: isNew ? null : () => S.store.deleteItem(S.project.id, 'tasks', t.id) });
+  wireReq(() => { const x = fm().tasks.find(q => q.id === t.id); if (x) editTask(x); });
 }
 function completeTask(t) {
   if (!t) return;
@@ -296,21 +341,22 @@ function docs() {
   const Dd = fm().docs.slice().sort((a, b) => natural(a.system || 'zz', b.system || 'zz') || natural(a.title, b.title)), q = F.q.toLowerCase();
   const L = Dd.filter(d => (!F.sys || d.system === F.sys) && (!F.type || d.type === F.type) && (!q || [d.title, d.party, d.type, d.srcPath].join(' ').toLowerCase().includes(q)));
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}<button class="btn2" id="dX">⬇ Index (Excel)</button></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button></div>
   <p class="muted small">${L.length} of ${Dd.length} documents</p>
   ${L.length ? `<table class="ftable"><tr><th>Document</th><th>Type</th><th class="hm">From</th><th class="hm">Expiry</th><th class="hm">Linked to</th><th></th></tr>
   ${L.map(d => { const g = (d.system || '') !== last ? `<tr class="grp"><td colspan="6">${esc(d.system || 'Unsorted')}</td></tr>` : ''; last = d.system || ''; const al = (d.assetIds || []).map(id => fm().assets.find(a => a.id === id)).filter(Boolean);
-    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.link ? ' <span class="st st-info">link</span>' : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">Open</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
+    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.link ? ' <span class="st st-info">link</span>' : ''}${(d.marks || []).length ? ` <span class="st st-info" title="Clauses marked in this document">▭ ${d.marks.length}</span>` : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">${DV.isPdf(d) ? 'View' : 'Open'}</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
   $('dQ').oninput = e => { F.q = e.target.value; docs(); $('dQ').focus(); $('dQ').setSelectionRange(F.q.length, F.q.length); };
   $('dS').onchange = e => { F.sys = e.target.value; docs(); }; $('dT').onchange = e => { F.type = e.target.value; docs(); };
   if ($('dUp')) $('dUp').onclick = () => pickDocs({ system: F.sys });
   if ($('dFold')) $('dFold').onclick = () => $('fFolder').click();
   if ($('dLink')) $('dLink').onclick = () => editDoc(null);
+  $('dFind').onclick = () => DV.findClause({});
   $('dX').onclick = exportFmRegister;
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = e => { if (e.target.closest('[data-open]')) return; editDoc(fm().docs.find(d => d.id === r.dataset.id)); });
   document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openDoc(fm().docs.find(d => d.id === b.dataset.open)));
 }
-async function openDoc(d) { if (!d) return; const u = d.link || (d.url ? await S.store.resolveUrl(d.url) : ''); if (u) window.open(u, '_blank', 'noopener'); else toast('No file for this document'); }
+async function openDoc(d, opts) { if (!d) return; if (DV.isPdf(d)) return DV.open(d, opts || {}); const u = d.link || (d.url ? await S.store.resolveUrl(d.url) : ''); if (u) window.open(u, '_blank', 'noopener'); else toast('No file for this document'); }
 function editDoc(d) {
   const isNew = !d; d = d ? JSON.parse(JSON.stringify(d)) : { id: uid(), type: 'Other', system: F.sys || '', assetIds: [], link: '' };
   const A = fm().assets.slice().sort((a, b) => natural(a.system, b.system)); const ro = !can.edit();
@@ -338,7 +384,7 @@ export function assetDropTarget() { return $('sheet2').classList.contains('show'
 export async function dropDocs(files, ctx) { const b = busy('Uploading…'); try { const ids = await uploadFiles(files, { ...ctx, onProgress: b.set }); b.done(); toast(`${ids.length} document${ids.length === 1 ? '' : 's'} uploaded`); closeSheet(); } catch (e) { b.done(); toast('Upload failed: ' + e.message, 6000); } }
 function pickDocs(ctx) { pickCtx = ctx || {}; $('fDocs').click(); }
 function wireUploads() {
-  $('fDocs').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return; const b = busy('Uploading…'); try { const ids = await uploadFiles(fs, { ...pickCtx, onProgress: b.set }); b.done(); toast(`${ids.length} document${ids.length > 1 ? 's' : ''} uploaded`); if (ids.length === 1 && !pickCtx.assetIds) editDoc(fm().docs.find(d => d.id === ids[0]) || null); } catch (x) { b.done(); toast('Upload failed: ' + x.message, 6000); } };
+  $('fDocs').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return; const b = busy('Uploading…'); try { const ids = await uploadFiles(fs, { ...pickCtx, onProgress: b.set }); b.done(); toast(`${ids.length} document${ids.length > 1 ? 's' : ''} uploaded`); if (ids.length === 1 && !pickCtx.assetIds) { let d = null; for (let i = 0; i < 20 && !(d = fm().docs.find(x => x.id === ids[0])); i++) await new Promise(r => setTimeout(r, 150)); if (d) editDoc(d); } } catch (x) { b.done(); toast('Upload failed: ' + x.message, 6000); } };
   $('fFolder').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) await uploadFolder(fs); };
 }
 const TYPE_BY_FOLDER = [[/schedule 13 deed/i, 'Warranty (Schedule 13 deed)'], [/product warrant/i, 'Warranty (product)'], [/warrant/i, 'Warranty (product)'], [/o&m|operation/i, 'O&M manual'], [/care & maint|care and maint/i, 'Care and maintenance guide'], [/producer statement|certificate/i, 'Producer statement / certificate'], [/commission|test data/i, 'Commissioning / test record'], [/as-built|as built/i, 'As-built drawing'], [/data sheet/i, 'Product data sheet'], [/design ps1|ps1s & reports/i, 'Design PS1 / report'], [/building consent|resource consent|ccc|epa/i, 'Consent / authority document'], [/inspection|qa record/i, 'Inspection / QA record'], [/spec & drawing|drawings|specification/i, 'Specification / drawing'], [/contract|insurance/i, 'Contract document'], [/practical completion|funder|healthy homes/i, 'Producer statement / certificate'], [/bwof|compliance schedule/i, 'Compliance (Form 12A / BWoF)']];
