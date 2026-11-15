@@ -80,7 +80,7 @@ export async function usersDialog() {
   modal(`<h2>Users and access</h2>
   <table class="t"><tr><th>Person</th><th>Role</th><th></th></tr>
   ${Object.entries(p.members || {}).map(([u, r]) => `<tr><td><b>${esc((info[u] || {}).name || '')}</b><br><span class="muted small">${esc((info[u] || {}).email || u)}</span></td><td>${roleSel(r, `data-u="${esc(u)}" ${u === S.user.uid ? 'disabled' : ''}`)}</td><td>${u === S.user.uid ? '<span class="muted small">you</span>' : `<button class="btn" data-rm="${esc(u)}">Remove</button>`}</td></tr>`).join('')}
-  ${inv.map(i => `<tr><td>${esc(i.email)}<br><span class="muted small">Invited ${esc(i.at ? i.at.slice(0, 10) : '')}, not signed in yet</span></td><td>${esc(ROLES[i.role] || i.role)}</td><td><button class="btn" data-ci="${esc(i.email)}">Cancel</button></td></tr>`).join('')}
+  ${inv.map(i => `<tr><td>${esc(i.email)}<br><span class="muted small">Invited ${esc(i.at ? i.at.slice(0, 10) : '')}, not signed in yet</span></td><td>${roleSel(i.role, `data-ir="${esc(i.email)}"`)}</td><td><button class="btn" data-ci="${esc(i.email)}">Cancel</button></td></tr>`).join('')}
   </table>
   <h3 class="sec">Invite someone</h3>
   <div class="grid"><label class="f">Email address<input id="uEmail" type="email" placeholder="name@company.co.nz"></label><label class="f">Role${roleSel('editor', 'id="uRole"')}</label></div>
@@ -94,6 +94,7 @@ export async function usersDialog() {
   $('uX').onclick = closeModal;
   document.querySelectorAll('[data-u]').forEach(s => s.onchange = async () => { try { await S.store.setMember(p.id, s.dataset.u, s.value); toast('Role updated'); } catch (e) { toast(e.message); } });
   document.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this person from the project?', 'Remove')) { await S.store.setMember(p.id, b.dataset.rm, null); usersDialog(); } });
+  document.querySelectorAll('[data-ir]').forEach(s => s.onchange = async () => { try { await S.store.invite(p.id, s.dataset.ir, s.value, p.name); toast('Invitation changed to ' + ROLES[s.value]); } catch (e) { toast('Could not change: ' + e.message, 5000); usersDialog(); } });
   document.querySelectorAll('[data-ci]').forEach(b => b.onclick = async () => { await S.store.cancelInvite(p.id, b.dataset.ci); usersDialog(); });
   $('uInv').onclick = async () => {
     const e = $('uEmail').value.trim().toLowerCase(), r = $('uRole').value; if (!/^\S+@\S+\.\S+$/.test(e)) return toast('Enter a valid email address');
