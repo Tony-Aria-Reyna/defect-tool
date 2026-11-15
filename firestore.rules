@@ -18,6 +18,10 @@ service cloud.firestore {
     function isAdmin(pid) { return isSuper() || (signed() && roleOf(pid) == 'admin'); }
     function canEdit(pid) { return isSuper() || (signed() && roleOf(pid) in ['admin', 'editor']); }
     function isContractor(pid) { return signed() && roleOf(pid) == 'contractor'; }
+    // An organisation (email domain) can be limited to the registers it raised: projects/{pid}.orgScopes = { 'domain.co.nz': ['Source', ...] }.
+    // Applies to editors and viewers only. Admins and the contractor see everything.
+    function scope(pid) { return proj(pid).get('orgScopes', {}).get(myEmail().split('@')[1], []); }
+    function scoped(pid) { return !isSuper() && roleOf(pid) in ['editor', 'viewer'] && scope(pid).size() > 0; }
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
 
     match /system/{doc} {
@@ -63,13 +67,13 @@ service cloud.firestore {
       }
 
       match /defects/{id} {
-        allow read: if isMember(pid);
+        allow read: if isMember(pid) && (!scoped(pid) || resource.data.source in scope(pid));
         // contractors can raise items in their own name, and add items to their own registers
-        allow create: if canEdit(pid)
+        allow create: if (canEdit(pid) && (!scoped(pid) || request.resource.data.source in scope(pid)))
           || (isContractor(pid) && request.resource.data.get('createdBy', '').lower() == myEmail())
           || (isContractor(pid) && request.resource.data.get('source', '') in proj(pid).get('selfCloseSources', []));
         allow delete: if isAdmin(pid);
-        allow update: if canEdit(pid)
+        allow update: if (canEdit(pid) && (!scoped(pid) || (resource.data.source in scope(pid) && request.resource.data.source in scope(pid))))
           // a contractor can edit the items they raised themselves (who raised it cannot be changed)
           || (isContractor(pid)
               && resource.data.get('createdBy', '').lower() == myEmail()

@@ -2,7 +2,7 @@
 import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
-import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
+import { S, can, myScope, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, compressImage, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
@@ -159,7 +159,8 @@ export async function openProject(pid, quiet) {
     await showPlan(S.curPlan);
     try { Sync.autoStart(); } catch (e) {}
     applyDeepLink(); Try.chip();
-    S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar).then(processPendingAI); }, e => toast('Sync problem: ' + friendly(e), 5000));
+    const sc = myScope(); if (sc) S.project.sources = sc.slice();
+    S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar).then(processPendingAI); }, e => toast('Sync problem: ' + friendly(e), 5000), sc);
     FM.start(pid); setTab('list'); b && b.done(); return true;
   } catch (e) { b && b.done(); console.error(e); if (!quiet) toast('Could not open the project: ' + friendly(e), 5000); return false; }
 }

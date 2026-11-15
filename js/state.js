@@ -12,6 +12,12 @@ export function saveLocal() { try { localStorage.setItem('rd-local', JSON.string
 
 // "View as" lets an admin test the app as another role (client-side only; the server rules still apply to the real role).
 const R = () => S.viewAs || S.role, SUP = () => !S.viewAs && S.sup;
+// An organisation (by email domain) can be limited to the registers it raised. Applies to editors and viewers only.
+export function myScope() {
+  if (S.sup || !S.project || !['editor', 'viewer'].includes(S.role)) return null;
+  const l = (S.project.orgScopes || {})[String((S.user && S.user.email) || '').toLowerCase().split('@')[1] || ''];
+  return l && l.length ? l : null;
+}
 export const can = {
   admin: () => SUP() || R() === 'admin',
   edit: () => SUP() || R() === 'admin' || R() === 'editor',

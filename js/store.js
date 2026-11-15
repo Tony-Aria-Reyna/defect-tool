@@ -126,7 +126,13 @@ async function firebaseStore() {
     async putFile(path, blob, patient) { if (!navigator.onLine && !patient) throw new Error('offline'); const r = S.ref(st, path); const up = S.uploadBytesResumable(r, blob, { contentType: blob.type || 'image/jpeg' }); const done = new Promise((res, rej) => up.on('state_changed', null, rej, res)); if (!patient) { const w = await Promise.race([done, delay(15000).then(() => 'slow')]); if (w === 'slow') { try { up.cancel(); } catch (e) {} throw new Error('slow'); } } else await done; return await S.getDownloadURL(r); },
     async deleteFile(path) { try { await S.deleteObject(S.ref(st, path)); } catch (e) {} },
     async resolveUrl(u) { return u; },
-    watchDefects(pid, cb, onErr) {
+    watchDefects(pid, cb, onErr, sources) {
+      // an organisation limited to its own registers listens to one query per register (the server rules refuse anything wider)
+      if (sources && sources.length) {
+        const parts = {}; let meta = {};
+        const offs = sources.map(src => F.onSnapshot(F.query(C('projects', pid, 'defects'), F.where('source', '==', src)), s => { parts[src] = s.docs.map(d => ({ ...d.data(), id: d.id })); meta = s.metadata; cb(Object.values(parts).flat(), meta); }, e => onErr && onErr(e)));
+        return () => offs.forEach(o => o());
+      }
       return F.onSnapshot(C('projects', pid, 'defects'), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id })), s.metadata), e => onErr && onErr(e));
     },
     async createDefect(pid, d) { const { id, ...rest } = d; await localWrite(F.setDoc(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest)))); },
@@ -213,7 +219,7 @@ async function localStore(dbName, asUser) {
       const p = u.slice(6); if (urlCache[p]) return urlCache[p];
       const b = await rq(os('files').get(p)); return (urlCache[p] = b ? URL.createObjectURL(b) : '');
     },
-    watchDefects(pid, cb) { (watchers[pid] = watchers[pid] || []).push(cb); emit(pid); return () => { watchers[pid] = (watchers[pid] || []).filter(x => x !== cb); }; },
+    watchDefects(pid, cb0, onErr, sources) { const cb = sources && sources.length ? (l, m) => cb0(l.filter(d => sources.includes(d.source)), m) : cb0; (watchers[pid] = watchers[pid] || []).push(cb); emit(pid); return () => { watchers[pid] = (watchers[pid] || []).filter(x => x !== cb); }; },
     async createDefect(pid, d) { const { id, ...rest } = d; await put(`projects/${pid}/defects/${id}`, rest); emit(pid); },
     async updateDefect(pid, id, patch, newHistory) { const k = `projects/${pid}/defects/${id}`; const d = (await get(k)) || {}; const p = { ...patch }; delete p.id; delete p.history; const h = (d.history || []).concat(newHistory || []); await put(k, { ...d, ...p, history: h }); emit(pid); },
     async deleteDefect(pid, id) { await del(`projects/${pid}/defects/${id}`); emit(pid); },
