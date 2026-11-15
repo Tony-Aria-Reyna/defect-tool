@@ -43,6 +43,16 @@ export async function frontText(d, pages) {
   finally { try { pdf.destroy(); } catch (e) {} }
   return t;
 }
+// What the AI needs from an attached PDF: the words on the first pages (including filled-in form fields), or a picture of page one if it is a scan.
+export async function pdfDigest(bytes, pages = 4) {
+  const L = await lib(), pdf = await L.getDocument({ data: bytes }).promise; let t = '', img = '';
+  try { for (let i = 1; i <= Math.min(pages, pdf.numPages); i++) { const pg = await pdf.getPage(i); const tc = await pg.getTextContent(); t += ' ' + tc.items.map(it => it.str).join(' ');
+      try { for (const an of await pg.getAnnotations()) { const v = an.fieldValue; if (typeof v === 'string' && v.length > 1 && v !== 'Off') t += ' | ' + v; } } catch (e) {} }
+    t = t.replace(/\s+/g, ' ').trim();
+    if (t.length < 120) { const pg = await pdf.getPage(1), b = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(2.2, 1700 / Math.max(b.width, b.height)) }), c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height); const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); await pg.render({ canvasContext: x, viewport: vp }).promise; img = c.toDataURL('image/jpeg', 0.8); }
+    return { text: t.slice(0, 5000), image: img, pages: pdf.numPages };
+  } finally { try { pdf.destroy(); } catch (e) {} }
+}
 /* ---------- shell ---------- */
 function shell() {
   if ($('dv')) return;

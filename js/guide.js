@@ -128,7 +128,7 @@ function side() {
   $('geSide').querySelectorAll('[data-mx]').forEach(b => b.onclick = () => { upd(); p.marks.splice(+b.dataset.mx, 1); side(); redraw(); });
   if ($('geAdd')) $('geAdd').onclick = () => { upd(); E.adding = !E.adding; side(); handles(); };
   $('geP').onclick = () => $('gePF').click(); if ($('gePx')) $('gePx').onclick = () => { upd(); p.photo = ''; p.marks = []; side(); redraw(); };
-  $('gePF').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; upd(); const b = busy('Preparing the photo…'); try { p.photo = await compressImage(f, 1600, 0.82); b.done(); side(); redraw(); } catch (x) { b.done(); toast('Could not read that photo: ' + x.message, 5000); } };
+  $('gePF').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; upd(); const b = busy('Preparing the photo…'); try { p.photo = (await compressImage(f, 1600, 0.82)).dataUrl; b.done(); side(); redraw(); } catch (x) { b.done(); toast('Could not read that photo: ' + x.message, 5000); } };
 }
 async function save() {
   const p = E.p; if (!p.title.trim()) return toast('Give the page a title');

@@ -3,7 +3,7 @@ import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
-import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, compressImage, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
@@ -11,6 +11,8 @@ import { buildPdf, buildXlsx, buildCsv, buildZip, buildEvidenceXlsx, evidenceRef
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
+import { COMMENT_SKILL } from './skills.js';
+import { pdfDigest } from './docview.js';
 import { helpDialog, siteCheck } from './help.js';
 import * as Nav from './nav.js';
 import * as Tick from './ticksheet.js';
@@ -272,7 +274,7 @@ export function noteDrop(fs) { if (noteDropRef) noteDropRef(fs); }
 function noteDialog(o) {
   const d = ED.d, con = can.contractor();
   modal(`<h2>${esc(o.title)}</h2><p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>${lastNoteHtml(d, 'Last comment')}
-    <label class="f">${esc(o.ask)}${o.required ? '' : ' <span class="muted small">(optional)</span>'}<div class="ndrow"><textarea id="ndTxt" rows="3" placeholder="${esc(o.ph || '')}"></textarea><button class="mic sm" id="ndMic" title="Hold to talk">🎤</button></div></label><p class="note small" id="ndSt">Type it, or hold the microphone and say it.</p>
+    <label class="f">${esc(o.ask)}${o.required ? '' : ' <span class="muted small">(optional)</span>'}<div class="ndrow"><textarea id="ndTxt" rows="3" placeholder="${esc(o.ph || '')}"></textarea><button class="mic sm" id="ndMic" title="Hold to talk">🎤</button></div></label><p class="note small" id="ndSt">Type it, or hold the microphone and say it.</p><p><button class="mini" id="ndAi" title="Rewrites your note as a short, clear comment using the item, its history and any attached documents">✨ Tidy with AI</button> <button class="mini" id="ndUndo" style="display:none">↩ Back to my words</button></p><div id="ndQ" class="note small" style="display:none"></div>
     <div class="nddrop" id="ndDrop"><b>Attach to this ${o.warn ? 'note' : 'response'}</b> <span class="muted small">Drop files or photos here, or</span> <button class="mini" id="ndPick">choose files</button><input type="file" id="ndFiles" multiple hidden><div id="ndList"></div></div>
     ${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="ndFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}
     <div class="act"><button id="ndX">Cancel</button><button class="${o.warn ? 'warn' : 'go'}" id="ndGo">${esc(o.btn)}</button></div>`);
@@ -290,6 +292,29 @@ function noteDialog(o) {
       txt = (txt || 'Supporting documents attached') + ' [Attached: ' + fs.map(f => f.name).join('; ') + ']'; }
     if ($('cmt')) $('cmt').value = txt; if ($('cmtFor')) $('cmtFor').value = forWho; await o.go(); };
   $('ndX').addEventListener('click', () => { ND_FILES = []; noteDropRef = null; });
+  let raw = null; $('ndUndo').onclick = () => { if (raw != null) $('ndTxt').value = raw; $('ndUndo').style.display = 'none'; $('ndQ').style.display = 'none'; st('Your own words are back.'); };
+  $('ndAi').onclick = async () => {
+    const note = $('ndTxt').value.trim(); if (!note && !ND_FILES.length) return st('Say or type a note, or attach a document, first.', true);
+    const btn = $('ndAi'); btn.disabled = true; btn.textContent = 'Reading…'; st('The AI is reading the item' + (ND_FILES.length ? ' and the attached documents…' : '…'));
+    try {
+      let docs = '', img = '';
+      for (const f of ND_FILES.slice(0, 5)) { try {
+          if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') { const g = await pdfDigest(await f.arrayBuffer()); docs += `\n[Document: ${f.name}, ${g.pages} page${g.pages === 1 ? '' : 's'}] ${g.text || '(scanned: see the page image if provided)'}`; if (!img && g.image) img = g.image; }
+          else if (/^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name)) { docs += `\n[Photo: ${f.name}]`; if (!img) img = await compressImage(f, 1700, 0.8); }
+          else if (/\.(txt|csv|md)$/i.test(f.name)) docs += `\n[Document: ${f.name}] ${(await f.text()).slice(0, 4000)}`;
+          else docs += `\n[Document: ${f.name}] (this file type could not be read)`; } catch (e) { docs += `\n[Document: ${f.name}] (could not be read)`; } }
+      const hist = (d.history || []).slice().sort((a, b) => String(a.t || '').localeCompare(String(b.t || ''))).slice(-14).map(h => `${nzDate(String(h.t || '').slice(0, 10))} ${h.who || ''}: ${String(h.txt || '').slice(0, 400)}`).join('\n');
+      const prompt = `${COMMENT_SKILL}\n\n${S.project.aiContext ? 'PROJECT KNOWLEDGE:\n' + S.project.aiContext + '\n\n' : ''}THE DEFECT\nReference: ${d.id}\nTitle: ${d.title || d.element || ''}\nLocation: ${locText(d) || ''}\nDescription: ${d.desc || ''}\nAction required: ${d.action || ''}\nCurrent status: ${d.status || ''}\nResponsible: ${d.responsible || ''}\n\nTHE HISTORY\n${hist || '(none)'}\n\nTHE NOTE\n${note || '(nothing said; rely on the documents)'}\n\nON BEHALF OF: ${($('ndFor') && $('ndFor').value) || 'the user (' + S.user.name + ')'}\nTHIS COMMENT ACCOMPANIES: ${o.title}\n\nDOCUMENTS${docs || '\n(none attached)'}`;
+      const out = await aiCall(prompt, typeof img === 'string' ? img : (img && img.dataUrl) || '');
+      let j; try { j = JSON.parse(String(out).replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { const m = /\{[\s\S]*\}/.exec(String(out)); j = m ? JSON.parse(m[0]) : null; }
+      if (!j || !j.comment) throw new Error('The AI did not return a comment. Your words are unchanged.');
+      const clean = t => String(t || '').replace(/\u2014/g, ', ').trim(), kp = (j.keyPoints || []).map(clean).filter(Boolean).slice(0, 4);
+      raw = $('ndTxt').value; $('ndTxt').value = clean(j.comment) + (kp.length ? '\nKey points: ' + kp.join('; ') + '.' : ''); $('ndTxt').rows = Math.min(8, 3 + kp.length); $('ndUndo').style.display = '';
+      const q = (j.queries || []).map(clean).filter(Boolean); $('ndQ').style.display = q.length ? '' : 'none'; $('ndQ').innerHTML = q.length ? '<b>Check before saving:</b><br>' + q.map(esc).join('<br>') : '';
+      st('Tidied by ' + ((aiCall.last && aiCall.last.via) || 'AI') + '. Read it, edit if needed, then save.' + (aiCall.note ? ' ' + aiCall.note : ''));
+    } catch (e) { st(e.message === 'nokey' ? 'Set up the AI helper first (Menu > Gemini).' : e.message === 'offline' ? 'No connection: the AI could not be reached. Your words are unchanged.' : e.message, true); }
+    finally { btn.disabled = false; btn.textContent = '✨ Tidy with AI'; }
+  };
   setTimeout(() => $('ndTxt') && !isMobile() && $('ndTxt').focus(), 60);
 }
 // One "Add photo" tile: on a phone it offers the camera or the gallery; on a computer it goes straight to the files.
