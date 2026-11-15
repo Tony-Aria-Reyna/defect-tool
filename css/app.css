@@ -585,3 +585,5 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .cpf{display:flex;align-items:center;gap:8px;margin-top:12px}.cpv{width:34px;height:34px;border-radius:8px;border:2px solid #555;flex:none}.cpf button{flex:1;padding:9px;border-radius:8px;border:0;background:#333;color:#fff}.cpf .go{background:var(--teal);color:var(--navy);font-weight:700}
 
 .pfbar{display:flex;align-items:center;gap:10px;padding:6px 10px;background:#fff4d6;border-bottom:1px solid #e6c86a;font-size:13px;color:#5a4400}.pfbar span{flex:1;min-width:0}.pfbar small{color:#7a6420}.pfbar button{flex:none;background:var(--navy);color:#fff;border:0;border-radius:18px;padding:8px 14px;font-weight:700}
+
+.qm{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--navy);font-weight:700;font-size:12px;cursor:pointer;padding:0;flex:0 0 auto}.qm:hover{background:var(--navy);color:#fff}

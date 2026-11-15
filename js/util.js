@@ -31,10 +31,10 @@ export async function dismissModal() {
   if (MODAL.snap != null && mFields() !== MODAL.snap) { if (!(await askDiscard())) return false; }
   closeModal(); return true;
 }
-function askDiscard() {
+export function askDiscard(why) {
   return new Promise(res => {
     const d = document.createElement('div'); d.className = 'askov';
-    d.innerHTML = '<div><b>Discard what you have filled in?</b><p>You tapped outside the window. Nothing has been saved yet.</p><div class="act"><button class="go" id="akKeep">Keep editing</button><button class="warn" id="akGo">Discard</button></div></div>';
+    d.innerHTML = '<div><b>Discard what you have filled in?</b><p>' + (why || 'You tapped outside the window. Nothing has been saved yet.') + '</p><div class="act"><button class="go" id="akKeep">Keep editing</button><button class="warn" id="akGo">Discard</button></div></div>';
     document.body.appendChild(d);
     const done = v => { d.remove(); res(v); };
     d.querySelector('#akKeep').onclick = () => done(false); d.querySelector('#akGo').onclick = () => done(true);

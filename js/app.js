@@ -3,7 +3,7 @@ import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
-import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, saveImage } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
@@ -741,7 +741,7 @@ async function renderPhotos() {
   if ($('wfProg')) $('wfProg').onclick = () => noteDialog({ title: 'Mark in progress', ask: 'Note', ph: 'e.g. Painter booked for Tuesday', btn: 'Mark in progress', go: wf('In progress', 'In progress', false) });
   if ($('wfCmt')) $('wfCmt').onclick = () => noteDialog({ title: limited(ED.d) ? 'Add a response' : 'Add a comment', ask: limited(ED.d) ? 'Your response' : 'Comment', ph: 'Saved with your name and the time', btn: 'Save comment', required: true, go: saveEditor });
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
-  requestAnimationFrame(() => { Nav.refit($('edBody')); if (ED && !ED.isNew) ED.snap = edSnap(); });
+  requestAnimationFrame(() => { Nav.refit($('edBody')); if (ED && !ED.isNew) ED.snap = edSnap(); if (ED) ED.snap0 = edSnap(); });
 }
 // Marking an item ready for inspection: prompt for a photo of the fix (optional) and a short note that can be spoken and tidied by Gemini.
 // Reference a document that is already in the project's Documents (drawings, specifications, manuals) without uploading it again.
@@ -781,6 +781,8 @@ function readyDialog(go, close) {
 // A contractor can raise items and edit the ones they raised. On items raised by someone else they respond, add photos and move the status only.
 const limited = (d, isNew) => can.contractor() && !isNew && !(d && d.createdBy && d.createdBy === S.user.email);
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
+// Close, Cancel and Escape ask before throwing away unsaved changes. A click outside the editor does nothing.
+async function tryCloseEditor() { if (ED && ED.snap0 && ED.snap0 !== edSnap() && !(await askDiscard('Your changes to this item have not been saved.'))) return; closeEditor(); }
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }
 // Next reference number from what this device knows (used when the server cannot be reached in time).
 function localNextRef() { const pre = (S.project.idPrefix || 'D') + '-'; let m = S.project.seq || 0; S.defects.forEach(d => { if (d.id.startsWith(pre)) { const n = parseInt(d.id.slice(pre.length), 10); if (n > m) m = n; } }); return m + 1; }
@@ -1061,13 +1063,12 @@ function wire() {
   if (S.local.noList) $('main').classList.add('nolist');
   $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); $('zfull').textContent = '⛶'; requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); $('zfull').textContent = on ? '✕' : '⛶'; $('zfull').title = on ? 'Exit full screen' : 'Full screen'; requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
-  $('edClose').onclick = $('edCancel').onclick = () => closeEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edBody').addEventListener('input', e => { const t = e.target; if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; } });
+  $('edClose').onclick = $('edCancel').onclick = () => tryCloseEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edBody').addEventListener('input', e => { const t = e.target; if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; } });
   $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1); swipeWire($('edBody'));
-  $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeEditor(); });
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') dismissModal(); });
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
-  document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) dismissModal(); else if ($('sheet').classList.contains('show')) closeEditor(); else if (placing) stopPlacing(); });
+  document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) dismissModal(); else if (document.querySelector('.askov')) return; else if ($('sheet').classList.contains('show')) tryCloseEditor(); else if (placing) stopPlacing(); });
   document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button,.btn,.chip,label.opt,[data-p],[data-view],[data-el]'); if (!b || b.disabled) return; b.classList.add('tapped'); setTimeout(() => b.classList.remove('tapped'), 220); }, true);
   initDrop({ Admin, FM, addPhotos, addFiles, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
 }
