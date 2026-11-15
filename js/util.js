@@ -104,3 +104,24 @@ export function locate(zones, x, y) {
   const item = hits.find(z => z.kind === 'item' && z.name), room = hits.find(z => (z.kind === 'room' || z.kind === 'area') && z.name), withUnit = hits.find(z => z.unit);
   return { zone: hits[0], item: item ? item.name : '', room: room ? room.name : '', unit: withUnit ? String(withUnit.unit) : '', block: (hits.find(z => z.block) || {}).block || '', level: (hits.find(z => z.level) || {}).level || '' };
 }
+
+// Every text box grows to fit its text: when typed into, when filled by code (dictation, AI), and when shown.
+export function fitText(t) {
+  if (!t || t.tagName !== 'TEXTAREA' || !t.isConnected || !t.offsetParent) return;   // hidden: fitted when shown
+  const cap = Math.max(160, Math.round(window.innerHeight * 0.6));
+  t.style.height = 'auto';
+  const h = t.scrollHeight + (t.offsetHeight - t.clientHeight);
+  t.style.height = Math.min(h, cap) + 'px';
+  t.style.overflowY = h > cap ? 'auto' : 'hidden';
+}
+export function autoFitAll() {
+  if (window.__fitOn) return; window.__fitOn = true;
+  const fitAll = root => (root.querySelectorAll ? root.querySelectorAll('textarea') : []).forEach(fitText);
+  document.addEventListener('input', e => fitText(e.target), true);
+  const d = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+  Object.defineProperty(HTMLTextAreaElement.prototype, 'value', { configurable: true, get() { return d.get.call(this); }, set(v) { d.set.call(this, v); requestAnimationFrame(() => fitText(this)); } });
+  new MutationObserver(ms => ms.forEach(m => { if (m.type === 'attributes') { if (m.target.tagName !== 'TEXTAREA') requestAnimationFrame(() => fitAll(m.target)); return; } m.addedNodes.forEach(n => { if (n.nodeType === 1) { if (n.tagName === 'TEXTAREA') requestAnimationFrame(() => fitText(n)); else requestAnimationFrame(() => fitAll(n)); } }); }))
+    .observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'open'] });
+  document.addEventListener('focusin', e => fitText(e.target), true);
+  window.addEventListener('resize', () => fitAll(document));
+}
