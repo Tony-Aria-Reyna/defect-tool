@@ -93,6 +93,9 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
       [['Location', locText(d) || '-'], ['Element', d.element || '-'], [pr.sevLabel || 'Severity', d.severity], ['Type / trade', [d.type, d.trade].filter(Boolean).join(' / ')], ['Responsible', (d.responsible || '') + (d.targetDate ? ', by ' + nzDate(d.targetDate) : '')], ['Raised', (nzDate(d.dateRaised) || '-') + ' (' + (d.source || '') + (d.extRef ? ' ref ' + d.extRef : '') + ')']].forEach(([k, v]) => { txt(dpg, k, M + 8, ty, 8, fb, GREY); const ls = wrap(v || '-', f, 8.5, colW - 90); ls.slice(0, 2).forEach((l, i) => txt(dpg, l, M + 90, ty - i * 10, 8.5)); ty -= 10 * Math.min(2, ls.length) + 3; });
       ty -= 4; wrap(d.desc || '', f, 8.5, colW).slice(0, 9).forEach(l => { txt(dpg, l, M + 8, ty, 8.5); ty -= 10.5; });
       if (d.action) { ty -= 3; wrap('Action: ' + d.action, fb, 8.5, colW).slice(0, 4).forEach(l => { txt(dpg, l, M + 8, ty, 8.5, fb); ty -= 10.5; }); }
+      { const lm = latestMove(d); if (lm) { const head = wrap(`Latest: ${lm.label}, ${nzDate(String(lm.when || '').slice(0, 10)) || ''}${lm.who ? ', ' + lm.who : ''}`, fb, 8.5, colW - 12).slice(0, 2), body = lm.text ? wrap((lm.noteWho && lm.noteWho !== lm.who ? lm.noteWho + ': ' : '') + lm.text, f, 8.5, colW - 12).slice(0, 5) : [];
+          const bh = (head.length + body.length) * 10.5 + 8, floor = top - half + 26; if (ty - 6 - bh > floor) { ty -= 6; dpg.drawRectangle({ x: M + 8, y: ty - bh + 4, width: colW, height: bh, color: hex('#eef6f8'), borderColor: hex(SCOL[d.status] || '#3bafbe'), borderWidth: 0.8 }); ty -= 7;
+            head.forEach(l => { txt(dpg, l, M + 14, ty, 8.5, fb, NAVY); ty -= 10.5; }); body.forEach(l => { txt(dpg, l, M + 14, ty, 8.5); ty -= 10.5; }); } } }
       const ph = (d.photos || []).filter(p => p.url).slice(0, 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
       const snips = []; { const p1 = d.plan && ctx.plans.find(p => p.id === d.plan); if (p1 && d.x != null) snips.push({ p: p1, x: d.x, y: d.y }); const p2 = d.plan2 && ctx.plans.find(p => p.id === d.plan2); if (p2 && d.x2 != null) snips.push({ p: p2, x: d.x2, y: d.y2 }); }
       const snip = async (sp, sx, sw, sh) => { try { const im = await getPlanImg(sp.p); const zoomDiv = sp.p.kind === 'elevation' ? 4 : 3; const sc = Math.min(sw / (im.width / zoomDiv), sh / (im.height / zoomDiv)), cw = sw / sc, ch = sh / sc;
@@ -122,6 +125,35 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
 
+// The latest change of status on an item (who moved it, when, and what they said), ignoring housekeeping edits such as a moved pin or a corrected unit.
+const WF_RE = /^(Ready for inspection|Reopened and sent back|Accepted and closed|In progress|Completed and closed by the contractor)(?:: ([\s\S]+)|\.)?/;
+const SYS_RE = /^(Changed |Raised|Imported|Added from|Pin placed|Unit |Filled in|Site note|Status |Ticked|Marked|Handwritten|Resolution note|Category set)/i;
+const histSorted = d => (d.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || '')));
+export function latestMove(d) {
+  let mv = null, note = null;
+  for (const h of histSorted(d)) { const t = String(h.txt || ''), m = WF_RE.exec(t), sc = /status ([^→;.]+?) → ([^;.]+)/i.exec(t);
+    if (!mv && (m || sc)) mv = { h, label: m ? m[1] : `Status changed from ${sc[1].trim()} to ${sc[2].trim()}`, text: m && m[2] ? m[2].trim() : '' };
+    if (!note && !m && t.trim() && !SYS_RE.test(t)) note = { h, text: t.trim() };
+    if (mv && note) break; }
+  if (!mv && !note) return null;
+  const src = mv || note; return { label: mv ? mv.label : 'Comment', when: src.h.t, who: src.h.who || '', text: (mv && mv.text) || (note ? note.text : ''), noteWho: mv && !mv.text && note ? note.h.who || '' : '' };
+}
+// Evidence the contractor says exists somewhere else (Procore, a CAN, an RFI, an email), so it can be found and attached here.
+const REF_RE = /\b(procore|aconex|sharepoint|dropbox|CANs?\b[\s#-]*\d*|CCI[\s#-]*\d+|RFI[\s#-]*\d+|NCR[\s#-]*\d+|CI[\s#-]*\d+|site instruction|variation|e-?mail(?:ed)?|sent (?:to|via|by|through)|see (?:the )?(?:attached|photo|photos|report|drawing)|photos? (?:is|are|was|were)?\s*(?:in|on|uploaded|loaded|provided|sent|taken)|uploaded (?:to|in|on)|provided (?:to|in|via)|as per|refer(?:red)? to|PS[134]\b|producer statement|report)\b[^.;\n]{0,40}/gi;
+export function evidenceRefs(L) {
+  const rows = [];
+  for (const d of L) for (const h of histSorted(d)) { const t = String(h.txt || ''); if (!t.trim() || /^(Raised|Imported|Added from|Pin placed|Filled in|Category set)/i.test(t)) continue; const hits = [...new Set((t.match(REF_RE) || []).map(x => x.trim()))]; if (!hits.length) continue;
+    rows.push([d.id, d.title || '', locText(d) || '', d.status || '', (d.photos || []).length, (d.files || []).length, nzDate(String(h.t || '').slice(0, 10)), h.who || '', hits.join(' | '), t.replace(/\s+/g, ' ').slice(0, 600), '']); }
+  return rows;
+}
+export async function buildEvidenceXlsx(L, ctx) {
+  if (!window.XLSX) await loadScript(LIB.xlsx);
+  const head = ['ID', 'Title', 'Location', 'Status', 'Photos here', 'Files here', 'Date', 'Who said it', 'What they referred to', 'Their full comment', 'Collected (tick)'], rows = evidenceRefs(L);
+  const ws = window.XLSX.utils.aoa_to_sheet([[`${ctx.project.name}: evidence referred to but held elsewhere`], [`${rows.length} comments on ${new Set(rows.map(r => r[0])).size} items mention Procore, a CAN, an RFI, an email or similar. Find each one and attach it to the item.`], [], head, ...rows]);
+  ws['!cols'] = [8, 30, 26, 16, 10, 9, 11, 18, 34, 80, 12].map(w => ({ wch: w })); ws['!autofilter'] = { ref: `A4:K${rows.length + 4}` };
+  const wb = window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb, ws, 'Evidence to collect');
+  return new Blob([window.XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
 export const COLS = [['ID', 'id'], ['Title', 'title'], ['Description', 'desc'], ['Action required', 'action'], ['Block', 'block'], ['Level', 'level'], ['Unit', 'unit'], ['Room / area', 'room'], ['Surface', 'surface'], ['Item', 'item'], ['Element', 'element'], ['Type', 'type'], ['Severity', 'severity'], ['Trade', 'trade'], ['Responsible', 'responsible'], ['Subcontractor', 'subcontractor'], ['Status', 'status'], ['Target date', 'targetDate'], ['Date raised', 'dateRaised'], ['Source', 'source'], ['External ref', 'extRef'], ['Plan', 'plan'], ['Photos', d => (d.photos || []).length], ['Last comment', d => { const h = (d.history || []).slice(-1)[0]; return h ? nzDate(h.t) + ' ' + h.who + ': ' + h.txt : ''; }], ['Last updated', d => d.updated ? nzDate(d.updated) : '']];
 export async function buildXlsx(L, ctx) {
   if (!window.XLSX) await loadScript(LIB.xlsx);

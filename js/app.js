@@ -7,7 +7,7 @@ import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, todayISO
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
-import { buildPdf, buildXlsx, buildCsv, buildZip, locText, pinLabel, setProjectCtx } from './exports.js';
+import { buildPdf, buildXlsx, buildCsv, buildZip, buildEvidenceXlsx, evidenceRefs, locText, pinLabel, setProjectCtx } from './exports.js';
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
@@ -950,6 +950,7 @@ function openExport() {
     <button id="xPdf">📄 PDF schedule<small>Resero and client branding, linked</small></button>
     <button id="xXls">📊 Excel register<small>One row per defect, plus summary</small></button>
     <button id="xCsv">🧾 CSV (Procore)<small>Import into Procore Punch List</small></button>
+    <button id="xEv">🔎 Evidence held elsewhere<small>Comments that mention Procore, a CAN, an RFI or an email, to find and attach</small></button>
     <button id="xZip">🗂 Every file (zip)<small>PDF, Excel, CSV and photos</small></button>
   </div><p class="note" id="xSt"></p><div class="act"><button id="xX">Close</button></div>`);
   const sel = () => { const v = $('xScope').value; const r = v === 'f' ? filtered() : v === 'o' ? S.defects.filter(d => d.status !== 'Closed') : S.defects.slice(); return r.sort((a, b) => natural(a.id, b.id)); };
@@ -961,6 +962,7 @@ function openExport() {
   $('xPdf').onclick = () => run(async () => { const L = sel(); if (!L.length) return toast('Nothing to export'); st('Building the PDF…'); const b = await buildPdf(L, o(), ctx(), st); st(''); deliver(b, `${nm} - ${safeName(o().title)} - ${stamp()}.pdf`, 'PDF schedule'); });
   $('xXls').onclick = () => run(async () => { st('Building the Excel file…'); const b = await buildXlsx(sel(), ctx()); st(''); deliver(b, `${nm} - Defects Register - ${stamp()}.xlsx`, 'Excel register'); });
   $('xCsv').onclick = () => run(async () => deliver(buildCsv(sel()), `${nm} - Procore punch list - ${stamp()}.csv`, 'CSV'));
+  $('xEv').onclick = () => run(async () => { const n = evidenceRefs(sel()).length; if (!n) return toast('No comments in this selection refer to evidence held elsewhere'); const b = await buildEvidenceXlsx(sel(), ctx()); deliver(b, `${nm} - Evidence to collect - ${stamp()}.xlsx`, 'Evidence list'); });
   $('xZip').onclick = () => run(async () => { const b = await buildZip(sel(), o(), ctx(), st); st(''); deliver(b, `${nm} - Defects export - ${stamp()}.zip`, 'Zip'); });
 }
 

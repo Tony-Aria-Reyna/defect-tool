@@ -242,7 +242,7 @@ export async function createSandbox(real, pid, role, onProgress) {
   for (const pl of await real.listPlans(pid)) { const { id, ...rest } = pl; await sb2.seed(`projects/${pid}/plans/${id}`, rest); } onProgress && onProgress('plans');
   const defs = await new Promise(res => { let off = null; off = real.watchDefects(pid, L => { off && off(); res(L); }, () => res([])); });
   for (const d of defs) { const { id, ...rest } = d; await sb2.seed(`projects/${pid}/defects/${id}`, rest); } onProgress && onProgress('defects');
-  for (const coll of ['assets', 'systems', 'docs', 'tasks', 'contacts']) { const L = await new Promise(res => { let off = null; off = real.watchColl(pid, coll, x => { off && off(); res(x); }, () => res([])); }); for (const d of L) { const { id, ...rest } = d; await sb2.seed(`projects/${pid}/${coll}/${id}`, rest); } }
+  for (const coll of ['assets', 'systems', 'docs', 'tasks', 'contacts', 'guide']) { const L = await new Promise(res => { let off = null; off = real.watchColl(pid, coll, x => { off && off(); res(x); }, () => res([])); }); for (const d of L) { const { id, ...rest } = d; await sb2.seed(`projects/${pid}/${coll}/${id}`, rest); } }
   try { await sb2.seed(`projects/${pid}/private/ai`, await real.getPrivate(pid)); } catch (e) {}
   onProgress && onProgress('done');
   sb2.resolveUrl = async u => (u && u.startsWith('local:')) ? '' : u;   // photos and plans are read from the cloud as usual

@@ -5,6 +5,7 @@ import * as Pack from './pack.js';
 import * as Nav from './nav.js';
 import { aiCall } from './ai.js';
 import * as DV from './docview.js';
+import * as Guide from './guide.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
@@ -16,11 +17,12 @@ const UNITS = { weeks: 'week', months: 'month', years: 'year' };
 let X = {}, unsubs = [], cur = 'defects';
 const F = { q: '', sys: '', st: '', type: '', cat: '', win: '90', resp: '' };
 export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads();
+  Guide.init({ getBytes: ctx.getBytes, modal, closeModal, askDiscard });
   DV.init({ getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
-const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [] });
+const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [] });
 export function start(pid) {
-  stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [] };
-  ['assets', 'docs', 'tasks', 'systems'].forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
+  stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [] };
+  ['assets', 'docs', 'tasks', 'systems', 'guide'].forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
   setModule(S.local.lastModule && S.local.lastModule !== 'defects' ? 'defects' : 'defects');
 }
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
@@ -30,7 +32,7 @@ export function setModule(m) {
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();
 }
-function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView })[cur]?.(); }
+function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view })[cur]?.(); }
 
 /* ---------------------------------------------------------------- dates and helpers */
 const dISO = d => d.toISOString().slice(0, 10);

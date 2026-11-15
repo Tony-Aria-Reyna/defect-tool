@@ -99,6 +99,10 @@ service cloud.firestore {
         allow update: if canEdit(pid);
         allow delete: if canEdit(pid);
       }
+      match /guide/{id} {                       // Home User Guide pages
+        allow read: if isMember(pid);
+        allow write: if canEdit(pid);
+      }
       match /tasks/{id} {
         allow read: if isMember(pid);
         allow create, delete: if canEdit(pid);
