@@ -18,9 +18,15 @@ service cloud.firestore {
     function isAdmin(pid) { return isSuper() || (signed() && roleOf(pid) == 'admin'); }
     function canEdit(pid) { return isSuper() || (signed() && roleOf(pid) in ['admin', 'editor']); }
     function isContractor(pid) { return signed() && roleOf(pid) == 'contractor'; }
-    // An organisation (email domain) can be limited to the registers it raised: projects/{pid}.orgScopes = { 'domain.co.nz': ['Source', ...] }.
-    // Applies to editors and viewers only. Admins and the contractor see everything.
-    function scope(pid) { return proj(pid).get('orgScopes', {}).get(myEmail().split('@')[1], []); }
+    // Access by organisation (email domain) with a per-person override, set by admins in Users and access:
+    // projects/{pid}.access = { orgs: { 'domain.co.nz': { sections: [...], sources: [...] } }, people: { 'name@domain': { sections: [...] } } }
+    // An empty list means no limit. Admins are never limited. Register (source) limits apply to editors and viewers only.
+    function myDomain() { return myEmail().split('@')[1]; }
+    function orgAcc(pid) { return proj(pid).get('access', {}).get('orgs', {}).get(myDomain(), {}); }
+    function personSecs(pid) { return proj(pid).get('access', {}).get('people', {}).get(myEmail(), {}).get('sections', []); }
+    function secs(pid) { return personSecs(pid).size() > 0 ? personSecs(pid) : orgAcc(pid).get('sections', []); }
+    function may(pid, s) { return isSuper() || roleOf(pid) == 'admin' || secs(pid).size() == 0 || secs(pid).hasAny(s); }
+    function scope(pid) { return orgAcc(pid).get('sources', proj(pid).get('orgScopes', {}).get(myDomain(), [])); }
     function scoped(pid) { return !isSuper() && roleOf(pid) in ['editor', 'viewer'] && scope(pid).size() > 0; }
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
 
@@ -67,13 +73,13 @@ service cloud.firestore {
       }
 
       match /defects/{id} {
-        allow read: if isMember(pid) && (!scoped(pid) || resource.data.source in scope(pid));
+        allow read: if isMember(pid) && may(pid, ['defects']) && (!scoped(pid) || resource.data.source in scope(pid));
         // contractors can raise items in their own name, and add items to their own registers
-        allow create: if (canEdit(pid) && (!scoped(pid) || request.resource.data.source in scope(pid)))
+        allow create: if may(pid, ['defects']) && ((canEdit(pid) && (!scoped(pid) || request.resource.data.source in scope(pid)))
           || (isContractor(pid) && request.resource.data.get('createdBy', '').lower() == myEmail())
-          || (isContractor(pid) && request.resource.data.get('source', '') in proj(pid).get('selfCloseSources', []));
+          || (isContractor(pid) && request.resource.data.get('source', '') in proj(pid).get('selfCloseSources', [])));
         allow delete: if isAdmin(pid);
-        allow update: if (canEdit(pid) && (!scoped(pid) || (resource.data.source in scope(pid) && request.resource.data.source in scope(pid))))
+        allow update: if may(pid, ['defects']) && ((canEdit(pid) && (!scoped(pid) || (resource.data.source in scope(pid) && request.resource.data.source in scope(pid))))
           // a contractor can edit the items they raised themselves (who raised it cannot be changed)
           || (isContractor(pid)
               && resource.data.get('createdBy', '').lower() == myEmail()
@@ -85,30 +91,30 @@ service cloud.firestore {
                   // items from the contractor's own registers can be closed by the contractor
                   || (request.resource.data.status == 'Closed'
                       && resource.data.get('source', '') in get(/databases/$(db)/documents/projects/$(pid)).data.get('selfCloseSources', [])))
-              && resource.data.status != 'Closed');
+              && resource.data.status != 'Closed'));
       }
 
       // Facility management: assets and warranties, documents, maintenance tasks, specified systems
       match /assets/{id} {
-        allow read: if isMember(pid);
+        allow read: if isMember(pid) && may(pid, ['assets', 'maint', 'comp', 'dash', 'docs']);
         allow write: if canEdit(pid);
       }
       match /systems/{id} {
-        allow read: if isMember(pid);
+        allow read: if isMember(pid) && may(pid, ['assets', 'maint', 'comp', 'dash', 'docs']);
         allow write: if canEdit(pid);
       }
       match /docs/{id} {
-        allow read: if isMember(pid);
+        allow read: if isMember(pid) && may(pid, ['docs', 'assets', 'maint', 'comp', 'dash', 'guide']);
         allow create: if canEdit(pid) || isContractor(pid);      // contractors can upload warranties, O&Ms, PS3s
         allow update: if canEdit(pid);
         allow delete: if canEdit(pid);
       }
       match /guide/{id} {                       // Home User Guide pages
-        allow read: if isMember(pid);
+        allow read: if isMember(pid) && may(pid, ['guide']);
         allow write: if canEdit(pid);
       }
       match /tasks/{id} {
-        allow read: if isMember(pid);
+        allow read: if isMember(pid) && may(pid, ['maint', 'comp', 'dash', 'assets']);
         allow create, delete: if canEdit(pid);
         allow update: if canEdit(pid)
           // a contractor can edit the items they raised themselves (who raised it cannot be changed)

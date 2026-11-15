@@ -1,5 +1,5 @@
 // Facility management modules: dashboard, assets and warranties, maintenance, compliance (BWoF), documents.
-import { S, can, isMajor } from './state.js';
+import { S, can, isMajor , mayUse } from './state.js';
 import { STATUS_COLOURS as SCOL } from './config.js';
 import * as Pack from './pack.js';
 import * as Nav from './nav.js';
@@ -22,12 +22,16 @@ export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, add
 const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [] });
 export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [] };
-  ['assets', 'docs', 'tasks', 'systems', 'guide'].forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
-  setModule(S.local.lastModule && S.local.lastModule !== 'defects' ? 'defects' : 'defects');
+  const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs'], systems: ['assets', 'maint', 'comp', 'dash', 'docs'], tasks: ['maint', 'comp', 'dash', 'assets'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'] };
+  document.querySelectorAll('#modbar button').forEach(b => b.hidden = !mayUse(b.dataset.m));
+  ['assets', 'docs', 'tasks', 'systems', 'guide'].filter(c => NEED[c].some(mayUse)).forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
+  const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
+  setModule(mayUse('defects') || !first ? 'defects' : first.dataset.m);
 }
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
 export function goTo(m, q) { Object.assign(F, { q: q || '', sys: '', st: '', type: '', cat: '' }); if (m === 'maint') F.win = 'all'; setModule(m); }
 export function setModule(m) {
+  if (!mayUse(m)) { const f = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden); if (!f || f.dataset.m === m) return; m = f.dataset.m; }
   if (m !== 'defects' && !Nav.isOpen('module')) Nav.open('module', () => setModule('defects')); if (m === 'defects') Nav.closed('module');
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();

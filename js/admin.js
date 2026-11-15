@@ -1,5 +1,5 @@
 // Admin areas: project settings, users, plans, room boundaries, import, Gemini settings.
-import { S, can, saveLocal, withDefaults, unitList, sevLabel, sevMatch, sevDefault } from './state.js';
+import { S, can, SECTIONS, saveLocal, withDefaults, unitList, sevLabel, sevMatch, sevDefault } from './state.js';
 import { DEFAULTS, ROLES, ROLE_HELP, APP } from './config.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, opts, uid, compressImage, dataUrlToBlob, natural, todayISO, loadScript, centroid, pointInPoly, polyArea, loadImage, download } from './util.js';
 import { aiCall } from './ai.js';
@@ -73,31 +73,78 @@ export function projectSettings(p) {
 async function pngIfTransparent(file, jpg) { if (!/png|svg|gif|webp/.test(file.type)) return jpg; const im = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = URL.createObjectURL(file); }); const s = Math.min(1, 600 / Math.max(im.width, im.height)); const c = document.createElement('canvas'); c.width = im.width * s; c.height = im.height * s; c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); return c.toDataURL('image/png'); }
 
 /* ================================================================ users */
+const domOf = e => String(e || '').toLowerCase().split('@')[1] || '';
+const orgOf = (p, d) => { const o = (((p.access || {}).orgs) || {})[d] || {}; return { sections: o.sections || [], sources: o.sources || (p.orgScopes || {})[d] || [] }; };
+function accTag(p, email, role) {
+  if (!email || role === 'admin') return '';
+  const per = ((((p.access || {}).people) || {})[String(email).toLowerCase()] || {}).sections || [], o = orgOf(p, domOf(email));
+  const l = per.length ? per : o.sections, bits = [];
+  if (l.length) bits.push(l.map(k => SECTIONS[k]).join(', ') + (per.length ? ' (set for this person)' : ''));
+  if (o.sources.length && ['editor', 'viewer'].includes(role)) bits.push('items from ' + o.sources.join(', '));
+  return bits.length ? `<br><span class="small" style="color:var(--teal)">🔒 ${esc(bits.join('; '))}</span>` : '';
+}
+const secBoxes = (sel, name) => Object.entries(SECTIONS).map(([k, l]) => `<label style="display:inline-flex;gap:4px;margin:2px 10px 2px 0"><input type="checkbox" name="${name}" value="${k}" ${sel.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('');
+const picked = name => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(x => x.value);
+async function saveAccess(p, access, done) {
+  try { await S.store.updateProject(p.id, { access, orgScopes: {} }); p.access = access; p.orgScopes = {}; S.project.access = access; S.project.orgScopes = {}; toast('Access saved. It applies the next time those people open the project.', 5000); done && done(); }
+  catch (e) { toast('Could not save: ' + e.message, 6000); }
+}
+// Organisation level: one row per company (email domain) on the project
+async function accessDialog(p, inv) {
+  const doms = new Set([...Object.values(p.memberInfo || {}).map(i => domOf(i.email)), ...inv.map(i => domOf(i.email)), ...Object.keys(((p.access || {}).orgs) || {}), ...Object.keys(p.orgScopes || {})]);
+  doms.delete(''); doms.delete(domOf(S.user.email));
+  const rows = [...doms].sort().map((d, i) => { const o = orgOf(p, d); return `<div class="card" style="padding:10px;margin:8px 0" data-dom="${esc(d)}"><b>${esc(d)}</b>
+    <p class="small muted" style="margin:4px 0">Sections they can use (none ticked = all sections)</p>${secBoxes(o.sections, 'as' + i)}
+    <p class="small muted" style="margin:8px 0 4px">Defect registers their editors and viewers can see (none ticked = all)</p>${(p.sources || []).map(s => `<label style="display:inline-flex;gap:4px;margin:2px 10px 2px 0"><input type="checkbox" name="ar${i}" value="${esc(s)}" ${o.sources.includes(s) ? 'checked' : ''}>${esc(s)}</label>`).join('')}</div>`; }).join('');
+  modal(`<h2>Access by organisation</h2><p class="note">Each company is recognised by the end of its email address, so new people from that company get the same access automatically. Admins are never limited. The contractor role always sees every defect register.</p>
+  ${rows || '<p class="empty">No other organisations on this project yet. Invite someone first.</p>'}
+  <div class="act"><button id="acX">Back</button>${rows ? '<button class="go" id="acGo">Save</button>' : ''}</div>`, true);
+  $('acX').onclick = () => usersDialog();
+  if ($('acGo')) $('acGo').onclick = () => {
+    const orgs = {};
+    document.querySelectorAll('[data-dom]').forEach((el, i) => { const sections = picked('as' + i), sources = picked('ar' + i); if (sections.length || sources.length) orgs[el.dataset.dom] = { sections, sources }; });
+    saveAccess(p, { ...(p.access || {}), orgs }, usersDialog);
+  };
+}
+// Person level: overrides the organisation's sections for one person
+function personAccess(p, email) {
+  email = String(email).toLowerCase(); const d = domOf(email), o = orgOf(p, d);
+  const per = ((((p.access || {}).people) || {})[email] || {}).sections || [];
+  modal(`<h2>${esc(email)}</h2><p class="note">${o.sections.length ? `${esc(d)} can use: <b>${esc(o.sections.map(k => SECTIONS[k]).join(', '))}</b>.` : `${esc(d)} has no section limit.`}</p>
+  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="org" ${per.length ? '' : 'checked'}> Same as their organisation</label>
+  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="own" ${per.length ? 'checked' : ''}> Only these sections:</label>
+  <div style="margin-left:22px">${secBoxes(per.length ? per : o.sections, 'ps')}</div>
+  <p class="note">Admins are never limited, whatever is set here.</p>
+  <div class="act"><button id="paX">Back</button><button class="go" id="paGo">Save</button></div>`, true);
+  $('paX').onclick = () => usersDialog();
+  $('paGo').onclick = () => {
+    const own = document.querySelector('input[name="paM"]:checked').value === 'own', l = picked('ps');
+    if (own && !l.length) return toast('Tick at least one section, or choose "Same as their organisation"');
+    const people = { ...(((p.access || {}).people) || {}) }; if (own) people[email] = { sections: l }; else delete people[email];
+    saveAccess(p, { ...(p.access || {}), people }, usersDialog);
+  };
+}
 export async function usersDialog() {
   const p = await S.store.getProject(S.project.id); const inv = await S.store.listInvites(p.id).catch(() => []);
   const info = p.memberInfo || {};
   const roleSel = (v, attr) => `<select ${attr}>${Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   modal(`<h2>Users and access</h2>
   <table class="t"><tr><th>Person</th><th>Role</th><th></th></tr>
-  ${Object.entries(p.members || {}).map(([u, r]) => `<tr><td><b>${esc((info[u] || {}).name || '')}</b><br><span class="muted small">${esc((info[u] || {}).email || u)}</span></td><td>${roleSel(r, `data-u="${esc(u)}" ${u === S.user.uid ? 'disabled' : ''}`)}</td><td>${u === S.user.uid ? '<span class="muted small">you</span>' : `<button class="btn" data-rm="${esc(u)}">Remove</button>`}</td></tr>`).join('')}
-  ${inv.map(i => `<tr><td>${esc(i.email)}<br><span class="muted small">Invited ${esc(i.at ? i.at.slice(0, 10) : '')}, not signed in yet</span></td><td>${roleSel(i.role, `data-ir="${esc(i.email)}"`)}</td><td><button class="btn" data-ci="${esc(i.email)}">Cancel</button></td></tr>`).join('')}
+  ${Object.entries(p.members || {}).map(([u, r]) => `<tr><td>${u !== S.user.uid && (info[u] || {}).email ? `<a href="#" data-pa="${esc(info[u].email)}" title="Set which sections this person can use">` : '<span>'}<b>${esc((info[u] || {}).name || '')}</b><br><span class="muted small">${esc((info[u] || {}).email || u)}</span>${u !== S.user.uid && (info[u] || {}).email ? '</a>' : '</span>'}${accTag(p, (info[u] || {}).email, r)}</td><td>${roleSel(r, `data-u="${esc(u)}" ${u === S.user.uid ? 'disabled' : ''}`)}</td><td>${u === S.user.uid ? '<span class="muted small">you</span>' : `<button class="btn" data-rm="${esc(u)}">Remove</button>`}</td></tr>`).join('')}
+  ${inv.map(i => `<tr><td><a href="#" data-pa="${esc(i.email)}" title="Set which sections this person can use">${esc(i.email)}</a>${accTag(p, i.email, i.role)}<br><span class="muted small">Invited ${esc(i.at ? i.at.slice(0, 10) : '')}, not signed in yet</span></td><td>${roleSel(i.role, `data-ir="${esc(i.email)}"`)}</td><td><button class="btn" data-ci="${esc(i.email)}">Cancel</button></td></tr>`).join('')}
   </table>
   <h3 class="sec">Invite someone</h3>
   <div class="grid"><label class="f">Email address<input id="uEmail" type="email" placeholder="name@company.co.nz"></label><label class="f">Role${roleSel('editor', 'id="uRole"')}</label></div>
   <p class="note" id="uHelp"></p>
   <div class="act" style="justify-content:flex-start"><button class="go" id="uInv">Send invitation</button></div>
   <p class="note">They sign in at <b>${esc(appUrl())}</b> with Google, or with an email link, <b>using this same email address</b>. They are added to the project automatically when they first sign in.</p>
-  <details class="ext" ${Object.keys(p.orgScopes || {}).length ? 'open' : ''}><summary>Limit an organisation to its own items</summary><p class="note">One line per organisation: the part of their email address after the @, then =, then the sources (registers) they raised, separated by commas. Their <b>editors and viewers</b> then see and edit only those items. Admins and the contractor always see everything. Sources on this project: ${esc((p.sources || []).join(', '))}.</p><textarea id="uScope" rows="3" style="width:100%" placeholder="maynardmarks.co.nz = Maynard Marks">${esc(Object.entries(p.orgScopes || {}).map(([k, v]) => k + ' = ' + v.join(', ')).join('\n'))}</textarea><div class="act" style="justify-content:flex-start"><button id="uScopeGo">Save limits</button></div></details>
+  <div class="act" style="justify-content:flex-start"><button id="uAcc">🔒 Access by organisation</button><span class="note" style="margin-left:8px">Choose which sections each company can use. Click a person's name to set them differently.</span></div>
   <details class="ext"><summary>Invitation not working? Add them by user ID</summary><p class="note">If someone has signed in and still sees "You have not been added to any projects yet", ask them to send you the user ID shown on that screen (copied, not retyped), paste it here and choose their role.</p><div class="grid"><label class="f">User ID<input id="uUid" placeholder="paste the user ID"></label><label class="f">Their email (for your records)<input id="uUidE" type="email"></label></div><div class="act" style="justify-content:flex-start"><button id="uUidGo">Add this person</button></div></details>
   <div class="act"><button id="uX">Close</button></div>`, true);
   $('uUidGo').onclick = async () => { const u = $('uUid').value.trim(); if (!/^[A-Za-z0-9]{20,40}$/.test(u)) return toast('That does not look like a user ID. Ask them to copy it from their screen.'); try { await S.store.setMember(p.id, u, $('uRole').value, { name: ($('uUidE').value.split('@')[0] || ''), email: $('uUidE').value.trim().toLowerCase() }); toast('Added as ' + ROLES[$('uRole').value] + '. Ask them to reload the app.', 6000); usersDialog(); } catch (e) { toast('Could not add: ' + e.message, 6000); } };
   const help = () => $('uHelp').textContent = ROLE_HELP[$('uRole').value]; $('uRole').onchange = help; help();
-  $('uScopeGo').onclick = async () => {
-    const o = {}, bad = [];
-    $('uScope').value.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => { const m = /^@?([a-z0-9.-]+\.[a-z]{2,})\s*=\s*(.+)$/i.exec(l); const src = m ? m[2].split(',').map(x => x.trim()).filter(Boolean) : []; const unk = src.filter(x => !(p.sources || []).includes(x)); if (!m || !src.length || unk.length) bad.push(unk.length ? '"' + unk.join(', ') + '" is not a source on this project' : l); else o[m[1].toLowerCase()] = src; });
-    if (bad.length) return toast('Not saved. Check: ' + bad[0], 7000);
-    try { await S.store.updateProject(p.id, { orgScopes: o }); S.project.orgScopes = o; toast('Limits saved. They apply the next time those people open the project.', 5000); } catch (e) { toast('Could not save: ' + e.message, 6000); }
-  };
+  $('uAcc').onclick = () => accessDialog(p, inv);
+  document.querySelectorAll('[data-pa]').forEach(x => x.onclick = () => personAccess(p, x.dataset.pa));
   $('uX').onclick = closeModal;
   document.querySelectorAll('[data-u]').forEach(s => s.onchange = async () => { try { await S.store.setMember(p.id, s.dataset.u, s.value); toast('Role updated'); } catch (e) { toast(e.message); } });
   document.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this person from the project?', 'Remove')) { await S.store.setMember(p.id, b.dataset.rm, null); usersDialog(); } });
