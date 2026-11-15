@@ -30,7 +30,7 @@ export function setModule(m) {
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();
 }
-function render() { ({ dash, assets, maint, comp, docs })[cur]?.(); }
+function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView })[cur]?.(); }
 
 /* ---------------------------------------------------------------- dates and helpers */
 const dISO = d => d.toISOString().slice(0, 10);
@@ -366,14 +366,78 @@ function editDoc(d) {
     ${sel('Type', 'oY', opts(DOC_TYPES, d.type))}${sel('Building system', 'oS', sysOpts(d.system, 1))}
     ${field('From (company)', 'oP', d.party)}${field('Issued', 'oI', d.issued, 'type="date"')}
     ${field('Expiry (if any)', 'oE', d.expiry, 'type="date"')}${sel('Audience', 'oA', opts(['FM', 'Home user', 'Both'], d.audience || 'FM'))}
-    ${d.url ? `<p class="full small muted">File: ${esc(d.fileName || '')} ${d.size ? '(' + (d.size / 1e6).toFixed(1) + ' MB)' : ''}${d.srcPath ? '<br>From: ' + esc(d.srcPath) : ''}</p>` : field('Link (SharePoint, Procore or any web address)', 'oL', d.link, 'placeholder="https://…"', true)}
+    ${d.url ? `<p class="full"><button class="btn2 go" id="oView">${DV.isPdf(d) ? '👁 View the document' : '↗ Open the file'}</button></p><p class="full small muted">File: ${esc(d.fileName || '')} ${d.size ? '(' + (d.size / 1e6).toFixed(1) + ' MB)' : ''}${d.srcPath ? '<br>From: ' + esc(d.srcPath) : ''}</p>` : field('Link (SharePoint, Procore or any web address)', 'oL', d.link, 'placeholder="https://…"', true)}
   </div><h3 class="sec">Linked assets</h3><div class="chips" id="oC">${chips()}</div>
   ${ro ? '' : `<label class="f" style="margin-top:8px">Link to an asset<select id="oAdd"><option value="">Choose…</option>${A.map(a => `<option value="${esc(a.id)}">${esc(sysShort(a.system) + ' · ' + a.element)}</option>`).join('')}</select></label>`}`,
   { ro, onSave: async () => { const o = { ...d, title: val('oT'), type: val('oY'), system: val('oS'), party: val('oP'), issued: val('oI'), expiry: val('oE'), audience: val('oA'), updated: nowISO() }; if ($('oL')) o.link = val('oL'); if (!o.title) { toast('Enter a title'); return false; } if (isNew) { o.created = nowISO(); o.createdBy = S.user.email; } await S.store.saveItem(S.project.id, 'docs', o);
       if (o.assetIds && o.assetIds.length) for (const id of o.assetIds) { const a = fm().assets.find(x => x.id === id); if (a && a.status === 'Not received') await S.store.patchItem(S.project.id, 'assets', id, { status: 'Partial' }); } },
     onDelete: isNew ? null : async () => { await S.store.deleteItem(S.project.id, 'docs', d.id); if (d.path) S.store.deleteFile(d.path); } });
+  if ($('oView')) $('oView').onclick = async () => { const cur = fm().docs.find(x => x.id === d.id) || d; if (!DV.isPdf(cur)) return openDoc(cur); await tryCloseSheet(); if ($('sheet2').classList.contains('show')) return; DV.open(cur, { ret: () => { const x = fm().docs.find(q => q.id === d.id); if (x) editDoc(x); } }); };
   const wireChips = () => document.querySelectorAll('#oC [data-rm]').forEach(b => b.onclick = () => { d.assetIds = d.assetIds.filter(x => x !== b.dataset.rm); $('oC').innerHTML = chips(); wireChips(); });
   wireChips(); if ($('oAdd')) $('oAdd').onchange = e => { if (e.target.value && !d.assetIds.includes(e.target.value)) d.assetIds.push(e.target.value); e.target.value = ''; $('oC').innerHTML = chips(); wireChips(); };
+}
+
+/* ================================================================ CONTACTS DIRECTORY */
+// One line per company, built from the documents received (the name before the first " - " in each file name) and the assets they relate to.
+// Phone numbers and email addresses are read from the documents themselves and offered as suggestions to confirm.
+const CO_SKIP = ['ltd', 'limited', 'nz', 'new', 'zealand', 'auckland', 'group', 'the', 'co', 'company', 'for', 'and'];
+const coKey = n => String(n || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9+& ]/g, ' ').split(/\s+/).filter(x => x && !CO_SKIP.includes(x)).slice(0, 2).join(' ');
+function directory() {
+  const saved = S.project.directory || [], map = new Map();
+  const get = name => { const k = coKey(name); if (!k) return null; if (!map.has(k)) map.set(k, { key: k, company: String(name).replace(/\s*\(.*?\)\s*/g, ' ').trim(), systems: new Set(), docs: [], emails: {}, phones: {}, assets: [], saved: null }); return map.get(k); };
+  for (const d of fm().docs) { if (!d.party) continue; const c = get(d.party); if (!c) continue; if (d.system) c.systems.add(d.system); c.docs.push(d); ((d.found || {}).e || []).forEach(e => c.emails[e] = (c.emails[e] || 0) + 1); ((d.found || {}).p || []).forEach(x => c.phones[x] = (c.phones[x] || 0) + 1); }
+  for (const sv of saved) { const c = get(sv.company); if (c) { c.saved = sv; c.company = sv.company; } }
+  for (const c of map.values()) { const w = c.key.split(' ')[0]; if (w.length >= 3) c.assets = fm().assets.filter(a => [a.installer, a.product].join(' ').toLowerCase().includes(w));
+    const words = c.key.split(' ').filter(x => x.length >= 4), own = e => words.some(x => e.split('@')[1].replace(/[^a-z]/g, '').includes(x.replace(/[^a-z]/g, '')));
+    c.emailList = Object.keys(c.emails).sort((a, b) => (own(b) - own(a)) || c.emails[b] - c.emails[a]); c.emailOwn = c.emailList.length && own(c.emailList[0]);
+    c.phoneList = Object.keys(c.phones).sort((a, b) => c.phones[b] - c.phones[a]);
+    c.work = c.assets.length ? [...new Set(c.assets.map(a => a.element))].slice(0, 3).join('; ') : [...c.systems].map(x => x.slice(3)).slice(0, 2).join('; '); }
+  return [...map.values()].sort((a, b) => natural(a.company, b.company));
+}
+const nameFromEmail = e => { const l = String(e || '').split('@')[0]; return /^(info|admin|sales|contracts|accounts|office|service|support|enquiries|hello|auckland)/i.test(l) ? '' : l.split(/[._-]/).filter(x => /^[a-z]+$/i.test(x)).map(x => x[0].toUpperCase() + x.slice(1)).join(' '); };
+function contactsView() {
+  const D = directory(), q = F.q.toLowerCase(), L = D.filter(c => !q || [c.company, c.work, (c.saved || {}).name, (c.saved || {}).trade].join(' ').toLowerCase().includes(q));
+  const unread = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found).length;
+  $('fmView').innerHTML = `<div class="fbar"><h2>Contacts</h2><input type="search" id="cQ" placeholder="Search company, trade, name…" value="${esc(F.q)}">${can.edit() ? `<button class="btn2 go" id="cNew">+ Contact</button>${unread ? `<button class="btn2" id="cRead" title="Reads the first pages of each document for phone numbers and email addresses">🔍 Read contact details from ${unread} document${unread === 1 ? '' : 's'}</button>` : ''}` : ''}</div>
+  <p class="muted small">${D.length} compan${D.length === 1 ? 'y' : 'ies'} found from the documents received · ${D.filter(c => c.saved).length} confirmed. Suggested details come from the documents and need a quick check before they are relied on.</p>
+  ${L.length ? `<table class="ftable"><tr><th>Company</th><th class="hm">What they did</th><th>Contact</th><th>Phone</th><th class="hm">Email</th><th class="hm">Docs</th><th></th></tr>${L.map(c => { const sv = c.saved || {}, sug = !c.saved;
+    return `<tr class="click" data-k="${esc(c.key)}"><td><b>${esc(c.company)}</b></td><td class="hm small">${esc(sv.trade || c.work || '')}</td><td>${esc(sv.name || '')}${sug && c.emailOwn && nameFromEmail(c.emailList[0]) ? `<span class="muted">${esc(nameFromEmail(c.emailList[0]))}</span>` : ''}</td><td>${esc(sv.phone || '')}${sug && c.phoneList[0] ? `<span class="muted">${esc(c.phoneList[0])}</span>` : ''}</td><td class="hm small">${esc(sv.email || '')}${sug && c.emailList[0] ? `<span class="muted">${esc(c.emailList[0])}</span>` : ''}</td><td class="hm">${c.docs.length || '-'}</td><td>${c.saved ? '<span class="st st-ok">Confirmed</span>' : '<span class="st st-grey">Suggested</span>'}</td></tr>`; }).join('')}</table>` : `<div class="empty2">${D.length ? 'No contacts match.' : 'No companies yet. They appear here as documents are uploaded: the company is the name before the first " - " in each file name.'}</div>`}`;
+  $('cQ').oninput = e => { F.q = e.target.value; contactsView(); $('cQ').focus(); $('cQ').setSelectionRange(F.q.length, F.q.length); };
+  if ($('cNew')) $('cNew').onclick = () => editContact(null);
+  if ($('cRead')) $('cRead').onclick = readContacts;
+  document.querySelectorAll('tr[data-k]').forEach(r => r.onclick = () => editContact(D.find(c => c.key === r.dataset.k)));
+}
+function editContact(c) {
+  const isNew = !c; c = c || { key: '', company: '', docs: [], assets: [], emailList: [], phoneList: [], work: '', saved: null };
+  const sv = c.saved || {}, ro = !can.edit();
+  sheet(isNew ? 'New contact' : c.company, `<div class="grid">
+    ${field('Company', 'kC', sv.company || c.company, '', true)}
+    ${field('Trade or what they did', 'kT', sv.trade || c.work, 'placeholder="e.g. Plumbing; hot water cylinders"', true)}
+    ${field('Contact person', 'kN', sv.name || (c.emailOwn ? nameFromEmail(c.emailList[0]) : ''))}${field('Phone', 'kP', sv.phone || c.phoneList[0] || '', 'list="kPl"')}
+    ${field('Email', 'kE', sv.email || c.emailList[0] || '', 'list="kEl"', true)}
+    ${sel('Shown in', 'kA', opts(['FM', 'Both', 'Not shown'], sv.audience || 'FM'))}${field('After-hours phone', 'kH', sv.afterHours)}
+    ${area('Notes', 'kO', sv.notes)}
+  </div><datalist id="kPl">${c.phoneList.map(x => `<option>${esc(x)}</option>`).join('')}</datalist><datalist id="kEl">${c.emailList.map(x => `<option>${esc(x)}</option>`).join('')}</datalist>
+  ${!c.saved && (c.emailList.length || c.phoneList.length) ? '<p class="note">The phone and email were read from this company\'s documents. Other numbers and addresses found are offered when you click in the box. Check them, then Save to confirm.</p>' : ''}
+  ${c.assets.length ? `<h3 class="sec">Assets</h3>${c.assets.map(a => `<div class="prow"><div class="g">${esc(a.element)}<small>${esc(sysShort(a.system))} · ${esc(a.status || '')}</small></div></div>`).join('')}` : ''}
+  ${c.docs.length ? `<h3 class="sec">Documents (${c.docs.length})</h3>${c.docs.slice(0, 40).map(d => `<div class="prow"><div class="g"><a href="#" data-open="${esc(d.id)}">${esc(d.title)}</a><small>${esc(d.type || '')}</small></div></div>`).join('')}` : ''}`,
+  { ro, onSave: async () => { const o = { id: sv.id || uid(), company: val('kC'), trade: val('kT'), name: val('kN'), phone: val('kP'), email: val('kE'), audience: val('kA'), afterHours: val('kH'), notes: val('kO'), updated: nowISO() }; if (!o.company) { toast('Enter the company'); return false; }
+      const dir = (S.project.directory || []).filter(x => x.id !== o.id && coKey(x.company) !== coKey(o.company)).concat(o); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); },
+    onDelete: c.saved ? async () => { const dir = (S.project.directory || []).filter(x => x.id !== sv.id); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); } : null });
+  document.querySelectorAll('#s2Body [data-open]').forEach(l => l.onclick = e => { e.preventDefault(); openDoc(fm().docs.find(d => d.id === l.dataset.open)); });
+}
+const RE_EMAIL = /[a-z0-9][a-z0-9._%+-]*@[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi, RE_PHONE = /(?:\+?64[\s-]?\(?0?\)?|\(?0)(?:2\d|[34679]|800|508)\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b/g;
+async function readContacts() {
+  const L = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found); if (!L.length) return;
+  const b = busy('Reading documents…'); let n = 0, hit = 0;
+  try { for (const d of L) { b.set(`Reading ${++n} of ${L.length}: ${d.title}`);
+      let found = { e: [], p: [], at: nowISO() };
+      try { const t = await DV.frontText(d, 3); found.e = [...new Set((t.match(RE_EMAIL) || []).map(x => x.toLowerCase().replace(/\.$/, '')))].filter(x => !/aucklandcouncil|example\./.test(x)).slice(0, 6); found.p = [...new Set((t.match(RE_PHONE) || []).map(x => x.replace(/\s+/g, ' ').trim()))].filter(x => x.replace(/\D/g, '').length >= 9 && !/^0?9\s?301\s?0101$/.test(x)).slice(0, 6); if (found.e.length || found.p.length) hit++; }
+      catch (e) { console.warn('contacts', d.title, e); found.err = 1; }
+      await S.store.patchItem(S.project.id, 'docs', d.id, { found });
+    }
+    b.done(); toast(`Read ${n} documents; contact details found in ${hit}`, 6000); setTimeout(render, 300);
+  } catch (e) { b.done(); toast(`Stopped after ${n}: ${e.message}. Press the button again to carry on.`, 8000); }
 }
 
 /* ---- uploads ---- */

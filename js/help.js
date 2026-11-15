@@ -64,6 +64,7 @@ Facility management (tabs under the header)
 - Documents: upload files, upload a whole handover folder (filed by system and type), or add SharePoint links.
 - Viewing documents: PDFs open inside the app (View). "Find a clause" searches the contract and specification in plain words, allows for typos and other names for the same thing, and can ask AI for more words to try.
 - Marking clauses: in the viewer, press "Mark a clause", drag a box around the words that set a requirement, and link it to the assets or maintenance tasks it applies to. The box then shows on the asset under "Where this is required"; hover over a box in the document to see what it links to.
+- Contacts: one line per company, built from the documents received. "Read contact details" picks up phone numbers and emails from the documents as suggestions; open a line, check it and Save to confirm.
 - Maintenance register: Maintenance > Register lists every task by building system with who does it, how often, the asset it protects and where it is required. It can be printed.
 - Drag and drop: drop files or folders anywhere. Photos onto an open defect; files onto an open asset; a .json import file anywhere; plan PDFs on the Defects tab; anything else goes to Documents.
 
