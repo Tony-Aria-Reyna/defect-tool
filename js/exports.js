@@ -167,7 +167,34 @@ export async function buildRegisterXlsx(L, ctx) {
   if (ws.B8) { ws.B8.z = 'dd/mm/yyyy'; ws.B8.s = { alignment: { horizontal: 'left' } }; }
   data.forEach((r, i) => { const a = 'E' + (12 + i); if (ws[a]) ws[a].s = B; });
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Unit');
-  return new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  let out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  if (pr.contractorLogo) try { out = await addLogo(out, pr.contractorLogo); } catch (e) { console.warn('logo', e); }
+  return new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+// Put a logo image on the first sheet, top right (columns C to E, rows 1 to 10), as in the contractor's own register.
+async function addLogo(buf, dataUrl) {
+  if (!window.JSZip) await loadScript(LIB.jszip || 'lib/jszip.min.js');
+  const m = /^data:image\/(png|jpe?g);base64,(.*)$/.exec(dataUrl); if (!m) return buf;
+  const ext = m[1] === 'png' ? 'png' : 'jpeg';
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl; });
+  const hEmu = 1500000, wEmu = Math.round(hEmu * img.width / img.height);   // about 4 cm tall, keeps its proportions
+  const z = await JSZip.loadAsync(buf);
+  z.file('xl/media/logo1.' + ext, m[2], { base64: true });
+  z.file('xl/drawings/drawing1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${wEmu}" cy="${hEmu}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${wEmu}" cy="${hEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`);
+  z.file('xl/drawings/_rels/drawing1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo1.${ext}"/></Relationships>`);
+  const rp = 'xl/worksheets/_rels/sheet1.xml.rels', rel = `<Relationship Id="rIdLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>`;
+  const old = z.file(rp) ? await z.file(rp).async('string') : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  z.file(rp, old.replace('</Relationships>', rel + '</Relationships>'));
+  let sh = await z.file('xl/worksheets/sheet1.xml').async('string');
+  sh = sh.replace(/(<\/worksheet>)$/, '<drawing r:id="rIdLogo"/>$1');
+  if (!/xmlns:r=/.test(sh.slice(0, 600))) sh = sh.replace('<worksheet ', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ');
+  // the drawing element must come after autoFilter/mergeCells etc. and before legacy parts; SheetJS writes none of those after it
+  z.file('xl/worksheets/sheet1.xml', sh);
+  let ct = await z.file('[Content_Types].xml').async('string');
+  if (!ct.includes('Extension="' + ext + '"')) ct = ct.replace('<Default ', `<Default Extension="${ext}" ContentType="image/${ext}"/><Default `);
+  ct = ct.replace('</Types>', '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>');
+  z.file('[Content_Types].xml', ct);
+  return z.generateAsync({ type: 'arraybuffer' });
 }
 export async function buildEvidenceXlsx(L, ctx) {
   if (!window.XLSX) await loadScript(LIB.xlsx);

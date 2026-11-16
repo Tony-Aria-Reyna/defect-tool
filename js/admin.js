@@ -23,6 +23,8 @@ export function projectSettings(p) {
     <label class="f">Client<input id="psClient" value="${esc(p.client || '')}" placeholder="e.g. Haumaru Housing"></label>
     <label class="f">Client logo (for exports)<input type="file" id="psLogo" accept="image/*"></label>
     <div class="full" id="psLogoPrev">${p.clientLogo ? `<img src="${esc(p.clientLogo)}" style="max-height:40px">` : ''}</div>
+    <label class="f">Contractor logo (for the contractor's register)<input type="file" id="psCLogo" accept="image/*"></label>
+    <div id="psCLogoPrev">${p.contractorLogo ? `<img src="${esc(p.contractorLogo)}" style="max-height:40px">` : ''}</div>
     <label class="f full">Short description (helps Gemini)<input id="psDesc" value="${esc(p.description || '')}" placeholder="e.g. 42 one-bedroom units for older people in two blocks"></label>
     <label class="f">Contract<input id="psContract" value="${esc(p.contract || '')}" placeholder="e.g. NZS 3916:2013"></label>
     <label class="f">Main contractor<input id="psCon" value="${esc(p.contractor || '')}"></label>
@@ -58,10 +60,12 @@ export function projectSettings(p) {
   <div class="act"><button id="psX">Cancel</button><button class="go" id="psOk">${isNew ? 'Create project' : 'Save'}</button></div>`, true);
   let logo = p.clientLogo || '';
   $('psLogo').onchange = async e => { const f = e.target.files[0]; if (!f) return; const c = await compressImage(f, 600, 0.9); logo = await pngIfTransparent(f, c.dataUrl); $('psLogoPrev').innerHTML = `<img src="${logo}" style="max-height:40px">`; };
+  let clogo = p.contractorLogo || '';
+  $('psCLogo').onchange = async e => { const f = e.target.files[0]; if (!f) return; const c = await compressImage(f, 600, 0.9); clogo = await pngIfTransparent(f, c.dataUrl); $('psCLogoPrev').innerHTML = `<img src="${clogo}" style="max-height:40px">`; };
   $('psX').onclick = closeModal;
   $('psOk').onclick = async () => {
     const name = $('psName').value.trim(); if (!name) return toast('Enter the project name');
-    const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
+    const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, contractorLogo: clogo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
       responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), jobNo: $('psJob').value.trim(), registerAccess: $('psAcc').value.trim(), subcontractors: fromLines($('psSubs').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
     if ($('psArch')) data.archived = $('psArch').checked;
     const b = busy('Saving…');
