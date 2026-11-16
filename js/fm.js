@@ -486,9 +486,13 @@ export async function uploadFolder(files) {
   // skipped: working folders (_...), superseded versions, Office lock files, and the pack's own registers and guide
   const skip = /(^|\/)(_|~\$|\.|desktop\.ini|thumbs\.db)|Defect Manager\/|(^|\/)Superseded\/|^([^\/]*\/)?[^\/]*(Register\.xlsx|START HERE[^\/]*\.md)$/i;
   const list = files.filter(f => !skip.test(f.relPath || f.webkitRelativePath || f.name)).map(f => ({ f, path: f.relPath || f.webkitRelativePath || f.name }));
-  const have = new Set(fm().docs.map(d => d.srcPath + '|' + d.size));
+  // check what is actually stored: a document whose stored file is empty or missing is uploaded again, in place
+  const chk = busy('Checking the documents already stored…'), withPath = fm().docs.filter(d => d.srcPath && d.path), bad = new Set();
+  for (let i = 0; i < withPath.length; i += 20) { chk.set(`Checking stored documents ${Math.min(i + 20, withPath.length)} of ${withPath.length}…`); await Promise.all(withPath.slice(i, i + 20).map(async d => { const z = S.store.fileSize ? await S.store.fileSize(d.path) : 1; if (z === 0 || z === -1) bad.add(d.id); })); }
+  chk.done();
+  const have = new Set(fm().docs.filter(d => !bad.has(d.id)).map(d => d.srcPath + '|' + d.size));
   const todo = list.filter(x => x.f.size && !have.has(x.path + '|' + x.f.size)), emptyNow = list.filter(x => !x.f.size).length;
-  const broken = {}; fm().docs.forEach(d => { if (!d.size && d.srcPath) broken[d.srcPath] = d; });   // stored earlier as empty files: replaced in place this time
+  const broken = {}; fm().docs.forEach(d => { if ((!d.size || bad.has(d.id)) && d.srcPath) broken[d.srcPath] = d; });   // stored earlier as empty files: replaced in place this time
   const big = todo.filter(x => x.f.size > 150e6), mb = todo.reduce((a, x) => a + x.f.size, 0) / 1e6;
   if (!(await confirmBox(`Upload ${todo.length} documents (${mb.toFixed(0)} MB)? ${list.length - todo.length ? (list.length - todo.length) + ' already in the library will be skipped. ' : ''}${big.length ? big.length + ' over 150 MB will be skipped. ' : ''}They will be filed by building system and type from the folder names. Keep this page open until it finishes.`, 'Upload'))) return;
   const b = busy('Uploading…'); let n = 0;

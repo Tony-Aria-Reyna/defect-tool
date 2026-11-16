@@ -127,6 +127,7 @@ async function firebaseStore() {
         let last = Date.now(); up.on('state_changed', () => { last = Date.now(); });
         const stall = new Promise(res => { const t = setInterval(() => { if (Date.now() - last > 30000) { clearInterval(t); res('slow'); } }, 2000); done.then(() => clearInterval(t), () => clearInterval(t)); });
         const w = await Promise.race([done, stall]); if (w === 'slow') { try { up.cancel(); } catch (e) {} throw new Error('the connection stalled for 30 seconds'); } } else await done; return await S.getDownloadURL(r); },
+    async fileSize(path) { try { return (await S.getMetadata(S.ref(st, path))).size; } catch (e) { return -1; } },
     async deleteFile(path) { try { await S.deleteObject(S.ref(st, path)); } catch (e) {} },
     async resolveUrl(u) { return u; },
     watchDefects(pid, cb, onErr, sources) {
