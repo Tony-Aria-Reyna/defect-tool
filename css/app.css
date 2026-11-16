@@ -636,3 +636,5 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .bgs{background:#011C35;color:#fff;font-size:13px;font-weight:700;padding:7px 12px;border-radius:18px;box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:auto}.bgs.ok{background:#1f7a52}.bgs.bad{background:#a32222}
 .dvm.flag{border-color:#d32f2f!important;background:rgba(211,47,47,.16)!important}.dvm.pend{border-style:dashed!important}
 .atab{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}.atab button{border:1px solid #c9d0d8;background:#fff;border-radius:16px;padding:4px 12px;font-size:13px;cursor:pointer}.atab button.on{background:#011C35;color:#fff;border-color:#011C35}
+
+.banner .pqph{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}.banner .pqph img{pointer-events:auto;width:72px;height:72px;object-fit:cover;border-radius:6px;cursor:zoom-in;border:1px solid rgba(255,255,255,.5)}.banner .pqbig{pointer-events:auto;display:block;margin-top:8px;max-width:min(520px,82vw);max-height:46vh;border-radius:8px;cursor:zoom-out}.banner .pqbig[hidden]{display:none}

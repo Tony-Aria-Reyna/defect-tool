@@ -590,13 +590,22 @@ export async function pinQueue() {
     const d = L[i]; setTab('plan');
     const z = d.unit ? findZone(d.unit, '') : null, bp = !z && d.block ? S.plans.find(p => p.kind !== 'elevation' && String(p.block || '').toUpperCase() === String(d.block).toUpperCase()) : null;
     const pid = z ? z.plan.id : bp ? bp.id : (S.curPlan || (S.plans[0] || {}).id); if (!pid) break; await showPlan(pid);
+    if (!(z && z.zone && z.zone.poly)) requestAnimationFrame(() => PV.fit());
     if (z && z.zone && z.zone.poly) { const xs = z.zone.poly.map(q => q[0]), ys = z.zone.poly.map(q => q[1]); requestAnimationFrame(() => PV.zoomTo(Math.min(...xs) - 0.02, Math.min(...ys) - 0.02, Math.max(...xs) + 0.02, Math.max(...ys) + 0.02)); }
     const where = [d.unit && 'Unit ' + d.unit, d.room, d.ext && d.ext['Interior / exterior']].filter(Boolean).join(' · ');
-    const ans = await new Promise(resolve => startPlacing({ mode: 'queue', resolve, html: `<span class="pq"><b>${i + 1} of ${L.length} · ${esc(d.id)}</b>${where ? ' · ' + esc(where) : ''}<br>${esc(String(d.desc || d.title || '').slice(0, 110))}<br><small>Tap where it is. You can change plan first.</small></span>` }));
+    const ans = await new Promise(resolve => { startPlacing({ mode: 'queue', resolve, html: `<span class="pq"><b>${i + 1} of ${L.length} · ${esc(d.id)}${d.title ? ' · ' + esc(d.title) : ''}</b>${where ? '<br>' + esc(where) : ''}${d.desc ? '<br>' + esc(String(d.desc).slice(0, 400)) : ''}${d.action ? '<br><i>Action: ' + esc(String(d.action).slice(0, 160)) + '</i>' : ''}<span class="pqph" id="pqPh"></span><img id="pqBig" class="pqbig" alt="" hidden><br><small>Tap where it is. You can change plan first. Tap a photo to enlarge it.</small></span>` }); pqPhotos(d); });
     if (ans === 'stop') break; if (ans === 'skip') { skipped++; continue; }
     const patch = pinPatch(d, ans.plan, ans.x, ans.y); try { await S.store.updateDefect(S.project.id, d.id, { ...patch, needsPin: false }); Object.assign(d, patch, { needsPin: false }); done++; renderPins(); } catch (e) { toast('Could not save the pin: ' + friendly(e)); break; }
   }
   render(); const left = unpinned().length; modal(`<h2>Pinning</h2><p><b>${done}</b> pinned this run${skipped ? `, ${skipped} skipped` : ''}. <b>${left}</b> open item${left === 1 ? '' : 's'} still without a pin.</p><div class="act">${left ? '<button id="pqMore">Carry on</button>' : ''}<button class="go" id="pqOk">Done</button></div>`); $('pqOk').onclick = closeModal; if ($('pqMore')) $('pqMore').onclick = pinQueue;
+}
+// Photos of the item being pinned, in the banner: newest comment photos first, then the main ones. Tap one to enlarge, tap the large one to put it away.
+async function pqPhotos(d) {
+  const box = $('pqPh'), big = $('pqBig'); if (!box) return;
+  const cm = (d.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).flatMap(h => h.photos || []);
+  const ph = [...cm, ...(d.photos || [])].filter(p => p && p.url).slice(0, 5); if (!ph.length) { box.innerHTML = '<br><small>No photo on this item.</small>'; return; }
+  for (const p of ph) { try { const u = await imgUrl(p.thumb || p.url); if (!$('pqPh') || $('pqPh') !== box) return; const im = document.createElement('img'); im.src = u; im.alt = 'Photo'; im.onclick = async e => { e.stopPropagation(); big.src = await imgUrl(p.url); big.hidden = false; }; box.appendChild(im); } catch (e) {} }
+  big.onclick = e => { e.stopPropagation(); big.hidden = true; };
 }
 // Ask the user to tap one point on a plan (used when linking an elevation to a floor plan).
 export function pickPoint(planId, banner) { return new Promise(resolve => { setTab('plan'); showPlan(planId).then(() => startPlacing({ mode: 'pick', resolve, banner })); }); }
