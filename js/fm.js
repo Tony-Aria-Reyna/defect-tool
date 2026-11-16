@@ -24,7 +24,7 @@ export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, add
 const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] });
 export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] };
-  const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs'], systems: ['assets', 'maint', 'comp', 'dash', 'docs'], tasks: ['maint', 'comp', 'dash', 'assets'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'], actions: ['comp', 'dash'] };
+  const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], systems: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], tasks: ['maint', 'comp', 'dash', 'assets', 'guide'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'], actions: ['comp', 'dash'] };
   document.querySelectorAll('#modbar button').forEach(b => b.hidden = !mayUse(b.dataset.m === 'actions' ? 'comp' : b.dataset.m));
   ['assets', 'docs', 'tasks', 'systems', 'guide', 'actions'].filter(c => NEED[c].some(mayUse)).forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
   const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
@@ -44,7 +44,7 @@ function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, 
 const dISO = d => d.toISOString().slice(0, 10);
 export function addFreq(iso, n, unit) { const d = new Date((iso || todayISO()) + 'T00:00'); if (unit === 'weeks') d.setDate(d.getDate() + 7 * n); else if (unit === 'years') d.setFullYear(d.getFullYear() + +n); else d.setMonth(d.getMonth() + +n); return dISO(d); }
 const days = iso => iso ? Math.round((new Date(iso + 'T00:00') - new Date(todayISO() + 'T00:00')) / 864e5) : null;
-const freqText = t => t.freqN ? (t.freqN == 1 ? 'Every ' + UNITS[t.freqUnit] : `Every ${t.freqN} ${t.freqUnit}`) : 'One-off';
+export const freqText = t => t.freqN ? (t.freqN == 1 ? 'Every ' + UNITS[t.freqUnit] : `Every ${t.freqN} ${t.freqUnit}`) : 'One-off';
 const dueBadge = iso => { const d = days(iso); if (d == null) return '<span class="st st-grey">No date</span>'; if (d < 0) return `<span class="st st-bad">${-d} days overdue</span>`; if (d <= 30) return `<span class="st st-warn">Due in ${d} days</span>`; return `<span class="st st-info">${nzDate(iso)}</span>`; };
 const stBadge = s => `<span class="st ${s === 'Received' ? 'st-ok' : s === 'Not received' ? 'st-bad' : s === 'Not applicable' ? 'st-grey' : 'st-warn'}">${esc(s || '')}</span>`;
 const pcDate = () => S.project.pcDate || '';
