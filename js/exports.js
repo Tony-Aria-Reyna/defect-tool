@@ -311,3 +311,60 @@ export async function buildZip(L, o, ctx, st) {
   for (const d of L) for (const [i, p] of (d.photos || []).filter(p => p.url).entries()) { st('Adding photos for ' + d.id + '…'); try { z.file(`Photos/${safeName(d.id + ' - ' + (d.title || '')).slice(0, 60)} (${i + 1}).jpg`, await ctx.getBytes(p.url)); } catch (e) {} }
   st('Zipping…'); return z.generateAsync({ type: 'blob' });
 }
+
+// Practical completion status report for the Engineer to the Contract: defects (by who raised them, by unit, by subcontractor,
+// and the ones that hold up PC) and document handover (by building system, with every item still outstanding). All from live data.
+export async function buildPcReport(D, fmd, ctx, st = () => {}) {
+  if (!window.PDFLib) { st('Loading the PDF tools…'); await loadScript(LIB.pdflib); }
+  const P = PDFLib, doc = await P.PDFDocument.create(), pr = ctx.project, f = await doc.embedFont(P.StandardFonts.Helvetica), fb = await doc.embedFont(P.StandardFonts.HelveticaBold);
+  const W = 595.28, H = 841.89, M = 36, NAVY = hex('#011C35'), GREY = hex('#6a7886'), LINE = hex('#d5dae1'), RED = hex('#a32222'), WHITE = P.rgb(1, 1, 1);
+  const logo = async u => { try { return u ? await embedAny(doc, await ctx.getBytes(u)) : null; } catch (e) { return null; } };
+  const res = await logo(ctx.logoResero), cli = await logo(pr.clientLogo);
+  const wrap = (t, font, size, maxw) => { const out = []; clean(t).split('\n').forEach(par => { let ln = ''; par.split(/\s+/).forEach(w => { const tr = ln ? ln + ' ' + w : w; if (font.widthOfTextAtSize(tr, size) <= maxw) ln = tr; else { if (ln) out.push(ln); ln = w; } }); if (ln) out.push(ln); }); return out.length ? out : ['']; };
+  let pg, y; const T = (t, x, yy, s, font, c) => pg.drawText(clean(t), { x, y: yy, size: s, font: font || f, color: c || hex('#18232f') });
+  const page = () => { pg = doc.addPage([W, H]); if (res) { const h = 18, w = h * res.width / res.height; pg.drawImage(res, { x: M, y: H - M - h + 4, width: w, height: h }); } if (cli) { const h = 24, w = Math.min(130, h * cli.width / cli.height), hh = w * cli.height / cli.width; pg.drawImage(cli, { x: W - M - w, y: H - M - hh + 6, width: w, height: hh }); }
+    T('Practical completion status report  |  ' + (pr.name || '') + '  |  ' + nzDate(todayISO()), M, M - 14, 7.5, f, GREY); pg.drawRectangle({ x: M, y: H - M - 24, width: W - 2 * M, height: 1.2, color: NAVY }); y = H - M - 44; };
+  const need = h => { if (y - h < M + 8) page(); };
+  const h1 = t => { need(40); y -= 6; T(t, M, y, 13, fb, NAVY); y -= 18; }, para = (t, c) => wrap(t, f, 9, W - 2 * M).forEach(l => { need(12); T(l, M, y, 9, f, c); y -= 12; });
+  // table: cols [[title, width, align]], rows of strings; opts.bold = fn(row index)
+  const table = (cols, rows, o = {}) => { const tw = cols.reduce((a, c) => a + c[1], 0), sc = (W - 2 * M) / tw, C = cols.map(c => [c[0], c[1] * sc, c[2]]);
+    const head = () => { need(30); pg.drawRectangle({ x: M, y: y - 5, width: W - 2 * M, height: 15, color: NAVY }); let x = M; C.forEach(([t, w, al]) => { const s = clean(t); T(s, al === 'r' ? x + w - 4 - fb.widthOfTextAtSize(s, 7.5) : x + 4, y, 7.5, fb, WHITE); x += w; }); y -= 9; };
+    head(); rows.forEach((r, ri) => { const font = o.bold && o.bold(ri) ? fb : f, cells = r.map((v, i) => wrap(String(v == null ? '' : v), font, 8, C[i][1] - 8)), hh = 5 + 10 * Math.max(...cells.map(c => c.length));
+      if (y - hh < M + 8) { page(); head(); } let x = M; cells.forEach((ls, i) => { ls.forEach((l, k) => T(l, C[i][2] === 'r' ? x + C[i][1] - 4 - font.widthOfTextAtSize(clean(l), 8) : x + 4, y - 9 - k * 10, 8, font, o.red && o.red(ri, i) ? RED : undefined)); x += C[i][1]; });
+      y -= hh; pg.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: LINE }); }); y -= 12; };
+  const major = d => (pr.sevMajor && pr.sevMajor.length ? pr.sevMajor.includes(d.severity || '') : false) || /^Major/i.test(d.severity || '');
+  const open = D.filter(d => d.status !== 'Closed'), ST = ['Open', 'In progress', 'Ready for review', 'Disputed', 'Closed'], count = (L, fn) => L.filter(fn).length;
+  const A = (fmd && fmd.assets || []).filter(a => a.status !== 'Not applicable'), docs = (fmd && fmd.docs) || [], got = a => a.status === 'Received';
+  // ---- cover and summary
+  page(); T('Practical completion status report', M, y, 20, fb, NAVY); y -= 20; T([pr.name, pr.address].filter(Boolean).join(', '), M, y, 10, f, GREY); y -= 22;
+  [['To', pr.engineer ? pr.engineer + ' (Engineer to the Contract)' : 'Engineer to the Contract'], ['From', (ctx.me || '') + ', Resero Property'], ['Date', nzDate(todayISO())], ['Contractor', pr.contractor], ['Contract', pr.contract]].filter(r => r[1]).forEach(([k, v]) => { T(k, M, y, 9, fb, GREY); T(v, M + 70, y, 9); y -= 13; }); y -= 8;
+  h1('1. Summary');
+  const mj = open.filter(major), rr = count(D, d => d.status === 'Ready for review');
+  para(`Defects: ${D.length} recorded, ${D.length - open.length} closed (${D.length ? Math.round(100 * (D.length - open.length) / D.length) : 0}%), ${open.length} not closed. ${rr} are marked ready and waiting for inspection.` + (mj.length ? ` ${mj.length} open item${mj.length === 1 ? ' is' : 's are'} in a category that must be closed before practical completion can be certified.` : ''));
+  if (A.length) para(`Document handover: ${A.length} building elements tracked. ${count(A, got)} fully received (${Math.round(100 * count(A, got) / A.length)}%), ${count(A, a => a.status === 'Revision required')} need revision, ${count(A, a => a.status === 'Partial')} partial, ${count(A, a => a.status === 'Query' || a.status === 'Confirm')} under query, ${count(A, a => a.status === 'Not received')} not received. ${docs.length} documents are held in the library.`);
+  else para('Document handover: no building elements are recorded in the Assets and warranties section yet.', RED);
+  y -= 6;
+  // ---- defects
+  h1('2. Defects by who raised them');
+  const srcs = [...new Set(D.map(d => d.source || 'Not stated'))].sort();
+  table([['Raised by', 150], ...ST.map(s => [s, 62, 'r']), ['Total', 50, 'r']], [...srcs.map(s => { const L = D.filter(d => (d.source || 'Not stated') === s); return [s, ...ST.map(x => count(L, d => d.status === x)), L.length]; }), ['Total', ...ST.map(x => count(D, d => d.status === x)), D.length]], { bold: i => i === srcs.length });
+  if (mj.length) { h1('3. Open items that must close before practical completion'); table([['Ref', 46], ['Location', 110], ['Item', 230], ['Status', 70], ['Responsible', 90]], mj.sort((a, b) => natural(a.id, b.id)).map(d => [d.id, locText(d), d.title || d.desc || '', d.status, d.subcontractor || d.responsible || ''])); }
+  else { h1('3. Open items that must close before practical completion'); para('None of the open items is in a category set as holding up practical completion' + ((pr.sevMajor || []).length ? ' (' + pr.sevMajor.join(', ') + ').' : '. No such category is set in Project settings, so check the list in section 4 by hand.')); y -= 6; }
+  h1('4. Open items by unit and area');
+  { const g = {}; open.forEach(d => { const k = d.unit ? 'Unit ' + d.unit : 'Common areas' + (d.block ? ', ' + (/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block) : ''); (g[k] = g[k] || []).push(d); });
+    const ks = Object.keys(g).sort((a, b) => (a.startsWith('Unit') ? 0 : 1) - (b.startsWith('Unit') ? 0 : 1) || natural(a, b));
+    table([['Unit / area', 130], ['Open', 50, 'r'], ['In progress', 60, 'r'], ['Ready for review', 80, 'r'], ['Disputed', 55, 'r'], ['Not closed', 60, 'r'], ...srcs.slice(0, 4).map(s => [s.split(' ')[0], 50, 'r'])], ks.map(k => [k, ...['Open', 'In progress', 'Ready for review', 'Disputed'].map(s => count(g[k], d => d.status === s) || ''), g[k].length, ...srcs.slice(0, 4).map(s => count(g[k], d => (d.source || 'Not stated') === s) || '')])); }
+  h1('5. Open items by subcontractor');
+  { const g = {}; open.forEach(d => { const k = d.subcontractor || d.responsible || 'Not assigned'; (g[k] = g[k] || []).push(d); });
+    table([['Subcontractor / responsible', 200], ['Not closed', 70, 'r'], ['Ready for review', 90, 'r'], ['Units affected', 80, 'r']], Object.keys(g).sort((a, b) => g[b].length - g[a].length).map(k => [k, g[k].length, count(g[k], d => d.status === 'Ready for review') || '', new Set(g[k].map(d => d.unit).filter(Boolean)).size || ''])); }
+  // ---- documents
+  h1('6. Document handover by building system');
+  if (A.length) { const AS = ['Received', 'Partial', 'Revision required', 'Query', 'Confirm', 'Not received'], sy = [...new Set(A.map(a => a.system || 'Not stated'))].sort();
+    table([['Building system', 190], ...AS.map(s => [s.replace(' required', ''), 52, 'r']), ['Docs held', 50, 'r']], [...sy.map(s => { const L = A.filter(a => (a.system || 'Not stated') === s); return [s, ...AS.map(x => count(L, a => a.status === x) || ''), count(docs, d => d.system === s) || '']; }), ['Total', ...AS.map(x => count(A, a => a.status === x)), docs.length]], { bold: i => i === sy.length });
+    h1('7. Documents still outstanding');
+    const out = A.filter(a => !got(a)).sort((a, b) => natural(a.ref || '', b.ref || ''));
+    table([['Ref', 36], ['Element', 120], ['Installer', 80], ['Required', 110], ['Status', 62], ['Notes', 150]], out.map(a => [a.ref || '', (a.element || '') + (a.product ? ' (' + a.product + ')' : ''), a.installer || '', [a.instWarranty, a.mfrWarranty].filter(x => x && x !== '-').join('; '), a.status, a.notes || '']), { red: (ri, i) => i === 4 && /Revision|Not received/.test(out[ri].status) });
+  } else para('Nothing to report: load the building elements into Assets and warranties first.');
+  const ss = (fmd && fmd.systems) || []; if (ss.length) { h1('8. Specified systems (compliance schedule)'); table([['System', 50], ['Name', 200], ['Standard', 150], ['Certificate', 120]], ss.map(s => [s.ss || '', s.name || '', s.standard || '', s.cert || 'Not recorded'])); }
+  return new Blob([await doc.save()], { type: 'application/pdf' });
+}
