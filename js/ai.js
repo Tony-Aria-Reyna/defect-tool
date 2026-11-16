@@ -21,14 +21,17 @@ function spin() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const r = new SR(); R.r = r; r.lang = 'en-NZ'; r.continuous = false; r.interimResults = true;
   let cur = '';
-  r.onresult = e => { cur = ''; for (let i = 0; i < e.results.length; i++) cur += e.results[i][0].transcript; R.ta.value = (R.base + R.done + cur).replace(/\s+/g, ' '); R.ta.dispatchEvent(new Event('input')); };
+  // If something else changed the box while the microphone was open (Tidy with AI, typing), take its text as the new start so it is never wiped.
+  const sync = () => { if (R.last != null && R.ta.value !== R.last) { R.base = R.ta.value.trim() ? R.ta.value.trim() + ' ' : ''; R.done = ''; } };
+  const put = v => { R.ta.value = v; R.last = v; };
+  r.onresult = e => { sync(); cur = ''; for (let i = 0; i < e.results.length; i++) cur += e.results[i][0].transcript; put((R.base + R.done + cur).replace(/\s+/g, ' ')); R.ta.dispatchEvent(new Event('input')); };
   r.onerror = e => { if (e.error === 'network') { R.fatal = 'No coverage: live dictation needs data. Tap in the note box and use the microphone key on the keyboard instead, then Interpret.'; return; } if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture') R.fatal = 'Microphone: ' + e.error + (e.error === 'not-allowed' ? ' (allow the microphone for this site)' : ''); else if (e.error !== 'no-speech' && e.error !== 'aborted') R.status('Microphone: ' + e.error, true); };
-  r.onend = () => { if (cur.trim()) R.done += cur.trim() + ' '; cur = ''; R.ta.value = (R.base + R.done).trim(); if (R.fatal) { const m = R.fatal; R.stopping = true; finish(); R.status(m, true); R.ta.focus(); } else if (R.stopping) finish(); else spin(); };
+  r.onend = () => { sync(); if (cur.trim()) R.done += cur.trim() + ' '; cur = ''; put((R.base + R.done).trim()); if (R.fatal) { const m = R.fatal; R.stopping = true; finish(); R.status(m, true); R.ta.focus(); } else if (R.stopping) finish(); else spin(); };
   try { r.start(); } catch (e) { R.status('Could not start the microphone', true); finish(); }
 }
 function finish() { const R = REC; if (!R) return; REC = null; R.btn.classList.remove('rec'); R.status(''); const v = R.ta.value.trim(); if (v && v !== R.base.trim()) R.onEnd && R.onEnd(); }
 export function endDictation() { if (!REC) return; REC.stopping = true; try { REC.r && REC.r.stop(); } catch (e) { finish(); } }
-export function stopDictation() { if (REC) { const r = REC.r; REC = null; if (r) { r.onend = null; try { r.stop(); } catch (e) {} } } }
+export function stopDictation() { if (REC) { const r = REC.r; REC = null; if (r) { r.onend = null; r.onresult = null; try { r.stop(); } catch (e) {} } } }
 // Wire a button for press-and-hold (a short tap toggles instead, for desktop).
 export function holdToTalk(btn, start) {
   let t0 = 0, pid = null;

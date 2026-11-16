@@ -295,7 +295,7 @@ function noteDialog(o) {
   $('ndX').addEventListener('click', () => { ND_FILES = []; noteDropRef = null; });
   let raw = null; $('ndUndo').onclick = () => { if (raw != null) $('ndTxt').value = raw; $('ndUndo').style.display = 'none'; $('ndQ').style.display = 'none'; st('Your own words are back.'); };
   $('ndAi').onclick = async () => {
-    const note = $('ndTxt').value.trim(); if (!note && !ND_FILES.length) return st('Say or type a note, or attach a document, first.', true);
+    stopDictation(); const note = $('ndTxt').value.trim(); if (!note && !ND_FILES.length) return st('Say or type a note, or attach a document, first.', true);
     const btn = $('ndAi'); btn.disabled = true; btn.textContent = 'Reading…'; st('The AI is reading the item' + (ND_FILES.length ? ' and the attached documents…' : '…'));
     try {
       let docs = '', img = '';
@@ -809,7 +809,7 @@ function readyDialog(go, close) {
   const add = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) { try { shots.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } } draw(); };
   $('rdCam').onclick = () => $('rdFile').click(); $('rdGal').onclick = () => $('rdFile2').click(); $('rdDoc').onclick = () => $('rdFile3').click(); $('rdFile').onchange = add; $('rdFile2').onchange = add;
   $('rdFile3').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) { if (f.type.startsWith('image/')) { try { shots.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } continue; } if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB'); continue; } const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); docs.push({ id: uid(), name: f.name, mime: f.type || 'application/octet-stream', data, t: new Date().toISOString(), by: S.user.name, isNew: true }); } draw(); };
-  const tidy = async () => { const raw = $('rdTxt').value.trim(); if (!raw) return st('Say or write what was done first.', true); if (!navigator.onLine) return st('No signal: your words are kept as they are.'); st('Tidying up…');
+  const tidy = async () => { stopDictation(); const raw = $('rdTxt').value.trim(); if (!raw) return st('Say or write what was done first.', true); if (!navigator.onLine) return st('No signal: your words are kept as they are.'); st('Tidying up…');
     try { const out = await aiCall(`A contractor on a building site is reporting that a defect has been fixed and is ready for inspection. Rewrite their spoken note as one to three short, clear, professional sentences in New Zealand English, past tense, no em dashes. Keep every fact they gave (what was done, where, when, by whom, product names). Do not add anything they did not say and do not claim the work complies.\nDEFECT: ${d.title || ''}. ${d.desc || ''}\nSPOKEN NOTE: ${raw}\nReturn JSON only: {"text":"..."}`); let t = ''; try { t = JSON.parse(out).text || ''; } catch (e) { t = String(out || '').trim(); } if (t && $('rdTxt')) { $('rdTxt').value = t.replace(/\s*—\s*/g, ', '); st('Gemini has written it up below. Check it reads right, then mark ready.'); } else st('Kept as you said it.'); }
     catch (e) { st(e.message === 'nokey' ? 'Gemini is not set up on this device, so your words are kept as they are.' : 'Could not tidy it (' + friendly(e) + '). Your words are kept.', true); } };
   holdToTalk($('rdMic'), () => dictate($('rdTxt'), $('rdMic'), st, () => { if ($('rdTxt') && $('rdTxt').value.trim()) tidy(); }));
