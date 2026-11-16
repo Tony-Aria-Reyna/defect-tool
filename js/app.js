@@ -267,7 +267,9 @@ function humanNotes(d) {
 }
 // The latest thing someone else said (so a contractor sees the reviewer's words and the reviewer sees the contractor's); failing that, the latest note of all.
 function lastNote(d) { const L = humanNotes(d); return L.find(n => n.h.who !== S.user.name) || L[0] || null; }
-const lastNoteHtml = (d, title) => { const n = lastNote(d); return n ? `<div class="lastc"><div class="lch">${esc(title || 'Latest comment')} · ${esc(n.h.who || '')} · ${esc(nzDT(n.h.t))}${n.label ? ` <span class="hk">${esc(n.label)}</span>` : ''}</div><div class="lct">${esc(n.text)}</div></div>` : ''; };
+const lastNoteHtml = (d, title) => { const n = lastNote(d); return n ? `<div class="lastc"><div class="lch">${esc(title || 'Latest comment')} · ${esc(n.h.who || '')} · ${esc(nzDT(n.h.t))}${n.label ? ` <span class="hk">${esc(n.label)}</span>` : ''}</div><div class="lcrow"><div class="lct">${esc(n.text)}</div>${(n.h.photos || []).length ? `<div class="lcph"><img data-lcp="0" alt="Photo with this comment"><span class="phn">📷 ${n.h.photos.length}</span></div>` : ''}</div></div>` : ''; };
+// Wire the photo on the latest comment: tap opens them all, press and hold peeks.
+async function wireLastPhotos(root, d) { const n = lastNote(d), im = root && root.querySelector('img[data-lcp]'); if (!n || !im || !(n.h.photos || []).length) return; peekable(im); im.src = await photoSrc(n.h.photos[0]); im.onclick = e => { e.stopPropagation(); gallery(n.h.photos, 0, (d.id || '') + ' comment by ' + (n.h.who || '')); }; }
 // A comment, or the note that goes with a change of status. The words are typed or spoken here, not on the main sheet.
 let ND_FILES = [], noteDropRef = null;
 export const noteDropOpen = () => !!(noteDropRef && $('ndDrop') && $('modal').classList.contains('show'));
@@ -281,6 +283,7 @@ function noteDialog(o) {
     <div class="nddrop" id="ndDrop"><b>Attach to this ${o.warn ? 'note' : 'response'}</b> <span class="muted small">Drop files or photos here, or</span> <button class="mini" id="ndPick">choose files</button><input type="file" id="ndFiles" multiple hidden><div id="ndList"></div></div>
     ${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="ndFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}
     <div class="act"><button id="ndX">Cancel</button><button class="${o.warn ? 'warn' : 'go'}" id="ndGo">${esc(o.btn)}</button></div>`);
+  wireLastPhotos($('mbox'), d);
   const st = (t, bad) => { $('ndSt').textContent = t; $('ndSt').style.color = bad ? '#a32222' : ''; };
   holdToTalk($('ndMic'), () => dictate($('ndTxt'), $('ndMic'), st, () => {}));
   $('ndX').onclick = () => { stopDictation(); closeModal(); };
@@ -773,9 +776,10 @@ function stageGate() {
 }
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
+  wireLastPhotos($('edBody'), w);
   // photos that were attached to comments in the history: tap to view, with the others of the same comment
   $('edBody').querySelectorAll('img[data-hp]').forEach(async im => { const h = (w.history || []).find(x => (x.photos || []).some(p => p.id === im.dataset.hp)); if (!h) return; const i = h.photos.findIndex(p => p.id === im.dataset.hp); peekable(im); im.src = await photoSrc(h.photos[i]); im.onclick = () => gallery(h.photos, i, (w.id || '') + ' comment by ' + (h.who || '')); });
-  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew || !limited(w, ED.isNew)) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
+  $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew || !limited(w, ED.isNew)) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}${p.t && w.created && String(p.t).slice(0, 10) > String(w.created).slice(0, 10) ? `<span class="phnew">New ${esc(nzDate(String(p.t).slice(0, 10)))}</span>` : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
   $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? gallery(w.photos, +im.dataset.i, w.id || 'New defect') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }, (w.id || 'New defect') + ' photo ' + (+im.dataset.i + 1)); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
   if ($('addph')) $('addph').onclick = () => addPhotoMenu($('addph'));
