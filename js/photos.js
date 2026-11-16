@@ -103,7 +103,7 @@ function bbox(s) {
 // Where the grab handles of a mark sit: the two ends of a line, the four corners of a shape, one corner of a text label.
 function handles(s) {
   if (s.tool === 'dim') { const L = dimLabel(s); return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }, { k: 'L', p: [L.cx, L.cy] }]; }
-  if (s.tool === 'arrow' || s.tool === 'line') return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }];
+  if (s.tool === 'arrow' || s.tool === 'line' || s.tool === 'angle') return [{ k: 'a', p: s.p[0] }, { k: 'b', p: s.p[s.p.length - 1] }];
   if (s.tool === 'poly') return s.p.map((q, i) => ({ k: i, p: q }));
   const b = bbox(s); if (s.tool === 'text') return [{ k: 'w', p: [b.x0, (b.y0 + b.y1) / 2] }, { k: 'e', p: [b.x1, (b.y0 + b.y1) / 2] }, { k: 'se', p: [b.x1, b.y1] }];
   return [{ k: 'nw', p: [b.x0, b.y0] }, { k: 'ne', p: [b.x1, b.y0] }, { k: 'sw', p: [b.x0, b.y1] }, { k: 'se', p: [b.x1, b.y1] }];
@@ -136,6 +136,16 @@ function draw() {
       x.font = `bold ${L.fs}px sans-serif`; x.textBaseline = 'middle'; x.textAlign = 'center';
       x.save(); x.translate(L.cx, L.cy); x.rotate(L.rot); x.globalAlpha = 0.9; x.fillStyle = '#fff'; x.fillRect(-L.w / 2, -L.h / 2, L.w, L.h); x.globalAlpha = 1; if (L.moved) { x.lineWidth = Math.max(2, lw * 0.5); x.strokeRect(-L.w / 2, -L.h / 2, L.w, L.h); } x.fillStyle = col === '#ffffff' ? '#111' : col; x.fillText(label, 0, 0); x.restore(); x.textAlign = 'start'; return;
     }
+    if (s.tool === 'angle') {   // out of level or plumb: the line as drawn, a dashed true level or plumb from its start, the angle between, and a label
+      const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy); if (len < 2) return;
+      const ang = Math.atan2(dy, dx), h = Math.abs(Math.abs(dx) >= Math.abs(dy) ? Math.atan2(dy, Math.abs(dx)) : 0), plumb = Math.abs(dy) > Math.abs(dx);
+      const ref = plumb ? Math.atan2(Math.sign(dy) * len, 0) : Math.atan2(0, Math.sign(dx) * len), dev = Math.abs(((ang - ref + 3 * Math.PI) % (2 * Math.PI)) - Math.PI) * 180 / Math.PI;
+      x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke();
+      x.save(); x.setLineDash([lw * 2, lw * 1.5]); x.lineWidth = Math.max(2, lw * 0.7); x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(a[0] + Math.cos(ref) * len, a[1] + Math.sin(ref) * len); x.stroke(); x.setLineDash([]);
+      const r = Math.min(len * 0.45, lw * 14); x.beginPath(); let s0 = ref, s1 = ang; if (((s1 - s0 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI < 0) [s0, s1] = [s1, s0]; x.arc(a[0], a[1], r, s0, s1); x.stroke(); x.restore();
+      const label = s.text || (dev.toFixed(1) + '° out of ' + (plumb ? 'plumb' : 'level')), fs = base().fs, mid = (ref + ang) / 2, lx = a[0] + Math.cos(mid) * (r + fs * 1.2), ly = a[1] + Math.sin(mid) * (r + fs * 1.2);
+      x.font = `bold ${fs}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; const w = x.measureText(label).width + 12;
+      x.save(); x.globalAlpha = 0.9; x.fillStyle = '#fff'; x.fillRect(lx - w / 2, ly - fs / 2 - 3, w, fs + 6); x.restore(); x.fillStyle = col; x.fillText(label, lx, ly); x.textAlign = 'start'; return; }
     x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); if (s.tool === 'line') return; const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), h = lw * 5;
     x.beginPath(); x.moveTo(b[0], b[1]); x.lineTo(b[0] - h * Math.cos(ang - 0.45), b[1] - h * Math.sin(ang - 0.45)); x.moveTo(b[0], b[1]); x.lineTo(b[0] - h * Math.cos(ang + 0.45), b[1] - h * Math.sin(ang + 0.45)); x.stroke();
   });
@@ -294,7 +304,7 @@ export function initMarkup() {
   const up = async () => {
     if (!MK) return; if (pan) { pan = null; c.style.cursor = ''; return; }
     clearTimeout(holdT); if (drag) { const d = drag, s = MK.sel; drag = null;
-      if (!d.moved && s && (d.kind === 'm' || d.k === 'L')) { const now = Date.now(); if (lastTap.s === s && now - lastTap.t < 450 && (s.tool === 'text' || s.tool === 'dim')) { const t = await askText(s.tool === 'dim' ? 'Dimension' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; draw(); } lastTap = { t: 0, s: null }; } else lastTap = { t: now, s }; }
+      if (!d.moved && s && (d.kind === 'm' || d.k === 'L')) { const now = Date.now(); if (lastTap.s === s && now - lastTap.t < 450 && (s.tool === 'text' || s.tool === 'dim' || s.tool === 'angle')) { const t = await askText(s.tool === 'dim' ? 'Dimension' : s.tool === 'angle' ? 'Label (leave blank for the measured angle)' : 'Text', s.text, s.tool === 'text'); if (t !== null && t !== '') { snap(); s.text = t; draw(); } lastTap = { t: 0, s: null }; } else lastTap = { t: now, s }; }
       return; }
     if (MK.cur && MK.cur.tool === 'poly') return;
     if (MK.cur) { const s = MK.cur; MK.cur = null; if (s.p.length > 1 && (s.tool === 'pen' || Math.hypot(s.p[1][0] - s.p[0][0], s.p[1][1] - s.p[0][1]) > 6)) { if (s.tool === 'dim') { const t = await askText('Dimension (what you measured)', ''); if (t === null) { draw(); return; } s.text = t; } snap(); MK.strokes.push(s); if (s.tool !== 'pen') { MK.sel = s; setTool('select'); } } draw(); }
