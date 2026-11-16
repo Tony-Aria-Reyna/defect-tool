@@ -838,6 +838,13 @@ const limited = (d, isNew) => can.contractor() && !isNew && !(d && d.createdBy &
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
 // Close, Cancel and Escape ask before throwing away unsaved changes. A click outside the editor does nothing.
 async function tryCloseEditor() { if (ED && ED.snap0 && ED.snap0 !== edSnap() && !(await askDiscard('Your changes to this item have not been saved.'))) return; closeEditor(); }
+// Background save chips, bottom left: one per item being saved. Green tick when done, red if it failed (tap to dismiss).
+function bgSave(label) {
+  let box = document.getElementById('bgSaves'); if (!box) { box = document.createElement('div'); box.id = 'bgSaves'; document.body.appendChild(box); }
+  const c = document.createElement('div'); c.className = 'bgs'; c.textContent = '⏳ Saving ' + label + (navigator.onLine ? '…' : ' on this phone…'); box.appendChild(c);
+  return { done: id => { c.className = 'bgs ok'; c.textContent = '✓ ' + (id || label) + (navigator.onLine ? ' saved' : ' saved on this phone, will sync'); setTimeout(() => c.remove(), 3500); },
+    fail: m => { c.className = 'bgs bad'; c.textContent = '⚠ ' + label + ' not saved: ' + m + ' (tap to dismiss)'; c.onclick = () => c.remove(); } };
+}
 function closeEditor(keep) { stopDictation(); $('sheet').classList.remove('show'); if (!keep) ED = null; Nav.closed('editor'); }
 // Next reference number from what this device knows (used when the server cannot be reached in time).
 function localNextRef() { const pre = (S.project.idPrefix || 'D') + '-'; let m = S.project.seq || 0; S.defects.forEach(d => { if (d.id.startsWith(pre)) { const n = parseInt(d.id.slice(pre.length), 10); if (n > m) m = n; } }); return m + 1; }
@@ -850,40 +857,40 @@ async function saveEditor() {
   if (ED.isNew && S.plans.length && !d.plan && !d.general) { const n = $('locNeed'); if (n) n.style.display = ''; const bx = $('locBox'); if (bx) { bx.classList.add('need'); bx.scrollIntoView({ block: 'center', behavior: 'smooth' }); } toast('Pin it on the plan first, or mark it as a general defect', 5000); return; }
   if (!d.title) d.title = d.desc.split(/[.,;]/)[0].slice(0, 70);
   if (d.subcontractor) { d.subcontractor = d.subcontractor.trim(); addSubs([d.subcontractor]).catch(e => console.warn('subcontractor list', e)); }
-  const b = busy(navigator.onLine ? 'Saving…' : 'Saving on this phone…');
+  // Save in the background: the editor closes straight away so the next item can be opened, and a chip shows the save until it is done.
+  const cm = $('cmt') ? $('cmt').value.trim() : '', E = ED; const b = bgSave(E.isNew ? 'new item' : d.id); closeEditor();
   try {
-    if (ED.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
+    if (E.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
     d.photos = await uploadPhotos(pid, d.id, d.photos || []);
     // Comment photos: uploaded now and kept on the comment. Any that could not upload (no coverage) fall back to the item's photos so they are not lost.
-    const cup = await uploadPhotos(pid, d.id, ED.cmPhotos || []); d.photos.push(...cup.filter(p => p.pending)); const cmPh = cup.filter(p => !p.pending).map(p => ({ id: p.id, path: p.path, url: p.url, t: p.t, by: p.by, ...((ED.cmPhotos.find(q => q.id === p.id) || {}).name ? { name: ED.cmPhotos.find(q => q.id === p.id).name } : {}) })); ED.cmPhotos = [];
+    const cup = await uploadPhotos(pid, d.id, E.cmPhotos || []); d.photos.push(...cup.filter(p => p.pending)); const cmPh = cup.filter(p => !p.pending).map(p => ({ id: p.id, path: p.path, url: p.url, t: p.t, by: p.by, ...((E.cmPhotos.find(q => q.id === p.id) || {}).name ? { name: E.cmPhotos.find(q => q.id === p.id).name } : {}) })); E.cmPhotos = [];
     d.files = await uploadFiles(pid, d.id, d.files || []);
-    (ED.removed || []).forEach(p => S.store.deleteFile(p));
-    const cm = $('cmt') ? $('cmt').value.trim() : '';
+    (E.removed || []).forEach(p => S.store.deleteFile(p));
     const clean = o => { const c = { ...o }; delete c.isNew; delete c.zoneHit; c.photos = (c.photos || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); c.files = (c.files || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); return c; };
-    if (ED.isNew) {
+    if (E.isNew) {
       newH.push({ t, who, txt: 'Raised (' + d.source + '). Status ' + d.status + '.' }); if (cm) newH.push({ t, who, txt: cm, ...(cmPh.length ? { photos: cmPh } : {}) });
       if (d.aiPending) newH.push({ t, who, txt: 'Site note recorded out of coverage; waiting for Gemini.' });
       const rec = clean({ ...d, created: t, createdBy: S.user.email, updated: t, updatedBy: S.user.email, history: newH });
       await S.store.createDefect(pid, rec);
     } else {
-      const o = ED.orig || {}, patch = {}, ch = [];
+      const o = E.orig || {}, patch = {}, ch = [];
       const lim = limited(o); const keys = lim ? ['status', 'subcontractor', ...(selfClose(o) ? ['title', 'desc'] : [])] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc', 'general'];
-      if (ED.wfLabel) { ch.push(ED.wfLabel.toLowerCase()); }
+      if (E.wfLabel) { ch.push(E.wfLabel.toLowerCase()); }
       if (o.aiReview && !lim) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
       ['status', 'severity', 'responsible', 'subcontractor', 'targetDate', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
       const ph = clean(d).photos; if (JSON.stringify(ph) !== JSON.stringify(o.photos || [])) { patch.photos = ph; ch.push('photos ' + (o.photos || []).length + ' → ' + ph.length); }
       const fl = clean(d).files; if (JSON.stringify(fl) !== JSON.stringify(o.files || [])) { patch.files = fl; ch.push('attachments ' + (o.files || []).length + ' → ' + fl.length); }
-      if (ED.wfLabel) { newH.push({ t, who, txt: ED.wfLabel + (cm ? ': ' + cm : '.'), ...(cmPh.length ? { photos: cmPh } : {}) }); const rest = ch.filter(x => x !== ED.wfLabel.toLowerCase() && !/^status /.test(x)); if (rest.length) newH.push({ t, who, txt: 'Changed ' + rest.join('; ') + '.' }); }
+      if (E.wfLabel) { newH.push({ t, who, txt: E.wfLabel + (cm ? ': ' + cm : '.'), ...(cmPh.length ? { photos: cmPh } : {}) }); const rest = ch.filter(x => x !== E.wfLabel.toLowerCase() && !/^status /.test(x)); if (rest.length) newH.push({ t, who, txt: 'Changed ' + rest.join('; ') + '.' }); }
       else { if (ch.length) newH.push({ t, who, txt: 'Changed ' + ch.join('; ') + '.' }); if (cm) newH.push({ t, who, txt: cm, ...(cmPh.length ? { photos: cmPh } : {}) }); }
       if ('status' in patch && newH.length && o.status) newH[0].st = [o.status, d.status];
-      if (!Object.keys(patch).length && !newH.length) { b.done(); closeEditor(); return; }
+      if (!Object.keys(patch).length && !newH.length) { b.done(); return; }
       patch.updated = t; patch.updatedBy = S.user.email;
       await S.store.updateDefect(pid, d.id, patch, newH);
     }
-    S.sel = d.id; b.done(); closeEditor(); toast(d.id + (navigator.onLine ? ' saved' : ' saved on this phone, will sync when back in coverage')); netbar();
-  } catch (e) { b.done(); console.error(e); toast('Could not save: ' + friendly(e), 6000); }
+    S.sel = d.id; b.done(d.id); netbar();
+  } catch (e) { console.error(e); b.fail(friendly(e)); }
 }
 async function deleteDefect() {
   if (!ED || ED.isNew) return; if (!(await confirmBox(`Delete ${ED.d.id}? This cannot be undone.`, 'Delete'))) return;
