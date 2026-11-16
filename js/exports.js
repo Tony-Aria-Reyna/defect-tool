@@ -40,8 +40,10 @@ export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
     const items = groups[k].sort((a, b) => String(a.room || '').localeCompare(String(b.room || '')) || natural(a.id, b.id)); let pg, y, page = 0; st('Building ' + k + '…');
     const head = () => { pg = doc.addPage([W, H]); page++;
       // logos: Resero left, then client and contractor on the right
-      if (res) { const h = 20, w = h * res.width / res.height; pg.drawImage(res, { x: M, y: H - M - h, width: w, height: h }); }
-      let rx = W - M; [conL, cli].forEach(im => { if (!im) return; const h = 30, w = Math.min(120, h * im.width / im.height), hh = w * im.height / im.width; rx -= w; pg.drawImage(im, { x: rx, y: H - M - hh, width: w, height: hh }); rx -= 14; });
+      // every logo gets the same area, so a wide wordmark and a square badge look the same weight; all sit on one centre line
+      const fit = im => { const ar = im.width / im.height; let h = Math.sqrt(2400 / ar); h = Math.min(h, 40); let w = h * ar; if (w > 140) { w = 140; h = w / ar; } return { w, h }; }, mid = H - M - 18;
+      if (res) { const z = fit(res); pg.drawImage(res, { x: M, y: mid - z.h / 2, width: z.w, height: z.h }); }
+      let rx = W - M; [conL, cli].forEach(im => { if (!im) return; const z = fit(im); rx -= z.w; pg.drawImage(im, { x: rx, y: mid - z.h / 2, width: z.w, height: z.h }); rx -= 18; });
       T(pg, k, M, H - M - 58, 26, fb, NAVY); T(pg, (pr.name || '') + '  |  Open items at ' + nzDate(todayISO()) + '  |  ' + items.length + ' item' + (items.length === 1 ? '' : 's') + (page > 1 ? '  |  page ' + page : ''), M, H - M - 74, 9.5, f, GREY);
       T(pg, 'Subcontractor: tick and initial when complete. ' + con + ': tick when accepted. Consultant: tick when signed off.', M, H - M - 88, 8, f, GREY);
       y = H - M - 104; pg.drawRectangle({ x: M, y: y - 12, width: W - 2 * M, height: 24, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { wrap(h, fb, 7, w - 4).slice(0, 2).forEach((l, i) => T(pg, l, cx, y + 3 - i * 8.5, 7, fb, hex('#ffffff'))); cx += w; }); y -= 14; };
