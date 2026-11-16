@@ -272,6 +272,8 @@ const lastNoteHtml = (d, title) => { const n = lastNote(d); return n ? `<div cla
 let ND_FILES = [], noteDropRef = null;
 export const noteDropOpen = () => !!(noteDropRef && $('ndDrop') && $('modal').classList.contains('show'));
 export function noteDrop(fs) { if (noteDropRef) noteDropRef(fs); }
+// A photo on a comment is named for what it is: item, unit, date and who added it (e.g. "MM-255 Unit 4 2026-11-16 by tony").
+function cmPhotoName(d, n) { const u = d.unit ? (/^unit/i.test(String(d.unit)) ? d.unit : 'Unit ' + d.unit) : (d.general ? 'General' : ''); return [d.id || 'New item', u, todayISO(), 'by ' + (S.user.name || 'user')].filter(Boolean).join(' ') + (n > 1 ? ' (' + n + ')' : ''); }
 function noteDialog(o) {
   const d = ED.d, con = can.contractor();
   modal(`<h2>${esc(o.title)}</h2><p class="note"><b>${esc(d.id)}</b> · ${esc(d.title || d.element || '')}</p>${lastNoteHtml(d, 'Last comment')}
@@ -284,7 +286,7 @@ function noteDialog(o) {
   $('ndX').onclick = () => { stopDictation(); closeModal(); };
   ND_FILES = []; const isPic = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
   // Photos show as thumbnails; tap one to mark up where the issues still are. The marked-up copy replaces the original in the list.
-  const drawList = () => { $('ndList').innerHTML = ND_FILES.map((f, i) => isPic(f) ? `<span class="chip ndpic"><img data-nm="${i}" alt="" style="height:64px;border-radius:6px;vertical-align:middle;cursor:pointer"> <button class="mini" data-nm="${i}">✏ Mark up</button> <span class="muted small">${esc(f.name)}</span><button data-nx="${i}">✕</button></span>` : `<span class="chip">📎 ${esc(f.name)}<button data-nx="${i}">✕</button></span>`).join('');
+  const drawList = () => { $('ndList').innerHTML = ND_FILES.map((f, i) => isPic(f) ? `<span class="chip ndpic"><img data-nm="${i}" alt="" style="height:64px;border-radius:6px;vertical-align:middle;cursor:pointer"> <button class="mini" data-nm="${i}">✏ Mark up</button> <span class="muted small">${esc(cmPhotoName(d, ND_FILES.slice(0, i + 1).filter(isPic).length))}</span><button data-nx="${i}">✕</button></span>` : `<span class="chip">📎 ${esc(f.name)}<button data-nx="${i}">✕</button></span>`).join('');
     $('ndList').querySelectorAll('[data-nx]').forEach(b => b.onclick = () => { ND_FILES.splice(+b.dataset.nx, 1); drawList(); });
     $('ndList').querySelectorAll('img[data-nm]').forEach(im => { const f = ND_FILES[+im.dataset.nm]; im.src = URL.createObjectURL(f); });
     $('ndList').querySelectorAll('[data-nm]').forEach(b => b.onclick = e => { e.preventDefault(); const i = +b.dataset.nm, f = ND_FILES[i]; if (!f) return; markup(URL.createObjectURL(f), async data => { const blob = await (await fetch(data)).blob(); ND_FILES[i] = new File([blob], f.name.replace(/\.[^.]+$/, '') + ' (marked up).jpg', { type: 'image/jpeg' }); drawList(); }, (d.id || 'Item') + ' photo ' + (i + 1)); }); };
@@ -294,8 +296,10 @@ function noteDialog(o) {
     const fs = ND_FILES.slice(); ND_FILES = []; noteDropRef = null; closeModal();
     if (fs.length) { // the files go onto the item, and the comment records them as its appendix
       const isImg = f => /^image\//.test(f.type) || /\.(jpe?g|png|heic|webp)$/i.test(f.name), im = fs.filter(isImg), docs = fs.filter(f => !isImg(f));
-      if (im.length) await addPhotos(im); if (docs.length) await addFiles(docs);
-      txt = (txt || 'Supporting documents attached') + ' [Attached: ' + fs.map(f => f.name).join('; ') + ']'; }
+      // Photos belong to this comment, not to the item's main photos; documents still go on the item.
+      if (im.length && ED) { ED.cmPhotos = ED.cmPhotos || []; for (const f of im) { try { const ph = await newPhoto(f); ph.name = cmPhotoName(d, ED.cmPhotos.length + 1); ED.cmPhotos.push(ph); } catch (x) { toast('Could not read ' + f.name); } } }
+      if (docs.length) await addFiles(docs);
+      txt = txt || (im.length && !docs.length ? (im.length > 1 ? 'Photos attached' : 'Photo attached') : 'Supporting documents attached'); if (docs.length) txt += ' [Attached: ' + docs.map(f => f.name).join('; ') + ']'; }
     if ($('cmt')) $('cmt').value = txt; if ($('cmtFor')) $('cmtFor').value = forWho; await o.go(); };
   $('ndX').addEventListener('click', () => { ND_FILES = []; noteDropRef = null; });
   let raw = null; $('ndUndo').onclick = () => { if (raw != null) $('ndTxt').value = raw; $('ndUndo').style.display = 'none'; $('ndQ').style.display = 'none'; st('Your own words are back.'); };
@@ -366,7 +370,7 @@ function histHtml(h) {
   const pill = s => `<span class="pill" style="background:${SCOL[s] || '#888'}">${esc(s)}</span>`;
   const sys = /^(Changed |Raised|Imported|Added from|Pin placed|Unit |Filled in|Site note|Status |Ticked|Marked|Handwritten|Resolution note)/i.test(txt) || to;
   let body = esc(txt).replace(/status [^→;.]+? → [^;.]+(; |\.)?/i, '').replace(/(^|; |Changed )([a-z ]+?) ([^;→]+?) → ([^;.]+)/gi, (m0, pre, k, a, b) => `${pre}<b>${k}</b> <s>${a}</s> → <b>${b}</b>`).replace(/^Changed \.?$/, '').trim();
-  return `<div class="h ${sys ? 'sys' : 'cm'}" style="--c:${to ? (SCOL[to] || '#888') : sys ? '#c9ced6' : '#2f6fd0'}"><div class="hh"><b>${esc(nzDT(h.t))}</b> · ${esc(h.who || '')}${raised ? ' <span class="hk">raised</span>' : !sys ? ' <span class="hk c">comment</span>' : ''}</div>${to ? `<div class="hs">${from ? pill(from) + ' <span class="ar">→</span> ' : '<span class="ar">now</span> '}${pill(to)}</div>` : ''}${body ? `<div class="ht">${body}</div>` : ''}</div>`;
+  return `<div class="h ${sys ? 'sys' : 'cm'}" style="--c:${to ? (SCOL[to] || '#888') : sys ? '#c9ced6' : '#2f6fd0'}"><div class="hh"><b>${esc(nzDT(h.t))}</b> · ${esc(h.who || '')}${raised ? ' <span class="hk">raised</span>' : !sys ? ' <span class="hk c">comment</span>' : ''}</div>${to ? `<div class="hs">${from ? pill(from) + ' <span class="ar">→</span> ' : '<span class="ar">now</span> '}${pill(to)}</div>` : ''}${body ? `<div class="ht">${body}</div>` : ''}${(h.photos || []).length ? `<div class="hph">${h.photos.map(p => `<figure><img data-hp="${esc(p.id)}" alt="${esc(p.name || 'Photo with this comment')}"><figcaption>${esc(p.name || '')}</figcaption></figure>`).join('')}</div>` : ''}</div>`;
 }
 // On the plan, say when a filter is hiding pins, and offer to clear it there and then.
 const DEF_STATUS = ['Open', 'In progress', 'Ready for review', 'Disputed'];
@@ -769,6 +773,8 @@ function stageGate() {
 }
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
+  // photos that were attached to comments in the history: tap to view, with the others of the same comment
+  $('edBody').querySelectorAll('img[data-hp]').forEach(async im => { const h = (w.history || []).find(x => (x.photos || []).some(p => p.id === im.dataset.hp)); if (!h) return; const i = h.photos.findIndex(p => p.id === im.dataset.hp); peekable(im); im.src = await photoSrc(h.photos[i]); im.onclick = () => gallery(h.photos, i, (w.id || '') + ' comment by ' + (h.who || '')); });
   $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew || !limited(w, ED.isNew)) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
   $('phs').querySelectorAll('img').forEach(async im => { const p = w.photos[+im.dataset.i]; peekable(im); im.src = await photoSrc(p); im.onclick = () => ro ? gallery(w.photos, +im.dataset.i, w.id || 'New defect') : markup(im.src, data => { const old = w.photos[+im.dataset.i]; w.photos[+im.dataset.i] = { id: Math.random().toString(36).slice(2, 10), data, t: new Date().toISOString(), by: S.user.name, isNew: true, replaces: old.path || undefined }; renderPhotos(); }, (w.id || 'New defect') + ' photo ' + (+im.dataset.i + 1)); });
   $('phs').querySelectorAll('button[data-x]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this photo?', 'Remove')) { const [p] = w.photos.splice(+b.dataset.x, 1); if (p.path) (ED.removed = ED.removed || []).push(p.path); renderPhotos(); } });
@@ -844,12 +850,14 @@ async function saveEditor() {
   try {
     if (ED.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
     d.photos = await uploadPhotos(pid, d.id, d.photos || []);
+    // Comment photos: uploaded now and kept on the comment. Any that could not upload (no coverage) fall back to the item's photos so they are not lost.
+    const cup = await uploadPhotos(pid, d.id, ED.cmPhotos || []); d.photos.push(...cup.filter(p => p.pending)); const cmPh = cup.filter(p => !p.pending).map(p => ({ id: p.id, path: p.path, url: p.url, t: p.t, by: p.by, ...((ED.cmPhotos.find(q => q.id === p.id) || {}).name ? { name: ED.cmPhotos.find(q => q.id === p.id).name } : {}) })); ED.cmPhotos = [];
     d.files = await uploadFiles(pid, d.id, d.files || []);
     (ED.removed || []).forEach(p => S.store.deleteFile(p));
     const cm = $('cmt') ? $('cmt').value.trim() : '';
     const clean = o => { const c = { ...o }; delete c.isNew; delete c.zoneHit; c.photos = (c.photos || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); c.files = (c.files || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); return c; };
     if (ED.isNew) {
-      newH.push({ t, who, txt: 'Raised (' + d.source + '). Status ' + d.status + '.' }); if (cm) newH.push({ t, who, txt: cm });
+      newH.push({ t, who, txt: 'Raised (' + d.source + '). Status ' + d.status + '.' }); if (cm) newH.push({ t, who, txt: cm, ...(cmPh.length ? { photos: cmPh } : {}) });
       if (d.aiPending) newH.push({ t, who, txt: 'Site note recorded out of coverage; waiting for Gemini.' });
       const rec = clean({ ...d, created: t, createdBy: S.user.email, updated: t, updatedBy: S.user.email, history: newH });
       await S.store.createDefect(pid, rec);
@@ -863,8 +871,8 @@ async function saveEditor() {
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
       const ph = clean(d).photos; if (JSON.stringify(ph) !== JSON.stringify(o.photos || [])) { patch.photos = ph; ch.push('photos ' + (o.photos || []).length + ' → ' + ph.length); }
       const fl = clean(d).files; if (JSON.stringify(fl) !== JSON.stringify(o.files || [])) { patch.files = fl; ch.push('attachments ' + (o.files || []).length + ' → ' + fl.length); }
-      if (ED.wfLabel) { newH.push({ t, who, txt: ED.wfLabel + (cm ? ': ' + cm : '.') }); const rest = ch.filter(x => x !== ED.wfLabel.toLowerCase() && !/^status /.test(x)); if (rest.length) newH.push({ t, who, txt: 'Changed ' + rest.join('; ') + '.' }); }
-      else { if (ch.length) newH.push({ t, who, txt: 'Changed ' + ch.join('; ') + '.' }); if (cm) newH.push({ t, who, txt: cm }); }
+      if (ED.wfLabel) { newH.push({ t, who, txt: ED.wfLabel + (cm ? ': ' + cm : '.'), ...(cmPh.length ? { photos: cmPh } : {}) }); const rest = ch.filter(x => x !== ED.wfLabel.toLowerCase() && !/^status /.test(x)); if (rest.length) newH.push({ t, who, txt: 'Changed ' + rest.join('; ') + '.' }); }
+      else { if (ch.length) newH.push({ t, who, txt: 'Changed ' + ch.join('; ') + '.' }); if (cm) newH.push({ t, who, txt: cm, ...(cmPh.length ? { photos: cmPh } : {}) }); }
       if ('status' in patch && newH.length && o.status) newH[0].st = [o.status, d.status];
       if (!Object.keys(patch).length && !newH.length) { b.done(); closeEditor(); return; }
       patch.updated = t; patch.updatedBy = S.user.email;
