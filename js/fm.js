@@ -351,7 +351,7 @@ function docs() {
   <p class="muted small">${L.length} of ${Dd.length} documents</p>
   ${L.length ? `<table class="ftable"><tr><th>Document</th><th>Type</th><th class="hm">From</th><th class="hm">Expiry</th><th class="hm">Linked to</th><th></th></tr>
   ${L.map(d => { const g = (d.system || '') !== last ? `<tr class="grp"><td colspan="6">${esc(d.system || 'Unsorted')}</td></tr>` : ''; last = d.system || ''; const al = (d.assetIds || []).map(id => fm().assets.find(a => a.id === id)).filter(Boolean);
-    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.link ? ' <span class="st st-info">link</span>' : ''}${(d.marks || []).length ? ` <span class="st st-info" title="Clauses marked in this document">▭ ${d.marks.length}</span>` : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">${DV.isPdf(d) ? 'View' : 'Open'}</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
+    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.url && !d.link && !d.size ? ' <span class="st" style="background:#fde2e2;color:#a32222">empty file: upload again</span>' : ''}${d.link ? ' <span class="st st-info">link</span>' : ''}${(d.marks || []).length ? ` <span class="st st-info" title="Clauses marked in this document">▭ ${d.marks.length}</span>` : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">${DV.isPdf(d) ? 'View' : 'Open'}</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
   $('dQ').oninput = e => { F.q = e.target.value; docs(); $('dQ').focus(); $('dQ').setSelectionRange(F.q.length, F.q.length); };
   $('dS').onchange = e => { F.sys = e.target.value; docs(); }; $('dT').onchange = e => { F.type = e.target.value; docs(); };
   if ($('dUp')) $('dUp').onclick = () => pickDocs({ system: F.sys });
@@ -470,10 +470,11 @@ async function uploadFiles(files, ctx) {
   for (const [i, f] of files.entries()) {
     if (f.size > 150e6) { toast(f.name + ' is over 150 MB and was skipped', 5000); continue; }
     ctx.onProgress && ctx.onProgress(`Uploading ${i + 1} of ${files.length}: ${f.name}`);
-    const id = uid(), path = `projects/${pid}/docs/${id}/${safeName(f.name)}`;
+    if (!f.size) { ctx.empty && ctx.empty.push(f.name); continue; }   // an online-only cloud file reads as empty: never store it
+    const id = ctx.replaceId || uid(), path = `projects/${pid}/docs/${id}/${safeName(f.name)}`;
     const url = await S.store.putFile(path, f);
     const meta = ctx.classified || {};
-    const o = { id, title: typeof ctx.title === 'function' ? ctx.title(f) : (meta.title || f.name.replace(/\.[^.]+$/, '')), type: meta.type || ctx.type || guessType(f.name), system: meta.system || ctx.system || '', party: meta.party || (f.name.includes(' - ') ? f.name.split(' - ')[0] : ''), assetIds: ctx.assetIds || [], url, path, fileName: f.name, size: f.size, mime: f.type, srcPath: meta.srcPath || '', taskId: ctx.taskId || '', audience: 'FM', created: nowISO(), createdBy: S.user.email };
+    const o = { id, title: typeof ctx.title === 'function' ? ctx.title(f) : (meta.title || f.name.replace(/\.[^.]+$/, '')), type: meta.type || ctx.type || guessType(f.name), system: meta.system || ctx.system || '', party: meta.party || (f.name.includes(' - ') ? f.name.split(' - ')[0] : ''), assetIds: ctx.assetIds || (ctx.keep && ctx.keep.assetIds) || [], url, path, fileName: f.name, size: f.size, mime: f.type, srcPath: meta.srcPath || '', taskId: ctx.taskId || '', audience: 'FM', created: nowISO(), createdBy: S.user.email };
     const w = /\((\d+)\s*(?:yr|year)/i.exec(f.name); if (w && /warrant|deed/i.test(o.type)) o.warrantyYears = +w[1];
     await S.store.saveItem(pid, 'docs', o); ids.push(id);
     for (const aid of o.assetIds) { const a = fm().assets.find(x => x.id === aid); if (a && a.status === 'Not received') await S.store.patchItem(pid, 'assets', aid, { status: 'Partial' }); }
@@ -486,13 +487,14 @@ export async function uploadFolder(files) {
   const skip = /(^|\/)(_|~\$|\.|desktop\.ini|thumbs\.db)|Defect Manager\/|(^|\/)Superseded\/|^([^\/]*\/)?[^\/]*(Register\.xlsx|START HERE[^\/]*\.md)$/i;
   const list = files.filter(f => !skip.test(f.relPath || f.webkitRelativePath || f.name)).map(f => ({ f, path: f.relPath || f.webkitRelativePath || f.name }));
   const have = new Set(fm().docs.map(d => d.srcPath + '|' + d.size));
-  const todo = list.filter(x => !have.has(x.path + '|' + x.f.size));
+  const todo = list.filter(x => x.f.size && !have.has(x.path + '|' + x.f.size)), emptyNow = list.filter(x => !x.f.size).length;
+  const broken = {}; fm().docs.forEach(d => { if (!d.size && d.srcPath) broken[d.srcPath] = d; });   // stored earlier as empty files: replaced in place this time
   const big = todo.filter(x => x.f.size > 150e6), mb = todo.reduce((a, x) => a + x.f.size, 0) / 1e6;
   if (!(await confirmBox(`Upload ${todo.length} documents (${mb.toFixed(0)} MB)? ${list.length - todo.length ? (list.length - todo.length) + ' already in the library will be skipped. ' : ''}${big.length ? big.length + ' over 150 MB will be skipped. ' : ''}They will be filed by building system and type from the folder names. Keep this page open until it finishes.`, 'Upload'))) return;
   const b = busy('Uploading…'); let n = 0;
   try {
-    for (const x of todo) { if (x.f.size > 150e6) continue; const c = classify(x.path); c.srcPath = x.path; await uploadFiles([x.f], { classified: c, onProgress: () => b.set(`Uploading ${++n} of ${todo.length}: ${x.f.name}`) }); }
-    b.done(); toast(`Uploaded ${n} documents`, 4000); setTimeout(autoLink, 1500);
+    for (const x of todo) { if (x.f.size > 150e6) continue; const c = classify(x.path); c.srcPath = x.path; await uploadFiles([x.f], { classified: c, replaceId: broken[x.path] && broken[x.path].id, keep: broken[x.path], onProgress: () => b.set(`Uploading ${++n} of ${todo.length}: ${x.f.name}`) }); }
+    b.done(); toast(`Uploaded ${n} documents` + (emptyNow ? `. ${emptyNow} were skipped because they are not downloaded to this computer (OneDrive online-only): right-click the folder, choose "Always keep on this device", wait for the green ticks, then upload again.` : ''), emptyNow ? 15000 : 4000); setTimeout(autoLink, 1500);
   } catch (e) { b.done(); toast(`Stopped after ${n} documents: ${e.message}. Run it again to carry on; finished files are skipped.`, 8000); }
 }
 // Link warranty and O&M documents to assets when the company and system match (best guess; check in Documents).
