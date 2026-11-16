@@ -47,9 +47,9 @@ export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
       y = H - M - 104; pg.drawRectangle({ x: M, y: y - 12, width: W - 2 * M, height: 24, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { wrap(h, fb, 7, w - 4).slice(0, 2).forEach((l, i) => T(pg, l, cx, y + 3 - i * 8.5, 7, fb, hex('#ffffff'))); cx += w; }); y -= 14; };
     head();
     for (const d of items) {
-      const lm = o.comments === false ? null : latestMove(d), cl = lm && lm.text ? wrap('Latest ' + nzDate(String(lm.when || '').slice(0, 10)) + (lm.who ? ' ' + lm.who : '') + ': ' + lm.text, fb, 7, C[2][1] - 6).slice(0, 5) : [];
-      const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 7.5, C[2][1] - 6).slice(0, cl.length ? 4 : 7), rl = wrap(d.room || '', f, 7.5, C[1][1] - 4).slice(0, 3), sl = wrap(d.subcontractor || d.responsible || '', f, 7.5, C[3][1] - 4).slice(0, 3);
-      const h = Math.max(66, 8 + 9.5 * Math.max(lines.length + cl.length * 0.9 + (cl.length ? 0.5 : 0), rl.length, sl.length));
+      const lm = o.comments === false ? null : latestMove(d), cl = lm && lm.text ? wrap('Latest ' + nzDate(String(lm.when || '').slice(0, 10)) + (lm.who ? ' ' + lm.who : '') + ': ' + lm.text, fb, 7, C[2][1] - 6) : [];
+      const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 7.5, C[2][1] - 6), rl = wrap(d.room || '', f, 7.5, C[1][1] - 4).slice(0, 3), sl = wrap(d.subcontractor || d.responsible || '', f, 7.5, C[3][1] - 4).slice(0, 3);
+      const h = Math.max(66, 12 + Math.max(lines.length * 9.5 + (cl.length ? 5 + cl.length * 8.5 : 0), rl.length * 9.5, sl.length * 9.5));
       if (y - h < M + 30) head();
       let cx = M + 3; T(pg, d.id, cx, y - 11, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cl.forEach((l, i) => T(pg, l, cx, y - 16 - lines.length * 9.5 - i * 8.5, 7, fb, hex('#a32222'))); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[3][1];
       await photo(pg, d, cx - 1, y - h + 4, C[4][1] - 4, h - 8); cx += C[4][1]; await where(pg, d, cx - 1, y - h + 4, C[5][1] - 4, h - 8); cx += C[5][1];
