@@ -1132,6 +1132,7 @@ function workflowBar(w, con) {
   if (con && selfClose(w)) { if (w.status !== 'Closed') b.push('<button class="go" id="wfSelf">✔ Complete and close</button>'); if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>'); return wrap(b); }
   if (w.status !== 'Closed' && w.status !== 'Ready for review') b.push('<button class="go" id="wfReady">✅ Ready for inspection</button>');
   if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>');
+  if (w.status !== 'Closed' && w.status !== 'Ready for review' && reviewer) b.push('<button id="wfAccept">✔ Close now</button>');   // the reviewer can close without waiting for it to be marked ready
   if (w.status === 'Ready for review' && reviewer) b.push('<button class="go" id="wfAccept">✔ Accept and close</button><button class="warn" id="wfReopen">↩ Reopen and send back</button>');
   if (w.status === 'Ready for review' && !reviewer) return '<p class="note">Marked ready for inspection; waiting for ' + esc(w.createdBy || 'the project team') + ' to review.</p>' + wrap([]);
   return wrap(b);
