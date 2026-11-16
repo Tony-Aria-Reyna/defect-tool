@@ -1014,7 +1014,7 @@ function openExport() {
   <div class="opt"><input type="checkbox" id="xSig"><label for="xSig">Sign-off block (Engineer and Contractor)</label></div>
   <div class="btnlist" style="margin-top:10px">
     <button id="xPdf">📄 PDF schedule<small>Resero and client branding, linked</small></button>
-    <button id="xUnits">🏠 Wall sheets per unit<small>One A4 page per unit and common area, open items, tick boxes for sub, contractor and MM, to print and pin up</small></button>
+    <button id="xUnits">🏠 Wall sheets per unit<small>One A4 page per unit and common area, open items, photo, location, tick boxes for sub, contractor and consultant, to print and pin up</small></button>
     <button id="xXls">📊 Excel register<small>One row per defect, plus summary</small></button>
     <button id="xCsv">🧾 CSV (Procore)<small>Import into Procore Punch List</small></button>
     ${S.defects.some(selfClose) ? `<button id="xReg">📋 Contractor's register (their format)<small>Unit, Description, Contractor, Interior/Exterior, Completed, as ${esc((S.project.selfCloseSources || []).join(', '))} has always been sent</small></button>` : ''}

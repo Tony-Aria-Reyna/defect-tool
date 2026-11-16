@@ -19,27 +19,39 @@ async function embedAny(doc, bytes) { const b = new Uint8Array(bytes); if (b[0] 
 export async function buildUnitSheets(L, ctx, st = () => {}) {
   if (!window.PDFLib) { st('Loading the PDF tools…'); await loadScript(LIB.pdflib); }
   const P = PDFLib, doc = await P.PDFDocument.create(), pr = ctx.project, f = await doc.embedFont(P.StandardFonts.Helvetica), fb = await doc.embedFont(P.StandardFonts.HelveticaBold);
-  const W = 595.28, H = 841.89, M = 30, NAVY = hex('#011C35'), GREY = hex('#6a7886'), LINE = hex('#c9d0d8');
-  let res = null; try { res = await embedAny(doc, await ctx.getBytes(ctx.logoResero)); } catch (e) {}
-  const con = pr.contractor || 'Contractor', isMM = d => /^MM/i.test(d.id);
+  const W = 595.28, H = 841.89, M = 28, NAVY = hex('#011C35'), GREY = hex('#6a7886'), LINE = hex('#c9d0d8');
+  const logo = async u => { try { return u ? await embedAny(doc, await ctx.getBytes(u)) : null; } catch (e) { return null; } };
+  const res = await logo(ctx.logoResero), cli = await logo(pr.clientLogo), conL = await logo(pr.contractorLogo);
+  const con = pr.contractor || 'Contractor', own = new Set(pr.selfCloseSources || []), needsCons = d => !own.has(d.source);
   const groups = {}; L.forEach(d => { const k = d.unit ? 'Unit ' + d.unit : 'Common areas' + (d.block ? ', ' + (/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block) : '') + (d.level ? ', ' + d.level : ''); (groups[k] = groups[k] || []).push(d); });
   const keys = Object.keys(groups).sort((a, b) => (a.startsWith('Unit') ? 0 : 1) - (b.startsWith('Unit') ? 0 : 1) || natural(a, b));
   const wrap = (t, font, size, maxw) => { const out = []; clean(t).split('\n').forEach(par => { let ln = ''; par.split(/\s+/).forEach(w => { const tr = ln ? ln + ' ' + w : w; if (font.widthOfTextAtSize(tr, size) <= maxw) ln = tr; else { if (ln) out.push(ln); ln = w; } }); if (ln) out.push(ln); }); return out; };
   const T = (pg, t, x, y, s, font, c) => pg.drawText(clean(t), { x, y, size: s, font: font || f, color: c || hex('#18232f') });
-  const C = [['Ref', 46], ['Room', 64], ['Item', 225], ['Subcontractor', 78], ['Sub done', 42], [con.split(' ')[0] + ' OK', 42], ['MM sign-off', 38]];
+  const planImg = {}, getPlan = async p => planImg[p.id] || (planImg[p.id] = await embedAny(doc, await ctx.getBytes(p.img)));
+  // thumbnail of the first photo, and a crop of the plan around the pin
+  const photo = async (pg, d, x, y, w, h) => { const p = (d.photos || []).find(q => q.url); if (!p) return; try { const im = await embedAny(doc, await ctx.getBytes(p.url)); const s = Math.min(w / im.width, h / im.height); pg.drawImage(im, { x: x + (w - im.width * s) / 2, y: y + (h - im.height * s) / 2, width: im.width * s, height: im.height * s }); } catch (e) {} };
+  const where = async (pg, d, x, y, w, h) => { const pl = d.plan && d.x != null && ctx.plans.find(p => p.id === d.plan); if (!pl) return; try { const im = await getPlan(pl), z = pl.kind === 'elevation' ? 5 : 6, sc = Math.min(w / (im.width / z), h / (im.height / z)), cw = w / sc, ch = h / sc;
+      let cx = d.x * im.width - cw / 2, cy = d.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
+      pg.pushOperators(P.pushGraphicsState(), P.rectangle(x, y, w, h), P.clip(), P.endPath()); pg.drawImage(im, { x: x - cx * sc, y: y - (im.height - cy - ch) * sc, width: im.width * sc, height: im.height * sc }); pg.pushOperators(P.popGraphicsState());
+      pg.drawCircle({ x: x + (d.x * im.width - cx) * sc, y: y + h - (d.y * im.height - cy) * sc, size: 5, color: hex('#e53935'), borderColor: P.rgb(1, 1, 1), borderWidth: 1 }); pg.drawRectangle({ x, y, width: w, height: h, borderColor: LINE, borderWidth: 0.5 }); } catch (e) {} };
+  const C = [['Ref', 40], ['Room', 50], ['Item', 150], ['Subcontractor', 60], ['Photo', 62], ['Location', 62], ['Sub done', 37], [con.split(' ')[0] + ' OK', 37], ['Consultant sign-off', 41]];
   for (const k of keys) {
-    const items = groups[k].sort((a, b) => String(a.room || '').localeCompare(String(b.room || '')) || natural(a.id, b.id)); let pg, y, page = 0;
-    const head = () => { pg = doc.addPage([W, H]); page++; if (res) { const h = 20, w = h * res.width / res.height; pg.drawImage(res, { x: M, y: H - M - h, width: w, height: h }); }
-      T(pg, k, M, H - M - 52, 26, fb, NAVY); T(pg, (pr.name || '') + '  |  Open items at ' + nzDate(todayISO()) + '  |  ' + items.length + ' item' + (items.length === 1 ? '' : 's') + (page > 1 ? '  |  page ' + page : ''), M, H - M - 68, 9.5, f, GREY);
-      T(pg, 'Subcontractor: tick and initial when your item is complete. ' + con + ': tick when accepted. MM items also need Maynard Marks sign-off.', M, H - M - 82, 8, f, GREY);
-      y = H - M - 100; pg.drawRectangle({ x: M, y: y - 4, width: W - 2 * M, height: 16, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { T(pg, h, cx, y + 1, 7.5, fb, hex('#ffffff')); cx += w; }); y -= 8; };
+    const items = groups[k].sort((a, b) => String(a.room || '').localeCompare(String(b.room || '')) || natural(a.id, b.id)); let pg, y, page = 0; st('Building ' + k + '…');
+    const head = () => { pg = doc.addPage([W, H]); page++;
+      // logos: Resero left, then client and contractor on the right
+      if (res) { const h = 20, w = h * res.width / res.height; pg.drawImage(res, { x: M, y: H - M - h, width: w, height: h }); }
+      let rx = W - M; [conL, cli].forEach(im => { if (!im) return; const h = 30, w = Math.min(120, h * im.width / im.height), hh = w * im.height / im.width; rx -= w; pg.drawImage(im, { x: rx, y: H - M - hh, width: w, height: hh }); rx -= 14; });
+      T(pg, k, M, H - M - 58, 26, fb, NAVY); T(pg, (pr.name || '') + '  |  Open items at ' + nzDate(todayISO()) + '  |  ' + items.length + ' item' + (items.length === 1 ? '' : 's') + (page > 1 ? '  |  page ' + page : ''), M, H - M - 74, 9.5, f, GREY);
+      T(pg, 'Subcontractor: tick and initial when complete. ' + con + ': tick when accepted. Consultant: tick when signed off.', M, H - M - 88, 8, f, GREY);
+      y = H - M - 104; pg.drawRectangle({ x: M, y: y - 12, width: W - 2 * M, height: 24, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { wrap(h, fb, 7, w - 4).slice(0, 2).forEach((l, i) => T(pg, l, cx, y + 3 - i * 8.5, 7, fb, hex('#ffffff'))); cx += w; }); y -= 14; };
     head();
     for (const d of items) {
-      const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 8, C[2][1] - 6).slice(0, 5), rl = wrap(d.room || '', f, 8, C[1][1] - 4).slice(0, 2), sl = wrap(d.subcontractor || d.responsible || '', f, 8, C[3][1] - 4).slice(0, 2);
-      const h = Math.max(26, 6 + 10 * Math.max(lines.length, rl.length, sl.length));
+      const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 7.5, C[2][1] - 6).slice(0, 7), rl = wrap(d.room || '', f, 7.5, C[1][1] - 4).slice(0, 3), sl = wrap(d.subcontractor || d.responsible || '', f, 7.5, C[3][1] - 4).slice(0, 3);
+      const h = Math.max(66, 8 + 9.5 * Math.max(lines.length, rl.length, sl.length));
       if (y - h < M + 30) head();
-      let cx = M + 3; T(pg, d.id, cx, y - 12, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 12 - i * 10, 8)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 12 - i * 10, 8)); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 12 - i * 10, 8)); cx += C[3][1];
-      [0, 1, 2].forEach(i => { const w = C[4 + i][1]; if (i === 2 && !isMM(d)) T(pg, 'n/a', cx + w / 2 - 7, y - 14, 7, f, GREY); else pg.drawRectangle({ x: cx + w / 2 - 8, y: y - h / 2 - 8, width: 16, height: 16, borderColor: NAVY, borderWidth: 1 }); cx += w; });
+      let cx = M + 3; T(pg, d.id, cx, y - 11, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[3][1];
+      await photo(pg, d, cx - 1, y - h + 4, C[4][1] - 4, h - 8); cx += C[4][1]; await where(pg, d, cx - 1, y - h + 4, C[5][1] - 4, h - 8); cx += C[5][1];
+      [0, 1, 2].forEach(i => { const w = C[6 + i][1]; if (i === 2 && !needsCons(d)) T(pg, 'n/a', cx + w / 2 - 8, y - h / 2 - 3, 7, f, GREY); else pg.drawRectangle({ x: cx + w / 2 - 10, y: y - h / 2 - 8, width: 16, height: 16, borderColor: NAVY, borderWidth: 1 }); cx += w; });
       y -= h; pg.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.6, color: LINE });
     }
     T(pg, 'Unit signed off: ____________________   Date: __________', M, M + 6, 9, fb, NAVY);
