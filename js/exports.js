@@ -122,7 +122,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   if (o.sig) { y -= 16; const bw = (W - 2 * M - 20) / 2; [['Engineer to the Contract', pr.engineer || ''], ['Contractor', pr.contractor || '']].forEach(([r, n], i) => { const x = M + i * (bw + 20); pg.drawRectangle({ x, y: y - 62, width: bw, height: 62, borderColor: LINE, borderWidth: 0.8 }); txt(pg, r, x + 8, y - 14, 9, fb, NAVY); txt(pg, n, x + 8, y - 27, 9, f, GREY); txt(pg, 'Signature: ______________________________   Date: ______________', x + 8, y - 52, 9); }); }
   // ---- schedule table
   st('Writing the schedule…');
-  const hasDetail = d => o.photos && ((d.photos && d.photos.some(p => p.url)) || (d.plan && d.x != null));
+  const hasDetail = d => o.single || o.photos && ((d.photos && d.photos.some(p => p.url)) || (d.plan && d.x != null));
   const cols = [['ID', 48], ['Location', 120], ['Defect', 300], [pr.sevLabel || 'Severity', 82], ['Responsible', 78], ['Target', 58], ['Status', 84]];
   const tw = cols.reduce((a, c) => a + c[1], 0), sc = (W - 2 * M) / tw; cols.forEach(c => c[1] *= sc);
   const rowRefs = {}; let tpg = null;
@@ -153,10 +153,11 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   }
   // ---- detail pages
   const detail = {};
-  if (o.photos) {
-    let dpg = null, slot = 0; const half = (H - 2 * M - HEAD - 20) / 2;
+  if (o.photos || o.single) {
+    // A single-item sheet gives the item the whole page.
+    let dpg = null, slot = 0; const per = o.single ? 1 : 2, half = (H - 2 * M - HEAD - 20) / per;
     for (const d of L.filter(hasDetail)) {
-      if (!dpg || slot === 2) { dpg = newPage('Defect details'); slot = 0; } st('Detail page for ' + d.id + '…');
+      if (!dpg || slot === per) { dpg = newPage(o.single ? o.sub : 'Defect details'); slot = 0; } st('Detail page for ' + d.id + '…');
       const top = H - M - HEAD - 8 - slot * half; detail[d.id] = { pg: dpg, y: top }; let ty;
       dpg.drawRectangle({ x: M, y: top - half + 8, width: W - 2 * M, height: half - 4, borderColor: LINE, borderWidth: 0.7 });
       dpg.drawRectangle({ x: M, y: top - 14, width: W - 2 * M, height: 20, color: hex('#f2f4f6') }); txt(dpg, d.id + '  ' + (d.title || ''), M + 8, top - 8, 11, fb, NAVY);
@@ -168,7 +169,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
       { const lm = o.comments === false ? null : latestMove(d); if (lm) { const head = wrap(`Latest: ${lm.label}, ${nzDate(String(lm.when || '').slice(0, 10)) || ''}${lm.who ? ', ' + lm.who : ''}`, fb, 8.5, colW - 12).slice(0, 2), body = lm.text ? wrap((lm.noteWho && lm.noteWho !== lm.who ? lm.noteWho + ': ' : '') + lm.text, f, 8.5, colW - 12).slice(0, 5) : [];
           const bh = (head.length + body.length) * 10.5 + 8, floor = top - half + 26; if (ty - 6 - bh > floor) { ty -= 6; dpg.drawRectangle({ x: M + 8, y: ty - bh + 4, width: colW, height: bh, color: hex('#eef6f8'), borderColor: hex(SCOL[d.status] || '#3bafbe'), borderWidth: 0.8 }); ty -= 7;
             head.forEach(l => { txt(dpg, l, M + 14, ty, 8.5, fb, NAVY); ty -= 10.5; }); body.forEach(l => { txt(dpg, l, M + 14, ty, 8.5); ty -= 10.5; }); } } }
-      const ph = recentPhotos(d).slice(0, 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
+      const ph = recentPhotos(d).slice(0, o.single ? 4 : 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
       const snips = []; { const p1 = d.plan && ctx.plans.find(p => p.id === d.plan); if (p1 && d.x != null) snips.push({ p: p1, x: d.x, y: d.y }); const p2 = d.plan2 && ctx.plans.find(p => p.id === d.plan2); if (p2 && d.x2 != null) snips.push({ p: p2, x: d.x2, y: d.y2 }); }
       const snip = async (sp, sx, sw, sh) => { try { const im = await getPlanImg(sp.p); const zoomDiv = sp.p.kind === 'elevation' ? 4 : 3; const sc = Math.min(sw / (im.width / zoomDiv), sh / (im.height / zoomDiv)), cw = sw / sc, ch = sh / sc;
           let cx = sp.x * im.width - cw / 2, cy = sp.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
@@ -178,8 +179,9 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
           dpg.drawCircle({ x: px, y: py, size: 7, color: hex(SCOL[d.status] || '#666'), borderColor: P.rgb(1, 1, 1), borderWidth: 1.2 }); dpg.drawRectangle({ x: sx, y: by, width: sw, height: sh, borderColor: LINE, borderWidth: 0.5 }); txt(dpg, (sp.p.kind === 'elevation' ? 'On ' : 'Location on ') + (sp.p.code || sp.p.name), sx, by - 10, 7.5, f, GREY); } catch (e) { txt(dpg, 'Plan could not be loaded', sx, by + sh / 2, 8, f, GREY); } };
       const photoW = ph.length ? (snips.length ? aw * 0.58 : aw) : 0, snipW = aw - photoW - (ph.length && snips.length ? 8 : 0);
       if (ph.length) {
-        const gw = (photoW - (ph.length - 1) * 6) / ph.length;
-        for (let i = 0; i < ph.length; i++) { try { const im = await embedAny(doc, await ctx.getBytes(ph[i].url)); const s = Math.min(gw / im.width, ah / im.height); dpg.drawImage(im, { x: ax + i * (gw + 6) + (gw - im.width * s) / 2, y: by + (ah - im.height * s) / 2, width: im.width * s, height: im.height * s }); } catch (e) { txt(dpg, 'Photo could not be loaded', ax + i * (gw + 6), by + ah / 2, 8, f, GREY); } }
+        // Single-item sheet: a grid two wide so the photos fill the page. Otherwise one row.
+        const nc = o.single ? Math.min(2, ph.length) : ph.length, nr = Math.ceil(ph.length / nc), gw = (photoW - (nc - 1) * 6) / nc, gh = (ah - (nr - 1) * 6) / nr;
+        for (let i = 0; i < ph.length; i++) { try { const im = await embedAny(doc, await ctx.getBytes(ph[i].url)); const s = Math.min(gw / im.width, gh / im.height), cx = ax + (i % nc) * (gw + 6), cy = by + ah - gh - Math.floor(i / nc) * (gh + 6); dpg.drawImage(im, { x: cx + (gw - im.width * s) / 2, y: cy + (gh - im.height * s) / 2, width: im.width * s, height: im.height * s }); } catch (e) { txt(dpg, 'Photo could not be loaded', ax + i * (gw + 6), by + ah / 2, 8, f, GREY); } }
         const p = d.plan && ctx.plans.find(p => p.id === d.plan); if (p && !snips.length) txt(dpg, 'Pinned on ' + (p.code || p.name), M + 8, top - half + 16, 7.5, f, GREY);
       }
       if (snips.length) { const sx0 = ax + photoW + (ph.length ? 8 : 0), each = (snipW - (snips.length - 1) * 6) / snips.length; for (let i = 0; i < snips.length; i++) await snip(snips[i], sx0 + i * (each + 6), each, ah); }
@@ -187,6 +189,8 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
     }
   }
   // ---- footers, links
+  // A single-item sheet keeps only the item's own page: no summary and no one-row schedule.
+  if (o.single) { const keep = new Set(Object.values(detail).map(t => t.pg)); for (let i = pages.length - 1; i >= 0; i--) if (!keep.has(pages[i])) { doc.removePage(i); pages.splice(i, 1); } links.length = 0; Object.keys(rowRefs).forEach(k => delete rowRefs[k]); }
   const n = pages.length, foot = `Prepared by ${APP.company}${pr.client ? ' for ' + pr.client : ''}`;
   pages.forEach((p, i) => { p.drawRectangle({ x: M, y: M - 22, width: W - 2 * M, height: 0.5, color: LINE }); txt(p, foot, M, M - 32, 7.5, f, GREY); const t = 'Page ' + (i + 1) + ' of ' + n; txt(p, t, W - M - f.widthOfTextAtSize(t, 7.5), M - 32, 7.5, f, GREY); });
   const annot = (page, dict) => { const ref = doc.context.register(doc.context.obj(dict)); let an = page.node.lookup(P.PDFName.of('Annots')); if (!an) { an = doc.context.obj([]); page.node.set(P.PDFName.of('Annots'), an); } an.push(ref); };

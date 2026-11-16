@@ -740,6 +740,7 @@ export function openEditor(d, isNew, isDraft) {
   drawLoc(); renderPhotos();
   $('edDel').style.display = isNew || !can.admin() ? 'none' : ''; $('edSave').style.display = ro ? 'none' : '';
   $('edCancel').textContent = ro ? 'Close' : 'Cancel';
+  $('edSend').style.display = isNew ? 'none' : '';
   if (!$('sheet').classList.contains('show')) Nav.open('editor', () => closeEditor());
   $('sheet').classList.add('show');
   // straight after a pin is dropped the cursor goes into the title, so typing or dictating can start at once
@@ -999,6 +1000,17 @@ async function createFromAI(extra, base, why, review) {
   return made;
 }
 
+// One item as its own PDF (team layout: photos, plan with the pin, latest comment), then Share or Save. Uses the saved copy, so unsaved edits are not in it.
+async function sendItem() {
+  if (!ED || ED.isNew) return; const d = S.defects.find(x => x.id === ED.d.id); if (!d) return toast('Save the item first');
+  const p = S.project, bz = busy('Building the PDF for ' + d.id + '…');
+  try {
+    const where = [d.unit ? 'Unit ' + d.unit : '', d.room].filter(Boolean).join(', ');
+    const b = await buildPdf([d], { single: true, team: true, comments: true, photos: true, plans: false, sig: false, title: 'Defect ' + d.id, sub: where || 'Single item', intro: 'This sheet covers one item. Please complete it and let us know when it is ready for inspection.' }, { project: p, plans: S.plans, getBytes, logoResero: 'img/resero-navy.png', me: S.user.name }, t => bz.set(t || 'Building the PDF for ' + d.id + '…'));
+    bz.done(); deliver(b, `${safeName(p.name)} - ${safeName(d.id)}${d.unit ? ' - Unit ' + safeName(String(d.unit)) : ''} - ${stamp()}.pdf`, 'PDF');
+  } catch (e) { console.error(e); bz.done(); toast(/fetch|CORS/i.test(e.message) ? 'Photos or plans could not be read. Check your connection and try again.' : 'Could not build the PDF: ' + e.message, 6000); }
+}
+
 /* ================================================================ export */
 export function getBytes(u) { return (async () => { const src = u.startsWith('data:') ? u : await imgUrl(u); const r = await fetch(src); if (!r.ok) throw new Error('fetch ' + r.status); return await r.arrayBuffer(); })(); }
 function openExport() {
@@ -1147,7 +1159,7 @@ function wire() {
   if (S.local.noList) $('main').classList.add('nolist');
   $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); $('zfull').textContent = '⛶'; requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); $('zfull').textContent = on ? '✕' : '⛶'; $('zfull').title = on ? 'Exit full screen' : 'Full screen'; requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
-  $('edClose').onclick = $('edCancel').onclick = () => tryCloseEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edBody').addEventListener('input', e => { const t = e.target; if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; } });
+  $('edClose').onclick = $('edCancel').onclick = () => tryCloseEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edSend').onclick = sendItem; $('edBody').addEventListener('input', e => { const t = e.target; if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; } });
   $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1); swipeWire($('edBody'));
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') dismissModal(); });
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
