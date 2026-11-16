@@ -3,17 +3,18 @@
 import { S, can } from './state.js';
 import * as Nav from './nav.js';
 import { aiCall } from './ai.js';
-import { $, esc, toast, busy, confirmBox, uid, natural } from './util.js';
+import { $, esc, toast, busy, confirmBox, uid, natural, nzDate } from './util.js';
 import { search, norm } from './clausefind.js';
 
 let X = null, pdfjs = null, V = null;
-export const KINDS = ['Warranty requirement', 'Maintenance requirement', 'Document requirement', 'Product or finish detail', 'Other'];
-const KCLS = { 'Warranty requirement': 'kw', 'Maintenance requirement': 'km', 'Document requirement': 'kd', 'Product or finish detail': 'kp', 'Other': 'ko' };
+export const KINDS = ['Warranty requirement', 'Maintenance requirement', 'Document requirement', 'Product or finish detail', 'Warranty period', 'Parties', 'Execution and signatures', 'Date', 'Condition or exclusion', 'Other'];
+const KCLS = { 'Warranty requirement': 'kw', 'Maintenance requirement': 'km', 'Document requirement': 'kd', 'Product or finish detail': 'kp', 'Warranty period': 'kw', 'Parties': 'kd', 'Execution and signatures': 'kd', 'Date': 'kp', 'Condition or exclusion': 'km', 'Other': 'ko' };
+export { loadPdf, lib as pdfLib };
 const fm = () => S.fm || { assets: [], docs: [], tasks: [], systems: [] };
 export function init(ctx) { X = ctx; }
 export const isPdf = d => !!d && !!d.url && (/\.pdf$/i.test(d.fileName || '') || d.mime === 'application/pdf');
 // Source documents are where requirements come from: the contract and the specification, or anything ticked as a source or already marked up.
-export const isSource = d => isPdf(d) && d.source !== false && (d.source === true || (d.marks || []).length > 0 || ['Contract document', 'Specification / drawing'].includes(d.type));
+export const isSource = d => isPdf(d) && d.source !== false && (d.source === true || (d.marks || []).some(m => !m.ai) || ['Contract document', 'Specification / drawing'].includes(d.type));
 export const marksFor = (kind, id) => fm().docs.flatMap(d => (d.marks || []).filter(m => ((kind === 'asset' ? m.assetIds : m.taskIds) || []).includes(id)).map(m => ({ d, m }))).sort((a, b) => natural(a.d.title, b.d.title) || a.m.page - b.m.page);
 export const markLine = ({ d, m }) => [d.title, 'p. ' + m.page, m.clause ? 'cl. ' + m.clause : '', m.period || ''].filter(Boolean).join(' · ');
 
@@ -153,7 +154,7 @@ const names = (ids, list, key) => (ids || []).map(id => list.find(x => x.id === 
 async function overlayPage(pp) {
   let h = ''; const all = (V.d.marks || []).slice().sort((a, b) => a.page - b.page || a.y - b.y);
   all.forEach((m, i) => { if (m.page !== pp.p) return; const an = names(m.assetIds, fm().assets, 'element'), tn = names(m.taskIds, fm().tasks, 'title');
-    h += `<div class="dvm ${KCLS[m.kind] || 'ko'}${V.sel === m.id ? ' sel' : ''}" data-m="${esc(m.id)}" style="left:${m.x * 100}%;top:${m.y * 100}%;width:${m.w * 100}%;height:${m.h * 100}%"><i>${i + 1}</i><div class="dvtip"><b>${esc(m.kind || 'Requirement')}${m.period ? ': ' + esc(m.period) : ''}</b>${m.clause ? '<br>Clause ' + esc(m.clause) : ''}${an.length ? '<br>Assets: ' + esc(an.join('; ')) : ''}${tn.length ? '<br>Tasks: ' + esc(tn.join('; ')) : ''}<br><u>Click to open</u></div></div>`; });
+    h += `<div class="dvm ${KCLS[m.kind] || 'ko'}${m.flag ? ' flag' : ''}${m.pending ? ' pend' : ''}${V.sel === m.id ? ' sel' : ''}" data-m="${esc(m.id)}" style="left:${m.x * 100}%;top:${m.y * 100}%;width:${m.w * 100}%;height:${m.h * 100}%"><i>${i + 1}</i><div class="dvtip"><b>${esc(m.kind || 'Requirement')}${m.period ? ': ' + esc(m.period) : ''}</b>${m.flag ? '<br><span style="color:#ffb4b4">Problem: ' + esc(m.flag) + '</span>' : ''}${m.pending ? '<br>Marked by AI, not checked yet' : ''}${m.clause ? '<br>Clause ' + esc(m.clause) : ''}${an.length ? '<br>Assets: ' + esc(an.join('; ')) : ''}${tn.length ? '<br>Tasks: ' + esc(tn.join('; ')) : ''}<br><u>Click to open</u></div></div>`; });
   if (V.hl && V.hl.length && pp.pg && pp.vp1) { const set = new Set(V.hl); try { for (const r of await runs(pp)) { if (norm(r.s).split(' ').some(w => set.has(w))) h += `<div class="dvhl" style="left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%"></div>`; } } catch (e) {} }
   if (!V) return; pp.o.innerHTML = h;
   pp.o.querySelectorAll('.dvm').forEach(el => el.onclick = e => { if (V.mode === 'mark') return; e.stopPropagation(); const m = (V.d.marks || []).find(x => x.id === el.dataset.m); if (m) detail(m); });
@@ -184,9 +185,13 @@ function home() {
     <div class="dvquick">${QUICK.map(([l, q]) => `<button data-q="${esc(q)}">${l}</button>`).join('')}</div>
     <label class="dvall"><input type="checkbox" id="dvAll" ${V.all ? 'checked' : ''}> Search all contract and specification documents</label>
     <div id="dvRes"></div>
+    ${V.d.aiRead ? `<div class="dvctx"><b>✨ Read by AI</b> ${esc(nzDate(String(V.d.aiRead).slice(0, 10)))}${V.d.aiSummary ? '<br><span class="small">' + esc(V.d.aiSummary) + '</span>' : ''}${(V.d.aiProblems || []).length ? '<br><span class="small" style="color:#a32222"><b>Problems found:</b><br>' + V.d.aiProblems.map(x => '• ' + esc(x)).join('<br>') + '</span>' : ''}${marks.some(m => m.pending) && can.edit() ? `<br><button class="mini" id="dvAcc">✔ Accept all ${marks.filter(m => m.pending).length} AI boxes</button>` : ''}</div>` : ''}
+    ${can.edit() && V.d.size ? `<p><button class="mini" id="dvRead">✨ ${V.d.aiRead ? 'Read again with AI' : 'Read this document with AI'}</button></p>` : ''}
     <h4>Marked in this document (${marks.length})</h4>
-    ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b> <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
+    ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b>${m.flag ? ' <span class="st st-bad">problem</span>' : ''}${m.pending ? ' <span class="st st-warn">to check</span>' : ''} <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
     ${can.edit() ? `<label class="dvall" style="margin-top:10px"><input type="checkbox" id="dvSrc" ${isSource(V.d) ? 'checked' : ''}> This is a requirement source (included in clause searches)</label>` : ''}`;
+  if ($('dvRead')) $('dvRead').onclick = () => window.dispatchEvent(new CustomEvent('rd-ai-read', { detail: V.d.id }));
+  if ($('dvAcc')) $('dvAcc').onclick = async () => { await saveMarks((V.d.marks || []).map(m => m.pending ? { ...m, pending: false, checkedBy: S.user.email } : m)); toast('Accepted'); home(); };
   $('dvGo').onclick = runSearch; $('dvQ').onkeydown = e => { if (e.key === 'Enter') runSearch(); };
   $('dvSide').querySelectorAll('[data-q]').forEach(b => b.onclick = () => { $('dvQ').value = b.dataset.q; runSearch(); });
   $('dvAll').onchange = e => { V.all = e.target.checked; if (V.q) runSearch(); };
@@ -229,10 +234,11 @@ function detail(m) {
   $('dvSide').innerHTML = `<button class="dvback" id="dvB">‹ Search and list</button>
     <h3><span class="dvk ${KCLS[m.kind] || 'ko'}">${esc(m.kind || 'Requirement')}</span></h3>
     ${m.period ? `<p class="dvper">${esc(m.period)}</p>` : ''}<p class="muted small">${esc(V.d.title)} · page ${m.page}${m.clause ? ' · clause ' + esc(m.clause) : ''}</p>
-    <img class="dvsnip" id="dvSn" alt="The marked clause">${m.text ? `<p class="dvtext">${esc(m.text)}</p>` : ''}${m.note ? `<p><b>Note:</b> ${esc(m.note)}</p>` : ''}
+    <img class="dvsnip" id="dvSn" alt="The marked clause">${m.text ? `<p class="dvtext">${esc(m.text)}</p>` : ''}${m.note ? `<p><b>Note:</b> ${esc(m.note)}</p>` : ''}${m.flag ? `<p style="color:#a32222"><b>Problem:</b> ${esc(m.flag)}</p>` : ''}${m.pending ? `<p class="muted small">Marked by AI. Check the box is in the right place and linked to the right asset.${can.edit() ? ' <button class="mini" id="dvOk">✔ Accept</button>' : ''}</p>` : ''}
     <h4>Applies to</h4>${A.map(a => `<button class="dvlink" data-a="${esc(a.id)}">▤ ${esc(a.ref || '')} ${esc(a.element)}<small>Open the asset</small></button>`).join('')}${T.map(t => `<button class="dvlink" data-t="${esc(t.id)}">⟳ ${esc(t.title)}<small>Open the maintenance task</small></button>`).join('')}${!A.length && !T.length ? '<p class="muted small">Not linked to an asset or task yet.</p>' : ''}
     ${can.edit() ? '<div class="act"><button id="dvDel" class="warn">Delete</button><button id="dvEd" class="go">Edit</button></div>' : ''}`;
   snipImg($('dvSn'), m); $('dvB').onclick = home;
+  if ($('dvOk')) $('dvOk').onclick = async () => { const o = { ...m, pending: false, checkedBy: S.user.email }; await saveMarks((V.d.marks || []).map(x => x.id === m.id ? o : x)); toast('Accepted'); detail(o); };
   $('dvSide').querySelectorAll('[data-a]').forEach(b => b.onclick = () => { const id = b.dataset.a; if (V) V.ret = null; close(); X.openAsset(id); });
   $('dvSide').querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const id = b.dataset.t; if (V) V.ret = null; close(); X.openTask(id); });
   if ($('dvEd')) $('dvEd').onclick = () => form(JSON.parse(JSON.stringify(m)), false);
@@ -259,7 +265,7 @@ function form(m, isNew) {
   const ids = k => [...$('dvSide').querySelectorAll(`[data-pick=${k}] input[type=checkbox]:checked`)].map(i => i.value);
   $('mkX2').onclick = () => { const cur = (V.d.marks || []).find(x => x.id === m.id); cur ? detail(cur) : home(); };
   $('mkS').onclick = async () => {
-    const o = { ...m, kind: $('mkK').value, period: $('mkP').value.trim(), clause: $('mkC').value.trim(), text: $('mkX').value.trim().slice(0, 900), note: $('mkN').value.trim(), assetIds: ids('a'), taskIds: ids('t'), updated: new Date().toISOString(), by: S.user.email };
+    const o = { ...m, kind: $('mkK').value, period: $('mkP').value.trim(), clause: $('mkC').value.trim(), text: $('mkX').value.trim().slice(0, 900), note: $('mkN').value.trim(), assetIds: ids('a'), taskIds: ids('t'), pending: false, updated: new Date().toISOString(), by: S.user.email };
     if (!o.assetIds.length && !o.taskIds.length && !(await confirmBox('This clause is not linked to an asset or a task yet. Save it anyway?', 'Save'))) return;
     const b = busy('Saving…');
     try { if (isNew || !o.snip) { try { o.snip = await makeSnip(o); } catch (e) { console.warn('snip', e); } }

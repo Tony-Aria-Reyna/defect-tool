@@ -365,6 +365,13 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}) {
     const out = A.filter(a => !got(a)).sort((a, b) => natural(a.ref || '', b.ref || ''));
     table([['Ref', 36], ['Element', 120], ['Installer', 80], ['Required', 110], ['Status', 62], ['Notes', 150]], out.map(a => [a.ref || '', (a.element || '') + (a.product ? ' (' + a.product + ')' : ''), a.installer || '', [a.instWarranty, a.mfrWarranty].filter(x => x && x !== '-').join('; '), a.status, a.notes || '']), { red: (ri, i) => i === 4 && /Revision|Not received/.test(out[ri].status) });
   } else para('Nothing to report: load the building elements into Assets and warranties first.');
+  { const AC = (fmd && fmd.actions) || [], opn = AC.filter(a => a.status !== 'Closed').sort((a, b) => natural(a.ref || '', b.ref || '')), isPc = a => /^PC/i.test(a.ref || ''), isC = a => /^CCC/i.test(a.ref || '');
+    const rows = L => L.map(a => [a.ref || '', a.action || '', a.responsible || '', a.priority || '', a.status || '', a.due ? nzDate(a.due) : '']), cols = [['Ref', 44], ['Action required', 250], ['Responsible', 95], ['Priority', 48], ['Status', 70], ['Due', 55]];
+    h1('A. Practical completion conditions');
+    if (!AC.length) para('No actions are recorded in the app yet. Bring in the Action Register from the Actions section.', RED);
+    else { const pc = AC.filter(isPc); if (pc.length) table(cols, rows(pc.sort((a, b) => natural(a.ref, b.ref))), { red: (ri, i) => i === 4 && pc[ri].status === 'Open' }); else para('No practical completion conditions are recorded.');
+      const cc = AC.filter(isC); if (cc.length) { h1('B. Council CCC RFI items'); para(`${cc.length} items: ${count(cc, a => a.status === 'Open')} open, ${count(cc, a => a.status === 'Evidence held')} evidence held, ${count(cc, a => a.status === 'Submitted to Council')} submitted to Council, ${count(cc, a => a.status === 'Closed')} closed. Open items:`); const co = cc.filter(a => a.status === 'Open').sort((a, b) => natural(a.ref, b.ref)); if (co.length) table(cols, rows(co)); }
+      const ot = opn.filter(a => !isPc(a) && !isC(a)); if (ot.length) { h1('C. Other open actions'); table(cols, rows(ot)); } } }
   const ss = (fmd && fmd.systems) || []; if (ss.length) { h1('8. Specified systems (compliance schedule)'); table([['System', 50], ['Name', 200], ['Standard', 150], ['Certificate', 120]], ss.map(s => [s.ss || '', s.name || '', s.standard || '', s.cert || 'Not recorded'])); }
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }

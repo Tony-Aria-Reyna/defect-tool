@@ -6,6 +6,8 @@ import * as Nav from './nav.js';
 import { aiCall } from './ai.js';
 import * as DV from './docview.js';
 import * as Guide from './guide.js';
+import * as AI from './docai.js';
+import * as Act from './actions.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
@@ -19,24 +21,24 @@ const F = { q: '', sys: '', st: '', type: '', cat: '', win: '90', resp: '' };
 export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads();
   Guide.init({ getBytes: ctx.getBytes, modal, closeModal, askDiscard });
   DV.init({ getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
-const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [] });
+const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] });
 export function start(pid) {
-  stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [] };
-  const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs'], systems: ['assets', 'maint', 'comp', 'dash', 'docs'], tasks: ['maint', 'comp', 'dash', 'assets'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'] };
-  document.querySelectorAll('#modbar button').forEach(b => b.hidden = !mayUse(b.dataset.m));
-  ['assets', 'docs', 'tasks', 'systems', 'guide'].filter(c => NEED[c].some(mayUse)).forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
+  stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] };
+  const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs'], systems: ['assets', 'maint', 'comp', 'dash', 'docs'], tasks: ['maint', 'comp', 'dash', 'assets'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'], actions: ['comp', 'dash'] };
+  document.querySelectorAll('#modbar button').forEach(b => b.hidden = !mayUse(b.dataset.m === 'actions' ? 'comp' : b.dataset.m));
+  ['assets', 'docs', 'tasks', 'systems', 'guide', 'actions'].filter(c => NEED[c].some(mayUse)).forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
   const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
   setModule(mayUse('defects') || !first ? 'defects' : first.dataset.m);
 }
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
 export function goTo(m, q) { Object.assign(F, { q: q || '', sys: '', st: '', type: '', cat: '' }); if (m === 'maint') F.win = 'all'; setModule(m); }
 export function setModule(m) {
-  if (!mayUse(m)) { const f = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden); if (!f || f.dataset.m === m) return; m = f.dataset.m; }
+  if (!mayUse(m === 'actions' ? 'comp' : m)) { const f = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden); if (!f || f.dataset.m === m) return; m = f.dataset.m; }
   if (m !== 'defects' && !Nav.isOpen('module')) Nav.open('module', () => setModule('defects')); if (m === 'defects') Nav.closed('module');
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();
 }
-function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view })[cur]?.(); }
+function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view })[cur]?.(); }
 
 /* ---------------------------------------------------------------- dates and helpers */
 const dISO = d => d.toISOString().slice(0, 10);
@@ -343,21 +345,53 @@ function record12A(s, yr) {
 }
 
 /* ================================================================ DOCUMENTS */
+// Read documents with AI, one after another. Warranties and deeds first: they are what practical completion waits on.
+let aiStop = false;
+window.addEventListener('rd-ai-read', async e => { const d = fm().docs.find(x => x.id === e.detail); if (!d) return; const b = busy('Reading with AI…');
+  try { const r = await AI.readDoc(d, t => b.set('Reading with AI: ' + t)); b.done(); toast(`${r.marks.length} boxes drawn${r.problems.length ? ', ' + r.problems.length + ' problem' + (r.problems.length > 1 ? 's' : '') + ' found' : ''}. Check them.`, 6000); const nd = fm().docs.find(x => x.id === d.id) || d; DV.open({ ...nd }, {}); }
+  catch (x) { b.done(); toast(x.message === 'nokey' ? 'Set up the AI helper first (Menu > Gemini).' : 'Could not read it: ' + x.message, 7000); } });
+function aiReadDialog() {
+  const P = fm().docs.filter(d => DV.isPdf(d) && d.size), unread = P.filter(d => !d.aiRead), w = unread.filter(AI.isWarranty), shown = F.q || F.sys || F.type ? P.filter(d => (!F.sys || d.system === F.sys) && (!F.type || d.type === F.type) && (!F.q || [d.title, d.party, d.type].join(' ').toLowerCase().includes(F.q.toLowerCase()))) : [];
+  modal(`<h2>✨ Read documents with AI</h2><p class="note">The AI reads each document, draws a box around the parties, period, dates, signatures and conditions, links them to the asset register, and flags anything that needs correcting. Every box is marked "to check" until you accept it. Boxes you drew or accepted yourself are never changed.</p>
+    <div class="btnlist"><button id="arW">Warranties, deeds and guarantees not yet read<small>${w.length} document${w.length === 1 ? '' : 's'}. Start here.</small></button>
+    <button id="arA">Every PDF not yet read<small>${unread.length} documents. Takes longer and uses more AI credit.</small></button>
+    ${shown.length ? `<button id="arS">The ${shown.length} PDF${shown.length === 1 ? '' : 's'} in the current search or filter<small>Reads them again even if already read</small></button>` : ''}</div>
+    <p class="note" id="arSt"></p><div class="act"><button id="arX">Close</button><button id="arStop" class="warn" style="display:none">Stop</button></div>`);
+  const run = async list => { if (!list.length) return toast('Nothing to read'); aiStop = false; document.querySelectorAll('#mbox .btnlist button').forEach(b => b.disabled = true); $('arStop').style.display = '';
+    let ok = 0, prob = 0; const bad = [];
+    for (const [i, d] of list.entries()) { if (aiStop) break; const st = t => { if ($('arSt')) $('arSt').textContent = `${i + 1} of ${list.length}: ${d.title} (${t})`; };
+      try { st('opening'); const r = await AI.readDoc(d, st); ok++; if (r.problems.length) prob++; }
+      catch (e) { console.warn('ai read', d.title, e); bad.push(d.title + ': ' + (e.message === 'nokey' ? 'the AI helper is not set up' : e.message)); if (e.message === 'nokey' || e.message === 'offline' || bad.length >= 5 && !ok) break; } }
+    if ($('arSt')) $('arSt').innerHTML = `<b>Finished.</b> ${ok} read, ${prob} with problems${bad.length ? ', ' + bad.length + ' could not be read:<br>' + bad.slice(0, 6).map(esc).join('<br>') : ''}. Open "To check" to review them.`; if ($('arStop')) $('arStop').style.display = 'none'; F.chk = true; };
+  $('arW').onclick = () => run(w); $('arA').onclick = () => run(unread); if ($('arS')) $('arS').onclick = () => run(shown);
+  $('arStop').onclick = () => { aiStop = true; $('arStop').textContent = 'Stopping after this one…'; }; $('arX').onclick = () => { aiStop = true; closeModal(); };
+}
 function docs() {
   const Dd = fm().docs.slice().sort((a, b) => natural(a.system || 'zz', b.system || 'zz') || natural(a.title, b.title)), q = F.q.toLowerCase();
-  const L = Dd.filter(d => (!F.sys || d.system === F.sys) && (!F.type || d.type === F.type) && (!q || [d.title, d.party, d.type, d.srcPath].join(' ').toLowerCase().includes(q)));
+  // a search also looks inside the boxes marked in each document; results are ranked by how much the document matters
+  const words = q.split(/\s+/).filter(Boolean), hay = d => [d.title, d.party, d.type, d.srcPath, d.aiSummary, ...(d.aiProblems || [])].join(' ').toLowerCase(), mhay = m => [m.kind, m.period, m.clause, m.text, m.note, m.flag].join(' ').toLowerCase();
+  const hitMarks = d => words.length ? (d.marks || []).filter(m => words.every(w => mhay(m).includes(w))) : [];
+  const RANK = [/contract|consent/i, /warrant/i, /producer|certificate|commission|inspection/i, /o&m|care/i];
+  const rank = d => { const i = RANK.findIndex(r => r.test(d.type || '')); return i < 0 ? RANK.length : i; };
+  let L = Dd.filter(d => (!F.sys || d.system === F.sys) && (!F.type || d.type === F.type) && (!F.chk || AI.needsCheck(d)) && (!q || words.every(w => hay(d).includes(w)) || hitMarks(d).length));
+  if (q) L = L.map(d => ({ d, k: rank(d) - (hitMarks(d).length ? 0.5 : 0) })).sort((a, b) => a.k - b.k || natural(a.d.title, b.d.title)).map(x => x.d);
+  const nChk = Dd.filter(AI.needsCheck).length, nProb = Dd.filter(d => (d.aiProblems || []).length).length;
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button></div>
-  <p class="muted small">${L.length} of ${Dd.length} documents</p>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button>${can.edit() ? '<button class="btn2" id="dAi">✨ Read with AI</button>' : ''}</div>
+  <div class="atab"><button id="dChk0" class="${F.chk ? '' : 'on'}">All documents</button><button id="dChk1" class="${F.chk ? 'on' : ''}">To check (${nChk})${nProb ? ' · ' + nProb + ' with problems' : ''}</button></div>
+  <p class="muted small">${L.length} of ${Dd.length} documents${q ? ' · most important first; matching boxes are listed under each document' : ''}</p>
   ${L.length ? `<table class="ftable"><tr><th>Document</th><th>Type</th><th class="hm">From</th><th class="hm">Expiry</th><th class="hm">Linked to</th><th></th></tr>
-  ${L.map(d => { const g = (d.system || '') !== last ? `<tr class="grp"><td colspan="6">${esc(d.system || 'Unsorted')}</td></tr>` : ''; last = d.system || ''; const al = (d.assetIds || []).map(id => fm().assets.find(a => a.id === id)).filter(Boolean);
-    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.url && !d.link && !d.size ? ' <span class="st" style="background:#fde2e2;color:#a32222">empty file: upload again</span>' : ''}${d.link ? ' <span class="st st-info">link</span>' : ''}${(d.marks || []).length ? ` <span class="st st-info" title="Clauses marked in this document">▭ ${d.marks.length}</span>` : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">${DV.isPdf(d) ? 'View' : 'Open'}</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
+  ${L.map(d => { const g = !q && (d.system || '') !== last ? `<tr class="grp"><td colspan="6">${esc(d.system || 'Unsorted')}</td></tr>` : ''; last = d.system || ''; const hm = hitMarks(d).slice(0, 4), pc = AI.pendingCount(d), np = (d.aiProblems || []).length; const al = (d.assetIds || []).map(id => fm().assets.find(a => a.id === id)).filter(Boolean);
+    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.url && !d.link && !d.size ? ' <span class="st" style="background:#fde2e2;color:#a32222">empty file: upload again</span>' : ''}${d.link ? ' <span class="st st-info">link</span>' : ''}${(d.marks || []).length ? ` <span class="st st-info" title="Clauses marked in this document">▭ ${d.marks.length}</span>` : ''}${np ? ` <span class="st st-bad" title="${esc(d.aiProblems.join(' | '))}">⚠ ${np} problem${np > 1 ? 's' : ''}</span>` : ''}${pc ? ` <span class="st st-warn">✨ ${pc} to check</span>` : d.aiRead ? ' <span class="st st-ok" title="Read by AI and checked">✨ read</span>' : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}${F.chk && np ? '<br><span class="small" style="color:#a32222">' + d.aiProblems.map(esc).join('<br>') + '</span>' : ''}${hm.map(m => `<br><a href="#" class="small" data-mk="${esc(d.id)}|${esc(m.id)}">▭ p. ${m.page}: ${esc((m.period || m.text || m.kind || '').slice(0, 110))}</a>`).join('')}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">${DV.isPdf(d) ? 'View' : 'Open'}</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
   $('dQ').oninput = e => { F.q = e.target.value; docs(); $('dQ').focus(); $('dQ').setSelectionRange(F.q.length, F.q.length); };
   $('dS').onchange = e => { F.sys = e.target.value; docs(); }; $('dT').onchange = e => { F.type = e.target.value; docs(); };
   if ($('dUp')) $('dUp').onclick = () => pickDocs({ system: F.sys });
   if ($('dFold')) $('dFold').onclick = () => $('fFolder').click();
   if ($('dLink')) $('dLink').onclick = () => editDoc(null);
   $('dFind').onclick = () => DV.findClause({});
+  $('dChk0').onclick = () => { F.chk = false; docs(); }; $('dChk1').onclick = () => { F.chk = true; docs(); };
+  if ($('dAi')) $('dAi').onclick = aiReadDialog;
+  document.querySelectorAll('[data-mk]').forEach(a => a.onclick = e => { e.preventDefault(); e.stopPropagation(); const [id, mk] = a.dataset.mk.split('|'), d = fm().docs.find(x => x.id === id); if (d) DV.open(d, { markId: mk }); });
   $('dX').onclick = exportFmRegister;
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = e => { if (e.target.closest('[data-open]')) return; editDoc(fm().docs.find(d => d.id === r.dataset.id)); });
   document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openDoc(fm().docs.find(d => d.id === b.dataset.open)));

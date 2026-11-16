@@ -634,3 +634,5 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .ph .phnew{position:absolute;left:4px;bottom:4px;background:#1f7a52;color:#fff;font-size:10px;font-weight:700;border-radius:6px;padding:1px 5px}
 #bgSaves{position:fixed;left:10px;bottom:10px;z-index:60;display:flex;flex-direction:column;gap:6px;max-width:80vw;pointer-events:none}
 .bgs{background:#011C35;color:#fff;font-size:13px;font-weight:700;padding:7px 12px;border-radius:18px;box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:auto}.bgs.ok{background:#1f7a52}.bgs.bad{background:#a32222}
+.dvm.flag{border-color:#d32f2f!important;background:rgba(211,47,47,.16)!important}.dvm.pend{border-style:dashed!important}
+.atab{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}.atab button{border:1px solid #c9d0d8;background:#fff;border-radius:16px;padding:4px 12px;font-size:13px;cursor:pointer}.atab button.on{background:#011C35;color:#fff;border-color:#011C35}

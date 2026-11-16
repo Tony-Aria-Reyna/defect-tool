@@ -114,6 +114,10 @@ service cloud.firestore {
         allow update: if canEdit(pid);
         allow delete: if canEdit(pid);
       }
+      match /actions/{id} {                     // PC conditions, Council RFI items, close-out actions
+        allow read: if isMember(pid) && may(pid, ['comp', 'dash']);
+        allow write: if canEdit(pid);
+      }
       match /guide/{id} {                       // Home User Guide pages
         allow read: if isMember(pid) && may(pid, ['guide']);
         allow write: if canEdit(pid);
