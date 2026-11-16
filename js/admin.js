@@ -47,7 +47,7 @@ export function projectSettings(p) {
     <label class="f">Types<textarea id="psTyp" rows="5">${esc(lines(p.types))}</textarea></label>
     <label class="f">Trades<textarea id="psTr" rows="5">${esc(lines(p.trades))}</textarea></label>
     <label class="f">Room names<textarea id="psRooms" rows="5">${esc(lines(p.rooms))}</textarea></label>
-    <label class="f full">Project knowledge for Gemini (products, parties, site terms, how to classify)<textarea id="psAi" rows="6">${esc(p.aiContext || '')}</textarea></label>
+    <label class="f full">Project knowledge for the AI: the facts every answer must get right (parties and their exact legal names, contract and clauses, dates, consent numbers, products, site terms). Used for defects, comments and document reading.<textarea id="psAi" rows="14">${esc(p.aiContext || '')}</textarea></label>
   </div>
   <h3 class="sec">Typical defects (this project)</h3>
   <div class="grid"><label class="f full">One per line: Title | Description | Action | Trade | Type | Severity | Element | Room (only the title is required)<textarea id="psTyp" rows="6" placeholder="Paint touch-up required | Paint missing or marked | Touch up to match | Painting & decorating | Workmanship / rework | Minor defect | Wall | Bedroom">${esc((p.typicals || []).map(x => [x.t, x.d, x.a, x.tr, x.ty, x.s, x.el, x.r].map(v => String(v || '').replace(/\|/g, '/')).join(' | ').replace(/( \| )+$/, '')).join('\n'))}</textarea></label>

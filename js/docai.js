@@ -34,7 +34,7 @@ function brief(d, assets) {
   const p = S.project;
   return `You are checking a handover document on a New Zealand construction project for the client's project manager.
 PROJECT: ${p.name || ''}, ${p.address || ''}. Principal (client): ${p.client || ''}. Contractor: ${p.contractor || ''}. Contract: ${p.contract || 'NZS 3916:2013'}.
-${p.aiContext ? 'PROJECT KNOWLEDGE: ' + String(p.aiContext).slice(0, 1500) + '\n' : ''}DOCUMENT: "${d.title}" (filed as ${d.type || 'unknown type'}, building system ${d.system || 'not set'}).
+${p.aiContext ? 'PROJECT KNOWLEDGE: ' + String(p.aiContext).slice(0, 8000) + '\n' : ''}DOCUMENT: "${d.title}" (filed as ${d.type || 'unknown type'}, building system ${d.system || 'not set'}).
 ASSET REGISTER (ref | element | installer | warranty required):
 ${assets.map(a => `${a.ref} | ${a.element} | ${a.installer || ''} | ${[a.instWarranty, a.mfrWarranty].filter(x => x && x !== '-').join('; ')}`).join('\n')}
 
