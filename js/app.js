@@ -7,7 +7,7 @@ import { autoFitAll, $, esc, toast, modal, closeModal, busy, confirmBox, compres
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
-import { buildPcReport, buildUnitSheets, buildRegisterXlsx, buildPdf, buildXlsx, buildCsv, buildZip, buildEvidenceXlsx, evidenceRefs, locText, pinLabel, setProjectCtx } from './exports.js';
+import { buildPcReport, PC_SECTIONS, buildUnitSheets, buildRegisterXlsx, buildPdf, buildXlsx, buildCsv, buildZip, buildEvidenceXlsx, evidenceRefs, locText, pinLabel, setProjectCtx } from './exports.js';
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
@@ -1035,7 +1035,7 @@ function openExport() {
   <div class="opt"><input type="checkbox" id="xSig"><label for="xSig">Sign-off block (Engineer and Contractor)</label></div>
   <div class="btnlist" style="margin-top:10px">
     <button id="xPdf">📄 PDF schedule<small>Resero and client branding, linked</small></button>
-    <button id="xPc">📑 PC status report<small>For the Engineer to the Contract: defects by company, unit and subcontractor, items holding up PC, and document handover by system. Always the whole project.</small></button>
+    <button id="xPc">📑 PC action list<small>Page 1 says who has to do what before practical completion. Appendix A open defects, Appendix B outstanding documents. Choose which other sections to add. Always the whole project.</small></button>
     <button id="xUnits">🏠 Wall sheets per unit<small>One A4 page per unit and common area, open items, photo, unit plan with pins, tick boxes for sub, contractor and consultant, to print and pin up</small></button>
     <button id="xXls">📊 Excel register<small>One row per defect, plus summary</small></button>
     <button id="xCsv">🧾 CSV (Procore)<small>Import into Procore Punch List</small></button>
@@ -1064,7 +1064,20 @@ function openExport() {
     $('rgNew').onclick = async () => { closeModal(); try { const b = await buildRegisterXlsx(S.defects.filter(selfClose), ctx()); deliver(b, `${nm} - Pre-Settlement Defect List - ${stamp()}.xlsx`, 'Contractor register'); } catch (x) { console.error(x); toast('Could not build it: ' + x.message, 6000); } };
   };
   $('xEv').onclick = () => run(async () => { const n = evidenceRefs(sel()).length; if (!n) return toast('No comments in this selection refer to evidence held elsewhere'); const b = await buildEvidenceXlsx(sel(), ctx()); deliver(b, `${nm} - Evidence to collect - ${stamp()}.xlsx`, 'Evidence list'); });
-  $('xPc').onclick = () => run(async () => { st('Building the PC status report…'); const b = await buildPcReport(S.defects.slice(), S.fm || {}, ctx(), st); st(''); deliver(b, `${nm} - PC status report - ${stamp()}.pdf`, 'PDF'); });
+  $('xPc').onclick = () => {
+    let sv = {}; try { sv = JSON.parse(localStorage.getItem('pcSections') || '{}'); } catch (e) {}
+    const isOn = s => sv[s[0]] === undefined ? s[2] : sv[s[0]];
+    modal(`<h2>PC action list</h2><p class="note">Page 1 is always included: the headline numbers and a numbered list of who needs to do what before practical completion. Tick anything else you want added.</p>
+      ${PC_SECTIONS.map(s => `<div class="opt"><input type="checkbox" id="pcs_${s[0]}" ${isOn(s) ? 'checked' : ''}><label for="pcs_${s[0]}">${esc(s[1])}</label></div>`).join('')}
+      <label class="f" style="margin-top:8px">Report title<input id="pcT" value="${esc(sv._title || 'Practical completion action list')}"></label>
+      <p class="note" id="pcSt"></p><div class="act"><button id="pcX">Cancel</button><button class="go" id="pcGo">Build PDF</button></div>`);
+    $('pcX').onclick = closeModal;
+    $('pcGo').onclick = async () => { const sec = {}; PC_SECTIONS.forEach(s => sec[s[0]] = $('pcs_' + s[0]).checked); sec._title = $('pcT').value.trim() || 'Practical completion action list';
+      try { localStorage.setItem('pcSections', JSON.stringify(sec)); } catch (e) {}
+      const s2 = t => $('pcSt').textContent = t; $('pcGo').disabled = true;
+      try { s2('Building the PC action list…'); const b = await buildPcReport(S.defects.slice(), S.fm || {}, ctx(), s2, { sections: sec, title: sec._title }); s2(''); deliver(b, `${nm} - ${safeName(sec._title)} - ${stamp()}.pdf`, 'PDF'); }
+      catch (e) { console.error(e); s2(''); toast(e.message, 6000); } finally { $('pcGo').disabled = false; } };
+  };
   $('xUnits').onclick = () => run(async () => { const L = sel().filter(d => d.status !== 'Closed'); if (!L.length) return toast('No open items to print'); st('Building the wall sheets…'); const b = await buildUnitSheets(L, ctx(), st, o()); st(''); deliver(b, `${nm} - Wall sheets per unit - ${stamp()}.pdf`, 'PDF'); });
   $('xZip').onclick =() => run(async () => { const b = await buildZip(sel(), o(), ctx(), st); st(''); deliver(b, `${nm} - Defects export - ${stamp()}.zip`, 'Zip'); });
 }
