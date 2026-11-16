@@ -120,9 +120,13 @@ function matchRows(rows) {
   // same row number first, then the same unit and wording in order
   rows.forEach(r => { const q = by[key(r.area, r.desc)] || []; const d = q.find(x => !used.has(x.id) && String((x.ext || {})['Register row'] || '') === String(r.row)); if (d) { used.add(d.id); r.d = d; } });
   rows.forEach(r => { if (r.d) return; const q = by[key(r.area, r.desc)] || []; const d = q.find(x => !used.has(x.id)); if (d) { used.add(d.id); r.d = d; } });
+  // Reworded rows: the same row number and place, or the same place and mostly the same words. Paired, not added twice.
+  const toks = s => new Set(norm(s).split(' ').filter(w => w.length > 2)), sim = (a, b) => { const A = toks(a), B = toks(b); if (!A.size || !B.size) return 0; let n = 0; A.forEach(w => { if (B.has(w)) n++; }); return n / Math.min(A.size, B.size); };
+  const reworded = [];
+  rows.forEach(r => { if (r.d) return; const cands = P.filter(d => !used.has(d.id) && norm(listed(d)) === norm(r.area)); let d = cands.find(x => String((x.ext || {})['Register row'] || '') === String(r.row)); if (!d) { const best = cands.map(x => [x, sim(x.desc, r.desc)]).sort((a, b) => b[1] - a[1])[0]; if (best && best[1] >= 0.6) d = best[0]; } if (d) { used.add(d.id); r.d = d; r.rw = true; reworded.push(r); } });
   const closeInApp = rows.filter(r => r.d && r.done && r.d.status !== 'Closed'), markInSheet = rows.filter(r => r.d && !r.done && r.d.status === 'Closed'), newInSheet = rows.filter(r => !r.d && !r.done), newInApp = P.filter(d => !used.has(d.id));
   const words = {}; rows.forEach(r => { if (r.done) words[r.doneRaw] = (words[r.doneRaw] || 0) + 1; }); const yes = (Object.entries(words).sort((a, b) => b[1] - a[1])[0] || ['Yes'])[0];
-  return { rows, closeInApp, markInSheet, newInSheet, newInApp, yes, matched: rows.filter(r => r.d).length };
+  return { rows, reworded, closeInApp, markInSheet, newInSheet, newInApp, yes, matched: rows.filter(r => r.d).length };
 }
 export async function compare(file) {
   if (!window.XLSX) await loadScript('lib/xlsx.bundle.js'); if (!window.JSZip) await loadScript('lib/jszip.min.js');
@@ -146,6 +150,7 @@ export async function compareGoogle() { const j = await gsCall('sheetRead'), V =
 export async function applyPlan(p, on, st = () => {}) {
   const t = new Date().toISOString(), day = todayISO(), pr = S.project; let nA = 0, nC = 0;
 
+      if (on.E) for (const r of (p.reworded || [])) { st('Updating wording…'); await S.store.updateDefect(pr.id, r.d.id, { desc: r.desc, title: r.desc.length > 70 ? r.desc.slice(0, 67) + '…' : r.desc, ext: { ...(r.d.ext || {}), 'Register row': String(r.row) }, ...(r.sub && r.sub !== r.d.subcontractor ? { subcontractor: r.sub } : {}) }, [{ t, who: S.user.name, txt: `Wording updated from the contractor's spreadsheet (${p.file.name}, row ${r.row}). Was: "${r.d.desc}".` }]); r.d.desc = r.desc; }
       if (on.A) for (const r of p.closeInApp) { st(`Closing ${++nA} of ${p.closeInApp.length}…`); await S.store.updateDefect(pr.id, r.d.id, { status: 'Closed' }, [{ t, who: S.user.name, txt: `Marked "${r.doneRaw}" in the contractor's spreadsheet (${p.file.name}, row ${r.row}). Status ${r.d.status} → Closed.` }]); r.d.status = 'Closed'; }
       if (on.C && p.newInSheet.length) { const P = pool(), like = P[0], pre = like.id.split('-')[0], conv = P.some(d => /old number/i.test((d.ext || {})['Listed under'] || '')), map = pr.renumberMap || {}; let mx = S.defects.reduce((a, d) => d.id.startsWith(pre + '-') ? Math.max(a, parseInt(d.id.slice(pre.length + 1), 10) || 0) : a, 0);
         for (const r of p.newInSheet) { st(`Adding ${++nC} of ${p.newInSheet.length}…`); const isU = /^\d+$/.test(r.raw), unit = isU ? String(conv && map[r.raw] ? map[r.raw] : r.raw) : '';
@@ -169,18 +174,24 @@ export async function applyPlan(p, on, st = () => {}) {
   return { nA, nC, wrote, added, name };
 }
 export function review(p) {
-  const sec = (id, title, list, line, note) => list.length ? `<h3 class="sec"><label><input type="checkbox" id="${id}" checked> ${title} (${list.length})</label></h3>${note ? `<p class="note">${note}</p>` : ''}<div class="sslist">${list.slice(0, 200).map(line).join('')}${list.length > 200 ? `<div>… and ${list.length - 200} more</div>` : ''}</div>` : '';
-  const canAdd = can.edit() || true;
-  modal(`<h2>Check the changes</h2><p>${p.rows.length} rows in the spreadsheet; ${p.matched} match items in the app.</p>
-    ${sec('ssA', 'Close in the app: marked completed in the spreadsheet', p.closeInApp, r => `<div><b>${esc(r.d.id)}</b> ${esc(r.area)} · ${esc(r.desc)}</div>`)}
-    ${sec('ssB', `Mark "${esc(p.yes)}" in the spreadsheet: closed in the app`, p.markInSheet, r => `<div>Row ${r.row} · ${esc(r.area)} · ${esc(r.desc)} <b>${esc(r.d.id)}</b></div>`)}
-    ${sec('ssC', 'Add to the app: new rows in the spreadsheet', p.newInSheet, r => `<div>Row ${r.row} · ${esc(r.area)} · ${esc(r.desc)}</div>`, 'Rows that are not completed and have no matching item in the app. Completed rows that are not in the app are left alone.')}
-    ${sec('ssD', 'Add to the spreadsheet: items raised in the app', p.newInApp, d => `<div><b>${esc(d.id)}</b> ${esc(listed(d))} · ${esc(d.desc)}${d.status === 'Closed' ? ' (closed)' : ''}</div>`, 'Added as new rows at the bottom of the sheet.')}
-    ${p.closeInApp.length + p.markInSheet.length + p.newInSheet.length + p.newInApp.length ? '' : '<p class="note"><b>Nothing to change.</b> The spreadsheet and the app agree.</p>'}
+  p.reworded = p.reworded || [];
+  // every line has its own tick box, so any single change can be left out
+  const sec = (id, title, list, line, note) => list.length ? `<h3 class="sec"><label><input type="checkbox" id="${id}" checked data-all="${id}"> ${title} (${list.length})</label></h3>${note ? `<p class="note">${note}</p>` : ''}<div class="sslist">${list.map((x, i) => `<label class="ssl" style="display:flex;gap:6px;align-items:flex-start"><input type="checkbox" data-g="${id}" data-i="${i}" checked><span>${line(x)}</span></label>`).join('')}</div>` : '';
+  modal(`<h2>Check the changes</h2><p>${p.rows.length} rows in the spreadsheet; ${p.matched} match items in the app. Untick anything you do not want changed.</p>
+    ${sec('ssE', 'Reworded in the spreadsheet: update the wording in the app', p.reworded, r => `<b>${esc(r.d.id)}</b> ${esc(r.area)} · row ${r.row}<br><span class="muted">was:</span> ${esc(r.d.desc)}<br><span class="muted">now:</span> ${esc(r.desc)}${r.done && r.d.status !== 'Closed' ? ' <b>(completed: also closes)</b>' : ''}`, 'The same row and place with new wording. Kept as one item, so nothing is duplicated.')}
+    ${sec('ssA', 'Close in the app: marked completed in the spreadsheet', p.closeInApp.filter(r => !r.rw), r => `<b>${esc(r.d.id)}</b> ${esc(r.area)} · ${esc(r.desc)}`)}
+    ${sec('ssB', `Mark "${esc(p.yes)}" in the spreadsheet: closed in the app`, p.markInSheet, r => `Row ${r.row} · ${esc(r.area)} · ${esc(r.desc)} <b>${esc(r.d.id)}</b>`)}
+    ${sec('ssC', 'Add to the app: new rows in the spreadsheet', p.newInSheet, r => `Row ${r.row} · ${esc(r.area)} · ${esc(r.desc)}`, 'Rows that are not completed and have no matching item in the app. Completed rows that are not in the app are left alone.')}
+    ${sec('ssD', 'Add to the spreadsheet: items raised in the app', p.newInApp, d => `<b>${esc(d.id)}</b> ${esc(listed(d))} · ${esc(d.desc)}${d.status === 'Closed' ? ' (closed)' : ''}`, 'Added as new rows at the bottom of the sheet.')}
+    ${p.reworded.length + p.closeInApp.length + p.markInSheet.length + p.newInSheet.length + p.newInApp.length ? '' : '<p class="note"><b>Nothing to change.</b> The spreadsheet and the app agree.</p>'}
     <p class="note" id="ssSt"></p><div class="act"><button id="ssX2">Cancel</button><button class="go" id="ssGo">${p.gs ? 'Apply and update the Google Sheet' : p.handle ? 'Apply and update the linked spreadsheet' : 'Apply and download the updated spreadsheet'}</button></div>`, true);
+  document.querySelectorAll('[data-all]').forEach(h => h.onchange = () => document.querySelectorAll(`[data-g="${h.dataset.all}"]`).forEach(c => c.checked = h.checked));
+  const keep = (g, list) => list.filter((_, i) => { const c = document.querySelector(`[data-g="${g}"][data-i="${i}"]`); return !c || c.checked; });
   $('ssX2').onclick = closeModal;
   $('ssGo').onclick = async () => { $('ssGo').disabled = true; const ck = id => !!($(id) && $(id).checked);
-    try { const r = await applyPlan(p, { A: ck('ssA'), B: ck('ssB'), C: ck('ssC'), D: ck('ssD') }, m => { if ($('ssSt')) $('ssSt').textContent = m; });
+    const rwKeep = keep('ssE', p.reworded), aList = keep('ssA', p.closeInApp.filter(r => !r.rw));
+    p.reworded = rwKeep; p.closeInApp = aList.concat(rwKeep.filter(r => r.done && r.d.status !== 'Closed')); p.markInSheet = keep('ssB', p.markInSheet); p.newInSheet = keep('ssC', p.newInSheet); p.newInApp = keep('ssD', p.newInApp);
+    try { const r = await applyPlan(p, { A: true, B: true, C: true, D: true, E: true }, m => { if ($('ssSt')) $('ssSt').textContent = m; });
       closeModal(); if (X.reloadProject) await X.reloadProject(); X.render && X.render(); setLast(r);
       modal(`<h2>Done</h2><p>In the app: <b>${r.nA}</b> closed, <b>${r.nC}</b> added.<br>In the spreadsheet: <b>${r.wrote}</b> marked "${esc(p.yes)}", <b>${r.added}</b> rows added.</p>${r.wrote || r.added ? (p.gs ? '<p class="note">The Google Sheet has been updated.</p>' : p.handle ? `<p class="note">The linked file <b>${esc(p.file.name)}</b> has been updated in place. OneDrive will carry the changes to everyone it is shared with.</p>` : `<p class="note">The updated file has been downloaded as <b>${esc(r.name)}</b>. Use it as the register from now on, so the next update starts from it.</p>`) : '<p class="note">The spreadsheet did not need changing.</p>'}<div class="act"><button class="go" id="ssOk">Done</button></div>`); $('ssOk').onclick = closeModal;
     } catch (e) { console.error(e); if ($('ssSt')) $('ssSt').textContent = ''; toast('Stopped: ' + (/NoModificationAllowed|locked|InvalidState/i.test(e.name + e.message) ? 'the spreadsheet is open in Excel on this computer. Close it there and try again.' : e.message), 9000); if ($('ssGo')) $('ssGo').disabled = false; } };

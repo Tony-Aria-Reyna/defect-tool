@@ -622,7 +622,7 @@ export function openEditor(d, isNew, isDraft) {
   const w = isDraft ? d : JSON.parse(JSON.stringify(d)); const p = S.project;
   ED = { d: w, isNew: !!isNew, orig: isNew ? null : S.defects.find(x => x.id === d.id), removed: ED && ED.d === d ? ED.removed : [] };
   const ro = !can.write(), con = limited(w, isNew);   // a contractor's own items are theirs to edit
-  const dis = ro || con ? 'disabled' : '';
+  const dis = ro || con ? 'disabled' : '', disW = ro || (con && !selfClose(w)) ? 'disabled' : '';   // wording of the contractor's own register items is theirs to correct
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
   const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status || (s === 'Closed' && selfClose(w))) : p.statuses;
@@ -632,11 +632,11 @@ export function openEditor(d, isNew, isDraft) {
     <textarea id="dt" placeholder="Hold the mic and say what is wrong, e.g. &quot;silicone to the shower tray is patchy and there is a gap behind the vanity, contractor to redo before handover&quot;. The pin gives the unit and room.">${esc(w.transcript || '')}</textarea></div>
     <div class="row2"><button class="ai" id="aiGo">✨ Interpret with Gemini</button><label><input type="checkbox" id="aiPh" checked> include first photo</label><span id="aiSt" class="muted"></span></div>
     <div class="ainote" id="aiNote"></div></div>` : ''}
-  ${con ? '<p class="note muted small">You can add photos, attach files, add a response and mark the item ready for inspection. Other changes are made by the project team.</p>' : ''}
+  ${con ? `<p class="note muted small">${selfClose(w) ? 'This item is from your own register: you can correct its title and description, add photos and files, respond, and close it.' : 'You can add photos, attach files, add a response and mark the item ready for inspection. Other changes are made by the project team.'}</p>` : ''}
   ${!isNew && !ro ? workflowBar(w, con) : ''}
   <div class="grid">
-    <label class="f full">Title ${!dis ? '<a href="#" id="edTyp" class="small" style="float:right">⚡ Typical defects</a>' : ''}<input name="title" value="${esc(w.title)}" ${dis} placeholder="Short name, e.g. Shower tray silicone incomplete"></label>
-    <label class="f full">Description<textarea name="desc" ${dis}>${esc(w.desc)}</textarea></label>
+    <label class="f full">Title ${!dis ? '<a href="#" id="edTyp" class="small" style="float:right">⚡ Typical defects</a>' : ''}<input name="title" value="${esc(w.title)}" ${disW} placeholder="Short name, e.g. Shower tray silicone incomplete"></label>
+    <label class="f full">Description<textarea name="desc" ${disW}>${esc(w.desc)}</textarea></label>
     <label class="f full">Action required<textarea name="action" style="min-height:44px" ${dis}>${esc(w.action)}</textarea></label>
   </div>
   <h3 class="sec">Location</h3>
@@ -850,7 +850,7 @@ async function saveEditor() {
       await S.store.createDefect(pid, rec);
     } else {
       const o = ED.orig || {}, patch = {}, ch = [];
-      const lim = limited(o); const keys = lim ? ['status', 'subcontractor'] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc', 'general'];
+      const lim = limited(o); const keys = lim ? ['status', 'subcontractor', ...(selfClose(o) ? ['title', 'desc'] : [])] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc', 'general'];
       if (ED.wfLabel) { ch.push(ED.wfLabel.toLowerCase()); }
       if (o.aiReview && !lim) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });

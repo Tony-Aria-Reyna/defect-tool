@@ -84,6 +84,11 @@ service cloud.firestore {
           || (isContractor(pid)
               && resource.data.get('createdBy', '').lower() == myEmail()
               && !changed().hasAny(['createdBy', 'created']))
+          // items from the contractor's own registers: the contractor can correct the wording, subcontractor and register details
+          || (isContractor(pid)
+              && resource.data.get('source', '') in proj(pid).get('selfCloseSources', [])
+              && request.resource.data.get('source', '') == resource.data.get('source', '')
+              && changed().hasOnly(['desc', 'title', 'ext', 'subcontractor', 'status', 'photos', 'files', 'history', 'updated', 'updatedBy']))
           // on anyone else's items a contractor responds, adds photos and moves the status only
           || (isContractor(pid)
               && changed().hasOnly(['status', 'subcontractor', 'photos', 'files', 'history', 'updated', 'updatedBy'])
