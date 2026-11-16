@@ -38,7 +38,7 @@ export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
   const C = [['Ref', 40], ['Room', 50], ['Item', 212], ['Subcontractor', 60], ['Photo', 62], ['Sub done', 37], [con.split(' ')[0] + ' OK', 37], ['Consultant sign-off', 41]];
   for (const k of keys) {
     const items = groups[k].sort((a, b) => String(a.room || '').localeCompare(String(b.room || '')) || natural(a.id, b.id)); let pg, y, page = 0; st('Building ' + k + '…');
-    const head = () => { pg = doc.addPage([W, H]); page++;
+    const head = noTable => { pg = doc.addPage([W, H]); page++;
       // logos: Resero left, then client and contractor on the right
       // every logo gets the same area, so a wide wordmark and a square badge look the same weight; all sit on one centre line
       const fit = im => { const ar = im.width / im.height; let h = Math.sqrt(2400 / ar); h = Math.min(h, 40); let w = h * ar; if (w > 140) { w = 140; h = w / ar; } return { w, h }; }, mid = H - M - 18;
@@ -46,12 +46,12 @@ export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
       let rx = W - M; [conL, cli].forEach(im => { if (!im) return; const z = fit(im); rx -= z.w; pg.drawImage(im, { x: rx, y: mid - z.h / 2, width: z.w, height: z.h }); rx -= 18; });
       T(pg, k, M, H - M - 58, 26, fb, NAVY); T(pg, (pr.name || '') + '  |  Open items at ' + nzDate(todayISO()) + '  |  ' + items.length + ' item' + (items.length === 1 ? '' : 's') + (page > 1 ? '  |  page ' + page : ''), M, H - M - 74, 9.5, f, GREY);
       T(pg, 'Subcontractor: tick and initial when complete. ' + con + ': tick when accepted. Consultant: tick when signed off.', M, H - M - 88, 8, f, GREY);
-      y = H - M - 104; pg.drawRectangle({ x: M, y: y - 12, width: W - 2 * M, height: 24, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { wrap(h, fb, 7, w - 4).slice(0, 2).forEach((l, i) => T(pg, l, cx, y + 3 - i * 8.5, 7, fb, hex('#ffffff'))); cx += w; }); y -= 14; };
+      y = H - M - 104; if (noTable) return; pg.drawRectangle({ x: M, y: y - 12, width: W - 2 * M, height: 24, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { wrap(h, fb, 7, w - 4).slice(0, 2).forEach((l, i) => T(pg, l, cx, y + 3 - i * 8.5, 7, fb, hex('#ffffff'))); cx += w; }); y -= 14; };
     head();
     for (const d of items) {
       const lm = o.comments === false ? null : latestMove(d), cl = lm && lm.text ? wrap('Latest ' + nzDate(String(lm.when || '').slice(0, 10)) + (lm.who ? ' ' + lm.who : '') + ': ' + lm.text, fb, 7, C[2][1] - 6) : [];
       const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 7.5, C[2][1] - 6), rl = wrap(d.room || '', f, 7.5, C[1][1] - 4).slice(0, 3), sl = wrap(d.subcontractor || d.responsible || '', f, 7.5, C[3][1] - 4).slice(0, 3);
-      const h = Math.max(66, 12 + Math.max(lines.length * 9.5 + (cl.length ? 5 + cl.length * 8.5 : 0), rl.length * 9.5, sl.length * 9.5));
+      const hasPh = recentPhotos(d).length > 0, h = Math.max(hasPh ? 60 : 24, 12 + Math.max(lines.length * 9.5 + (cl.length ? 5 + cl.length * 8.5 : 0), rl.length * 9.5, sl.length * 9.5));
       if (y - h < M + 30) head();
       let cx = M + 3; T(pg, d.id, cx, y - 11, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cl.forEach((l, i) => T(pg, l, cx, y - 16 - lines.length * 9.5 - i * 8.5, 7, fb, hex('#a32222'))); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[3][1];
       await photo(pg, d, cx - 1, y - h + 4, C[4][1] - 4, h - 8); cx += C[4][1];
@@ -67,11 +67,11 @@ export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
       if (pl && pl.kind !== 'elevation') try {
         const im = await getPlan(pl), pts = zone ? zone.poly : pinned.filter(d => d.plan === pl.id).map(d => [d.x, d.y]);
         let x0 = Math.min(...pts.map(q => q[0])), x1 = Math.max(...pts.map(q => q[0])), y0 = Math.min(...pts.map(q => q[1])), y1 = Math.max(...pts.map(q => q[1]));
-        const pad = Math.max(0.015, (x1 - x0) * 0.08, (y1 - y0) * 0.08); x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
-        const cwp = (x1 - x0) * im.width, chp = (y1 - y0) * im.height, boxW = W - 2 * M, maxH = 330;
+        const pad = zone ? 0.003 : Math.max(0.01, (x1 - x0) * 0.06, (y1 - y0) * 0.06); x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
+        const cwp = (x1 - x0) * im.width, chp = (y1 - y0) * im.height, boxW = (W - 2 * M) * 0.62, maxH = 240;
         let sc = Math.min(boxW / cwp, maxH / chp); const dw = cwp * sc, dh = chp * sc;
-        if (y - dh - 30 < M + 22) head();
-        const bx = M + (boxW - dw) / 2, by = y - 22 - dh; T(pg, 'Where the items are' + (pl.code || pl.name ? ' (' + (pl.code || pl.name) + ')' : ''), M, y - 14, 9, fb, NAVY);
+        if (y - dh - 30 < M + 22) head(true);
+        const bx = M + (W - 2 * M - dw) / 2, by = y - 22 - dh; T(pg, 'Where the items are' + (pl.code || pl.name ? ' (' + (pl.code || pl.name) + ')' : ''), M, y - 14, 9, fb, NAVY);
         pg.pushOperators(P.pushGraphicsState(), P.rectangle(bx, by, dw, dh), P.clip(), P.endPath()); pg.drawImage(im, { x: bx - x0 * im.width * sc, y: by - (1 - y1) * im.height * sc, width: im.width * sc, height: im.height * sc }); pg.pushOperators(P.popGraphicsState());
         const tp = q => [bx + (q[0] - x0) * im.width * sc, by + dh - (q[1] - y0) * im.height * sc];
         if (zone) { const z = zone.poly.map(tp); for (let i = 0; i < z.length; i++) { const a = z[i], b = z[(i + 1) % z.length]; pg.drawLine({ start: { x: a[0], y: a[1] }, end: { x: b[0], y: b[1] }, thickness: 1.6, color: hex('#e53935'), dashArray: [5, 3] }); } }
