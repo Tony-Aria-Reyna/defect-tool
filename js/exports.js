@@ -35,7 +35,7 @@ export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
       let cx = d.x * im.width - cw / 2, cy = d.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
       pg.pushOperators(P.pushGraphicsState(), P.rectangle(x, y, w, h), P.clip(), P.endPath()); pg.drawImage(im, { x: x - cx * sc, y: y - (im.height - cy - ch) * sc, width: im.width * sc, height: im.height * sc }); pg.pushOperators(P.popGraphicsState());
       pg.drawCircle({ x: x + (d.x * im.width - cx) * sc, y: y + h - (d.y * im.height - cy) * sc, size: 5, color: hex('#e53935'), borderColor: P.rgb(1, 1, 1), borderWidth: 1 }); pg.drawRectangle({ x, y, width: w, height: h, borderColor: LINE, borderWidth: 0.5 }); } catch (e) {} };
-  const C = [['Ref', 40], ['Room', 50], ['Item', 150], ['Subcontractor', 60], ['Photo', 62], ['Location', 62], ['Sub done', 37], [con.split(' ')[0] + ' OK', 37], ['Consultant sign-off', 41]];
+  const C = [['Ref', 40], ['Room', 50], ['Item', 212], ['Subcontractor', 60], ['Photo', 62], ['Sub done', 37], [con.split(' ')[0] + ' OK', 37], ['Consultant sign-off', 41]];
   for (const k of keys) {
     const items = groups[k].sort((a, b) => String(a.room || '').localeCompare(String(b.room || '')) || natural(a.id, b.id)); let pg, y, page = 0; st('Building ' + k + '…');
     const head = () => { pg = doc.addPage([W, H]); page++;
@@ -54,10 +54,32 @@ export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
       const h = Math.max(66, 12 + Math.max(lines.length * 9.5 + (cl.length ? 5 + cl.length * 8.5 : 0), rl.length * 9.5, sl.length * 9.5));
       if (y - h < M + 30) head();
       let cx = M + 3; T(pg, d.id, cx, y - 11, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cl.forEach((l, i) => T(pg, l, cx, y - 16 - lines.length * 9.5 - i * 8.5, 7, fb, hex('#a32222'))); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[3][1];
-      await photo(pg, d, cx - 1, y - h + 4, C[4][1] - 4, h - 8); cx += C[4][1]; await where(pg, d, cx - 1, y - h + 4, C[5][1] - 4, h - 8); cx += C[5][1];
-      [0, 1, 2].forEach(i => { const w = C[6 + i][1]; if (i === 2 && !needsCons(d)) T(pg, 'n/a', cx + w / 2 - 8, y - h / 2 - 3, 7, f, GREY); else pg.drawRectangle({ x: cx + w / 2 - 10, y: y - h / 2 - 8, width: 16, height: 16, borderColor: NAVY, borderWidth: 1 }); cx += w; });
+      await photo(pg, d, cx - 1, y - h + 4, C[4][1] - 4, h - 8); cx += C[4][1];
+      [0, 1, 2].forEach(i => { const w = C[5 + i][1]; if (i === 2 && !needsCons(d)) T(pg, 'n/a', cx + w / 2 - 8, y - h / 2 - 3, 7, f, GREY); else pg.drawRectangle({ x: cx + w / 2 - 10, y: y - h / 2 - 8, width: 16, height: 16, borderColor: NAVY, borderWidth: 1 }); cx += w; });
       y -= h; pg.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.6, color: LINE });
     }
+    // the unit (or area) cut from its floor plan, its boundary marked, every item's pin labelled
+    { const pinned = items.filter(d => d.plan && d.x != null), byPlan = {}; pinned.forEach(d => { byPlan[d.plan] = (byPlan[d.plan] || 0) + 1; });
+      const nu = v => String(v || '').toLowerCase().replace(/unit|\s/g, ''), uk = k.startsWith('Unit ') ? nu(k.slice(5)) : null;
+      let pl = null, zone = null;
+      if (uk) for (const p of ctx.plans) { const z = (p.zones || []).find(z => z.kind === 'unit' && z.poly && z.poly.length > 2 && (nu(z.unit) === uk || nu(z.name) === uk)); if (z && (!pl || (byPlan[p.id] || 0) > (byPlan[pl.id] || 0))) { pl = p; zone = z; } }
+      if (!pl) { const top = Object.entries(byPlan).sort((a, b) => b[1] - a[1])[0]; pl = top && ctx.plans.find(p => p.id === top[0]); }
+      if (pl && pl.kind !== 'elevation') try {
+        const im = await getPlan(pl), pts = zone ? zone.poly : pinned.filter(d => d.plan === pl.id).map(d => [d.x, d.y]);
+        let x0 = Math.min(...pts.map(q => q[0])), x1 = Math.max(...pts.map(q => q[0])), y0 = Math.min(...pts.map(q => q[1])), y1 = Math.max(...pts.map(q => q[1]));
+        const pad = Math.max(0.015, (x1 - x0) * 0.08, (y1 - y0) * 0.08); x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(1, x1 + pad); y1 = Math.min(1, y1 + pad);
+        const cwp = (x1 - x0) * im.width, chp = (y1 - y0) * im.height, boxW = W - 2 * M, maxH = 330;
+        let sc = Math.min(boxW / cwp, maxH / chp); const dw = cwp * sc, dh = chp * sc;
+        if (y - dh - 30 < M + 22) head();
+        const bx = M + (boxW - dw) / 2, by = y - 22 - dh; T(pg, 'Where the items are' + (pl.code || pl.name ? ' (' + (pl.code || pl.name) + ')' : ''), M, y - 14, 9, fb, NAVY);
+        pg.pushOperators(P.pushGraphicsState(), P.rectangle(bx, by, dw, dh), P.clip(), P.endPath()); pg.drawImage(im, { x: bx - x0 * im.width * sc, y: by - (1 - y1) * im.height * sc, width: im.width * sc, height: im.height * sc }); pg.pushOperators(P.popGraphicsState());
+        const tp = q => [bx + (q[0] - x0) * im.width * sc, by + dh - (q[1] - y0) * im.height * sc];
+        if (zone) { const z = zone.poly.map(tp); for (let i = 0; i < z.length; i++) { const a = z[i], b = z[(i + 1) % z.length]; pg.drawLine({ start: { x: a[0], y: a[1] }, end: { x: b[0], y: b[1] }, thickness: 1.6, color: hex('#e53935'), dashArray: [5, 3] }); } }
+        pg.drawRectangle({ x: bx, y: by, width: dw, height: dh, borderColor: LINE, borderWidth: 0.6 });
+        pinned.filter(d => d.plan === pl.id).forEach(d => { const [px, py] = tp([d.x, d.y]), lab = clean(pinLabel(d)), tw = fb.widthOfTextAtSize(lab, 7) + 8;
+          pg.drawCircle({ x: px, y: py, size: 4, color: hex('#e53935'), borderColor: P.rgb(1, 1, 1), borderWidth: 1 }); pg.drawRectangle({ x: px - tw / 2, y: py + 6, width: tw, height: 11, color: hex('#e53935') }); T(pg, lab, px - tw / 2 + 4, py + 9, 7, fb, P.rgb(1, 1, 1)); });
+        y = by - 6;
+      } catch (e) { console.warn('unit plan', e); } }
     T(pg, 'Unit signed off: ____________________   Date: __________', M, M + 6, 9, fb, NAVY);
   }
   if (!keys.length) { const pg = doc.addPage([W, H]); T(pg, 'No open items.', M, H - 80, 14, fb); }
