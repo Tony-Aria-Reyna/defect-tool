@@ -282,7 +282,12 @@ function noteDialog(o) {
   const st = (t, bad) => { $('ndSt').textContent = t; $('ndSt').style.color = bad ? '#a32222' : ''; };
   holdToTalk($('ndMic'), () => dictate($('ndTxt'), $('ndMic'), st, () => {}));
   $('ndX').onclick = () => { stopDictation(); closeModal(); };
-  ND_FILES = []; const drawList = () => { $('ndList').innerHTML = ND_FILES.map((f, i) => `<span class="chip">📎 ${esc(f.name)}<button data-nx="${i}">✕</button></span>`).join(''); $('ndList').querySelectorAll('[data-nx]').forEach(b => b.onclick = () => { ND_FILES.splice(+b.dataset.nx, 1); drawList(); }); };
+  ND_FILES = []; const isPic = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
+  // Photos show as thumbnails; tap one to mark up where the issues still are. The marked-up copy replaces the original in the list.
+  const drawList = () => { $('ndList').innerHTML = ND_FILES.map((f, i) => isPic(f) ? `<span class="chip ndpic"><img data-nm="${i}" alt="" style="height:64px;border-radius:6px;vertical-align:middle;cursor:pointer"> <button class="mini" data-nm="${i}">✏ Mark up</button> <span class="muted small">${esc(f.name)}</span><button data-nx="${i}">✕</button></span>` : `<span class="chip">📎 ${esc(f.name)}<button data-nx="${i}">✕</button></span>`).join('');
+    $('ndList').querySelectorAll('[data-nx]').forEach(b => b.onclick = () => { ND_FILES.splice(+b.dataset.nx, 1); drawList(); });
+    $('ndList').querySelectorAll('img[data-nm]').forEach(im => { const f = ND_FILES[+im.dataset.nm]; im.src = URL.createObjectURL(f); });
+    $('ndList').querySelectorAll('[data-nm]').forEach(b => b.onclick = e => { e.preventDefault(); const i = +b.dataset.nm, f = ND_FILES[i]; if (!f) return; markup(URL.createObjectURL(f), async data => { const blob = await (await fetch(data)).blob(); ND_FILES[i] = new File([blob], f.name.replace(/\.[^.]+$/, '') + ' (marked up).jpg', { type: 'image/jpeg' }); drawList(); }, (d.id || 'Item') + ' photo ' + (i + 1)); }); };
   noteDropRef = fs => { for (const f of fs) { if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB and was left out'); continue; } ND_FILES.push(f); } drawList(); };
   $('ndPick').onclick = e => { e.preventDefault(); $('ndFiles').click(); }; $('ndFiles').onchange = e => { noteDropRef([...e.target.files]); e.target.value = ''; };
   $('ndGo').onclick = async () => { stopDictation(); let txt = $('ndTxt').value.trim(); const forWho = $('ndFor') ? $('ndFor').value : ''; if (o.required && !txt && !ND_FILES.length) { st(o.need || 'Add a short note first.', true); $('ndTxt').focus(); return; }
