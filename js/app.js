@@ -994,11 +994,13 @@ function openExport() {
   const L = filtered(), p = S.project;
   modal(`<h2>Export</h2>
   <label class="f">Which defects<select id="xScope"><option value="f">Current filtered list (${L.length})</option><option value="o">Everything not closed (${S.defects.filter(d => d.status !== 'Closed').length})</option><option value="a">All defects (${S.defects.length})</option></select></label>
-  <label class="f" style="margin-top:8px">Report title<input id="xTitle" value="${esc(p.pdfTitle || 'Schedule of Defects and Omissions')}"></label>
-  <label class="f" style="margin-top:8px">Subtitle<input id="xSub" value="${esc(p.pdfSub || 'Appendix to the Certificate of Practical Completion')}"></label>
+  <label class="f" style="margin-top:8px">Report type<select id="xKind"><option value="t">Team report (to share with subcontractors)</option><option value="f">Formal schedule (Appendix to the Certificate of Practical Completion)</option></select></label>
+  <label class="f" style="margin-top:8px">Report title<input id="xTitle" value="${esc('Defects Schedule')}"></label>
+  <label class="f" style="margin-top:8px">Subtitle<input id="xSub" value="${esc('Defects schedule')}"></label>
   <div class="opt"><input type="checkbox" id="xPh" checked><label for="xPh">Detail pages with photos (items with a photo or pin)</label></div>
   <div class="opt"><input type="checkbox" id="xPl" checked><label for="xPl">Floor plans with the pins</label></div>
-  <div class="opt"><input type="checkbox" id="xSig" ${p.pdfSig === false ? '' : 'checked'}><label for="xSig">Sign-off block (Engineer and Contractor)</label></div>
+  <div class="opt"><input type="checkbox" id="xCm"><label for="xCm">Latest comment on each item (includes engineer and consultant comments)</label></div>
+  <div class="opt"><input type="checkbox" id="xSig"><label for="xSig">Sign-off block (Engineer and Contractor)</label></div>
   <div class="btnlist" style="margin-top:10px">
     <button id="xPdf">📄 PDF schedule<small>Resero and client branding, linked</small></button>
     <button id="xXls">📊 Excel register<small>One row per defect, plus summary</small></button>
@@ -1008,7 +1010,9 @@ function openExport() {
     <button id="xZip">🗂 Every file (zip)<small>PDF, Excel, CSV and photos</small></button>
   </div><p class="note" id="xSt"></p><div class="act"><button id="xX">Close</button></div>`);
   const sel = () => { const v = $('xScope').value; const r = v === 'f' ? filtered() : v === 'o' ? S.defects.filter(d => d.status !== 'Closed') : S.defects.slice(); return r.sort((a, b) => natural(a.id, b.id)); };
-  const o = () => ({ title: $('xTitle').value, sub: $('xSub').value, photos: $('xPh').checked, plans: $('xPl').checked, sig: $('xSig').checked, intro: p.pdfIntro || 'Each item has a reference (ID). Click a blue ID to go to its detail page with photos, and click a pin on a plan to go to that item. Items with ' + ((p.sevMajor || []).length ? 'a ' + sevLabel(p).toLowerCase() + ' of "' + p.sevMajor.join('" or "') + '"' : 'a "Major" severity') + ' must be closed before practical completion can be certified; all other open items are to be completed within the agreed timeframes and in any case within the Defects Notification Period.' });
+  // The type sets the wording: a team report has no practical completion wording, no engineer sign-off and no comments, so it can go straight to subcontractors.
+  $('xKind').onchange = () => { const t = $('xKind').value === 't'; $('xTitle').value = t ? 'Defects Schedule' : (p.pdfTitle || 'Schedule of Defects and Omissions'); $('xSub').value = t ? 'Defects schedule' : (p.pdfSub || 'Appendix to the Certificate of Practical Completion'); $('xSig').checked = !t && p.pdfSig !== false; $('xCm').checked = !t; };
+  const o = () => ({ team: $('xKind').value === 't', comments: $('xCm').checked, title: $('xTitle').value, sub: $('xSub').value, photos: $('xPh').checked, plans: $('xPl').checked, sig: $('xSig').checked, intro: $('xKind').value === 't' ? 'Each item has a reference (ID). Click a blue ID to go to its detail page with photos, and click a pin on a plan to go to that item. Please complete each item in your trade and let us know when it is ready for inspection.' : p.pdfIntro || 'Each item has a reference (ID). Click a blue ID to go to its detail page with photos, and click a pin on a plan to go to that item. Items with ' + ((p.sevMajor || []).length ? 'a ' + sevLabel(p).toLowerCase() + ' of "' + p.sevMajor.join('" or "') + '"' : 'a "Major" severity') + ' must be closed before practical completion can be certified; all other open items are to be completed within the agreed timeframes and in any case within the Defects Notification Period.' });
   const ctx = () => ({ project: p, plans: S.plans, getBytes, logoResero: 'img/resero-navy.png', me: S.user.name });
   const st = t => $('xSt').textContent = t, nm = safeName(p.name);
   const run = async fn => { document.querySelectorAll('#mbox .btnlist button').forEach(b => b.disabled = true); try { await fn(); } catch (e) { console.error(e); st(''); toast(/fetch|Failed to fetch|CORS/i.test(e.message) ? 'Photos or plans could not be read for the export. Check the storage CORS setting (README step 6).' : e.message, 6000); } finally { document.querySelectorAll('#mbox .btnlist button').forEach(b => b.disabled = false); } };
