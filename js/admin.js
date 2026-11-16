@@ -49,6 +49,9 @@ export function projectSettings(p) {
     <label class="f">Room names<textarea id="psRooms" rows="5">${esc(lines(p.rooms))}</textarea></label>
     <label class="f full">Project knowledge for Gemini (products, parties, site terms, how to classify)<textarea id="psAi" rows="6">${esc(p.aiContext || '')}</textarea></label>
   </div>
+  <h3 class="sec">Typical defects (this project)</h3>
+  <div class="grid"><label class="f full">One per line: Title | Description | Action | Trade | Type | Severity | Element | Room (only the title is required)<textarea id="psTyp" rows="6" placeholder="Paint touch-up required | Paint missing or marked | Touch up to match | Painting & decorating | Workmanship / rework | Minor defect | Wall | Bedroom">${esc((p.typicals || []).map(x => [x.t, x.d, x.a, x.tr, x.ty, x.s, x.el, x.r].map(v => String(v || '').replace(/\|/g, '/')).join(' | ').replace(/( \| )+$/, '')).join('\n'))}</textarea></label>
+  <p class="note full">These appear under ⚡ Typical defects on every item in this project. The Resero library and built-in list are still there as well.</p></div>
   <h3 class="sec">PDF schedule</h3>
   <div class="grid">
     <label class="f">Title<input id="psPt" value="${esc(p.pdfTitle || 'Schedule of Defects and Omissions')}"></label>
@@ -67,6 +70,7 @@ export function projectSettings(p) {
     const name = $('psName').value.trim(); if (!name) return toast('Enter the project name');
     const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, contractorLogo: clogo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
       responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), jobNo: $('psJob').value.trim(), registerAccess: $('psAcc').value.trim(), subcontractors: fromLines($('psSubs').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
+    data.typicals = $('psTyp').value.split('\n').map(l => l.split('|').map(x => x.trim())).filter(c => c[0]).map(c => ({ t: c[0], d: c[1] || '', a: c[2] || '', tr: c[3] || '', ty: c[4] || '', s: c[5] || '', el: c[6] || '', r: c[7] || '' }));
     if ($('psArch')) data.archived = $('psArch').checked;
     const b = busy('Saving…');
     try {
