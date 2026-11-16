@@ -1042,7 +1042,7 @@ function openExport() {
     $('rgNew').onclick = async () => { closeModal(); try { const b = await buildRegisterXlsx(S.defects.filter(selfClose), ctx()); deliver(b, `${nm} - Pre-Settlement Defect List - ${stamp()}.xlsx`, 'Contractor register'); } catch (x) { console.error(x); toast('Could not build it: ' + x.message, 6000); } };
   };
   $('xEv').onclick = () => run(async () => { const n = evidenceRefs(sel()).length; if (!n) return toast('No comments in this selection refer to evidence held elsewhere'); const b = await buildEvidenceXlsx(sel(), ctx()); deliver(b, `${nm} - Evidence to collect - ${stamp()}.xlsx`, 'Evidence list'); });
-  $('xUnits').onclick = () => run(async () => { const L = sel().filter(d => d.status !== 'Closed'); if (!L.length) return toast('No open items to print'); st('Building the wall sheets…'); const b = await buildUnitSheets(L, ctx(), st); st(''); deliver(b, `${nm} - Wall sheets per unit - ${stamp()}.pdf`, 'PDF'); });
+  $('xUnits').onclick = () => run(async () => { const L = sel().filter(d => d.status !== 'Closed'); if (!L.length) return toast('No open items to print'); st('Building the wall sheets…'); const b = await buildUnitSheets(L, ctx(), st, o()); st(''); deliver(b, `${nm} - Wall sheets per unit - ${stamp()}.pdf`, 'PDF'); });
   $('xZip').onclick =() => run(async () => { const b = await buildZip(sel(), o(), ctx(), st); st(''); deliver(b, `${nm} - Defects export - ${stamp()}.zip`, 'Zip'); });
 }
 

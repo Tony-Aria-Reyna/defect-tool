@@ -16,7 +16,8 @@ async function embedAny(doc, bytes) { const b = new Uint8Array(bytes); if (b[0] 
 
 // Wall sheets: one A4 page (or more) per unit, plus common areas grouped by block and level, open items only, with tick boxes for
 // the subcontractor (done), the main contractor (accepted) and, for Maynard Marks items, their sign-off. Made to print and pin up.
-export async function buildUnitSheets(L, ctx, st = () => {}) {
+const recentPhotos = d => { const out = []; histSorted(d).forEach(h => (h.photos || []).forEach(p => p.url && out.push(p))); (d.photos || []).filter(p => p.url).slice().reverse().forEach(p => out.push(p)); return out; };
+export async function buildUnitSheets(L, ctx, st = () => {}, o = {}) {
   if (!window.PDFLib) { st('Loading the PDF tools…'); await loadScript(LIB.pdflib); }
   const P = PDFLib, doc = await P.PDFDocument.create(), pr = ctx.project, f = await doc.embedFont(P.StandardFonts.Helvetica), fb = await doc.embedFont(P.StandardFonts.HelveticaBold);
   const W = 595.28, H = 841.89, M = 28, NAVY = hex('#011C35'), GREY = hex('#6a7886'), LINE = hex('#c9d0d8');
@@ -29,7 +30,7 @@ export async function buildUnitSheets(L, ctx, st = () => {}) {
   const T = (pg, t, x, y, s, font, c) => pg.drawText(clean(t), { x, y, size: s, font: font || f, color: c || hex('#18232f') });
   const planImg = {}, getPlan = async p => planImg[p.id] || (planImg[p.id] = await embedAny(doc, await ctx.getBytes(p.img)));
   // thumbnail of the first photo, and a crop of the plan around the pin
-  const photo = async (pg, d, x, y, w, h) => { const p = (d.photos || []).find(q => q.url); if (!p) return; try { const im = await embedAny(doc, await ctx.getBytes(p.url)); const s = Math.min(w / im.width, h / im.height); pg.drawImage(im, { x: x + (w - im.width * s) / 2, y: y + (h - im.height * s) / 2, width: im.width * s, height: im.height * s }); } catch (e) {} };
+  const photo = async (pg, d, x, y, w, h) => { const p = recentPhotos(d)[0]; if (!p) return; try { const im = await embedAny(doc, await ctx.getBytes(p.url)); const s = Math.min(w / im.width, h / im.height); pg.drawImage(im, { x: x + (w - im.width * s) / 2, y: y + (h - im.height * s) / 2, width: im.width * s, height: im.height * s }); } catch (e) {} };
   const where = async (pg, d, x, y, w, h) => { const pl = d.plan && d.x != null && ctx.plans.find(p => p.id === d.plan); if (!pl) return; try { const im = await getPlan(pl), z = pl.kind === 'elevation' ? 5 : 6, sc = Math.min(w / (im.width / z), h / (im.height / z)), cw = w / sc, ch = h / sc;
       let cx = d.x * im.width - cw / 2, cy = d.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
       pg.pushOperators(P.pushGraphicsState(), P.rectangle(x, y, w, h), P.clip(), P.endPath()); pg.drawImage(im, { x: x - cx * sc, y: y - (im.height - cy - ch) * sc, width: im.width * sc, height: im.height * sc }); pg.pushOperators(P.popGraphicsState());
@@ -46,10 +47,11 @@ export async function buildUnitSheets(L, ctx, st = () => {}) {
       y = H - M - 104; pg.drawRectangle({ x: M, y: y - 12, width: W - 2 * M, height: 24, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { wrap(h, fb, 7, w - 4).slice(0, 2).forEach((l, i) => T(pg, l, cx, y + 3 - i * 8.5, 7, fb, hex('#ffffff'))); cx += w; }); y -= 14; };
     head();
     for (const d of items) {
-      const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 7.5, C[2][1] - 6).slice(0, 7), rl = wrap(d.room || '', f, 7.5, C[1][1] - 4).slice(0, 3), sl = wrap(d.subcontractor || d.responsible || '', f, 7.5, C[3][1] - 4).slice(0, 3);
-      const h = Math.max(66, 8 + 9.5 * Math.max(lines.length, rl.length, sl.length));
+      const lm = o.comments === false ? null : latestMove(d), cl = lm && lm.text ? wrap('Latest ' + nzDate(String(lm.when || '').slice(0, 10)) + (lm.who ? ' ' + lm.who : '') + ': ' + lm.text, fb, 7, C[2][1] - 6).slice(0, 5) : [];
+      const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 7.5, C[2][1] - 6).slice(0, cl.length ? 4 : 7), rl = wrap(d.room || '', f, 7.5, C[1][1] - 4).slice(0, 3), sl = wrap(d.subcontractor || d.responsible || '', f, 7.5, C[3][1] - 4).slice(0, 3);
+      const h = Math.max(66, 8 + 9.5 * Math.max(lines.length + cl.length * 0.9 + (cl.length ? 0.5 : 0), rl.length, sl.length));
       if (y - h < M + 30) head();
-      let cx = M + 3; T(pg, d.id, cx, y - 11, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[3][1];
+      let cx = M + 3; T(pg, d.id, cx, y - 11, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cl.forEach((l, i) => T(pg, l, cx, y - 16 - lines.length * 9.5 - i * 8.5, 7, fb, hex('#a32222'))); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 11 - i * 9.5, 7.5)); cx += C[3][1];
       await photo(pg, d, cx - 1, y - h + 4, C[4][1] - 4, h - 8); cx += C[4][1]; await where(pg, d, cx - 1, y - h + 4, C[5][1] - 4, h - 8); cx += C[5][1];
       [0, 1, 2].forEach(i => { const w = C[6 + i][1]; if (i === 2 && !needsCons(d)) T(pg, 'n/a', cx + w / 2 - 8, y - h / 2 - 3, 7, f, GREY); else pg.drawRectangle({ x: cx + w / 2 - 10, y: y - h / 2 - 8, width: 16, height: 16, borderColor: NAVY, borderWidth: 1 }); cx += w; });
       y -= h; pg.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.6, color: LINE });
@@ -142,7 +144,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
       { const lm = o.comments === false ? null : latestMove(d); if (lm) { const head = wrap(`Latest: ${lm.label}, ${nzDate(String(lm.when || '').slice(0, 10)) || ''}${lm.who ? ', ' + lm.who : ''}`, fb, 8.5, colW - 12).slice(0, 2), body = lm.text ? wrap((lm.noteWho && lm.noteWho !== lm.who ? lm.noteWho + ': ' : '') + lm.text, f, 8.5, colW - 12).slice(0, 5) : [];
           const bh = (head.length + body.length) * 10.5 + 8, floor = top - half + 26; if (ty - 6 - bh > floor) { ty -= 6; dpg.drawRectangle({ x: M + 8, y: ty - bh + 4, width: colW, height: bh, color: hex('#eef6f8'), borderColor: hex(SCOL[d.status] || '#3bafbe'), borderWidth: 0.8 }); ty -= 7;
             head.forEach(l => { txt(dpg, l, M + 14, ty, 8.5, fb, NAVY); ty -= 10.5; }); body.forEach(l => { txt(dpg, l, M + 14, ty, 8.5); ty -= 10.5; }); } } }
-      const ph = (d.photos || []).filter(p => p.url).slice(0, 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
+      const ph = recentPhotos(d).slice(0, 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
       const snips = []; { const p1 = d.plan && ctx.plans.find(p => p.id === d.plan); if (p1 && d.x != null) snips.push({ p: p1, x: d.x, y: d.y }); const p2 = d.plan2 && ctx.plans.find(p => p.id === d.plan2); if (p2 && d.x2 != null) snips.push({ p: p2, x: d.x2, y: d.y2 }); }
       const snip = async (sp, sx, sw, sh) => { try { const im = await getPlanImg(sp.p); const zoomDiv = sp.p.kind === 'elevation' ? 4 : 3; const sc = Math.min(sw / (im.width / zoomDiv), sh / (im.height / zoomDiv)), cw = sw / sc, ch = sh / sc;
           let cx = sp.x * im.width - cw / 2, cy = sp.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
@@ -182,7 +184,9 @@ export function latestMove(d) {
     if (!note && !m && t.trim() && !SYS_RE.test(t)) note = { h, text: t.trim() };
     if (mv && note) break; }
   if (!mv && !note) return null;
-  const src = mv || note; return { label: mv ? mv.label : 'Comment', when: src.h.t, who: src.h.who || '', text: (mv && mv.text) || (note ? note.text : ''), noteWho: mv && !mv.text && note ? note.h.who || '' : '' };
+  // the newer of the two wins, so a comment added after the last status change is what shows
+  if (mv && note && String(note.h.t || '') > String(mv.h.t || '')) mv = null;
+  const src = mv || note; return { label: mv ? mv.label : 'Comment', when: src.h.t, who: src.h.who || '', text: (mv && mv.text) || (note ? note.text : ''), noteWho: mv && !mv.text && note ? note.h.who || '' : '', photos: (src.h.photos || []).length ? src.h.photos : (note && note.h.photos) || [] };
 }
 // Evidence the contractor says exists somewhere else (Procore, a CAN, an RFI, an email), so it can be found and attached here.
 const REF_RE = /\b(procore|aconex|sharepoint|dropbox|CANs?\b[\s#-]*\d*|CCI[\s#-]*\d+|RFI[\s#-]*\d+|NCR[\s#-]*\d+|CI[\s#-]*\d+|site instruction|variation|e-?mail(?:ed)?|sent (?:to|via|by|through)|see (?:the )?(?:attached|photo|photos|report|drawing)|photos? (?:is|are|was|were)?\s*(?:in|on|uploaded|loaded|provided|sent|taken)|uploaded (?:to|in|on)|provided (?:to|in|via)|as per|refer(?:red)? to|PS[134]\b|producer statement|report)\b[^.;\n]{0,40}/gi;
