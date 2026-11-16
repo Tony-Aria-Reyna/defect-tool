@@ -7,7 +7,7 @@ import { autoFitAll, $, esc, toast, modal, closeModal, busy, confirmBox, compres
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
-import { buildPdf, buildXlsx, buildCsv, buildZip, buildEvidenceXlsx, evidenceRefs, locText, pinLabel, setProjectCtx } from './exports.js';
+import { buildRegisterXlsx, buildPdf, buildXlsx, buildCsv, buildZip, buildEvidenceXlsx, evidenceRefs, locText, pinLabel, setProjectCtx } from './exports.js';
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
 import { initDrop } from './dnd.js';
@@ -990,6 +990,7 @@ function openExport() {
     <button id="xPdf">📄 PDF schedule<small>Resero and client branding, linked</small></button>
     <button id="xXls">📊 Excel register<small>One row per defect, plus summary</small></button>
     <button id="xCsv">🧾 CSV (Procore)<small>Import into Procore Punch List</small></button>
+    ${S.defects.some(selfClose) ? `<button id="xReg">📋 Contractor's register (their format)<small>Unit, Description, Contractor, Interior/Exterior, Completed, as ${esc((S.project.selfCloseSources || []).join(', '))} has always been sent</small></button>` : ''}
     <button id="xEv">🔎 Evidence held elsewhere<small>Comments that mention Procore, a CAN, an RFI or an email, to find and attach</small></button>
     <button id="xZip">🗂 Every file (zip)<small>PDF, Excel, CSV and photos</small></button>
   </div><p class="note" id="xSt"></p><div class="act"><button id="xX">Close</button></div>`);
@@ -1002,6 +1003,15 @@ function openExport() {
   $('xPdf').onclick = () => run(async () => { const L = sel(); if (!L.length) return toast('Nothing to export'); st('Building the PDF…'); const b = await buildPdf(L, o(), ctx(), st); st(''); deliver(b, `${nm} - ${safeName(o().title)} - ${stamp()}.pdf`, 'PDF schedule'); });
   $('xXls').onclick = () => run(async () => { st('Building the Excel file…'); const b = await buildXlsx(sel(), ctx()); st(''); deliver(b, `${nm} - Defects Register - ${stamp()}.xlsx`, 'Excel register'); });
   $('xCsv').onclick = () => run(async () => deliver(buildCsv(sel()), `${nm} - Procore punch list - ${stamp()}.csv`, 'CSV'));
+  if ($('xReg')) $('xReg').onclick = () => {
+    modal(`<h2>Contractor's register</h2><p>Two ways to get it in the format the contractor already uses:</p><div class="btnlist">
+      <button id="rgOwn">📂 Update their latest copy<small>Choose the last spreadsheet they sent. You get their own file back with Completed filled in from the app and any new items added at the end. Their layout, logo and every other row stay as they are.</small></button>
+      <button id="rgNew">📋 Make a fresh copy from the app<small>Same columns and heading. Holds only the register items in the app (${S.defects.filter(selfClose).length}), so rows completed before they were loaded are not in it.</small></button>
+      </div><input type="file" id="rgF" accept=".xlsx" hidden><div class="act"><button id="rgX">Close</button></div>`);
+    $('rgX').onclick = closeModal; $('rgOwn').onclick = () => $('rgF').click();
+    $('rgF').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) { closeModal(); Sync.fromFile(f); } };
+    $('rgNew').onclick = async () => { closeModal(); try { const b = await buildRegisterXlsx(S.defects.filter(selfClose), ctx()); deliver(b, `${nm} - Pre-Settlement Defect List - ${stamp()}.xlsx`, 'Contractor register'); } catch (x) { console.error(x); toast('Could not build it: ' + x.message, 6000); } };
+  };
   $('xEv').onclick = () => run(async () => { const n = evidenceRefs(sel()).length; if (!n) return toast('No comments in this selection refer to evidence held elsewhere'); const b = await buildEvidenceXlsx(sel(), ctx()); deliver(b, `${nm} - Evidence to collect - ${stamp()}.xlsx`, 'Evidence list'); });
   $('xZip').onclick = () => run(async () => { const b = await buildZip(sel(), o(), ctx(), st); st(''); deliver(b, `${nm} - Defects export - ${stamp()}.zip`, 'Zip'); });
 }

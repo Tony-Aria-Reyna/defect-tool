@@ -1,5 +1,5 @@
 // Exports: PDF schedule (pdf-lib, both brands, linked), Excel register, Procore CSV, zip of everything.
-import { loadScript, nzDate, todayISO, safeName, stamp } from './util.js';
+import { natural, loadScript, nzDate, todayISO, safeName, stamp } from './util.js';
 import { STATUS_COLOURS as SCOL, APP } from './config.js';
 
 const LIB = { pdflib: 'lib/pdf-lib.min.js', jszip: 'lib/jszip.min.js', xlsx: 'lib/xlsx.bundle.js' };
@@ -145,6 +145,29 @@ export function evidenceRefs(L) {
   for (const d of L) for (const h of histSorted(d)) { const t = String(h.txt || ''); if (!t.trim() || /^(Raised|Imported|Added from|Pin placed|Filled in|Category set)/i.test(t)) continue; const hits = [...new Set((t.match(REF_RE) || []).map(x => x.trim()))]; if (!hits.length) continue;
     rows.push([d.id, d.title || '', locText(d) || '', d.status || '', (d.photos || []).length, (d.files || []).length, nzDate(String(h.t || '').slice(0, 10)), h.who || '', hits.join(' | '), t.replace(/\s+/g, ' ').slice(0, 600), '']); }
   return rows;
+}
+// The contractor's own register layout (Unit | Description | Contractor | Interior/Exterior? | Completed), with the same heading block,
+// so they can keep sending it in the format they always have. Rows keep their original register order; items added since go at the end.
+export async function buildRegisterXlsx(L, ctx) {
+  if (!window.XLSX) await loadScript(LIB.xlsx);
+  const pr = ctx.project, ex = d => d.ext || {};
+  const unitOf = d => { const l = String(ex(d)['Listed under'] || (d.unit ? 'Unit ' + d.unit : d.room || '')).replace(/\s*\(old number.*$/i, '').trim(); const m = /^unit\s+(\d+)$/i.exec(l); return m ? +m[1] : l; };
+  const rowNo = d => +(ex(d)['Register row'] || 1e9);
+  const items = L.slice().sort((a, b) => rowNo(a) - rowNo(b) || String(unitOf(a)).localeCompare(String(unitOf(b)), 'en', { numeric: true }) || natural(a.id, b.id));
+  const done = d => d.status === 'Closed' ? 'Completed' : '';
+  const data = items.map(d => [unitOf(d), d.desc || d.title || '', d.subcontractor || ex(d)['Subcontractor'] || '', ex(d)['Interior / exterior'] || '', done(d)]);
+  const now = new Date();
+  const aoa = [[null, pr.registerTitle || 'Pre-Settlement Inspection Defects Summary'], [], ['Project:', pr.address || pr.name], ['Job No.', pr.jobNo || ''], [], ['Access:', pr.registerAccess || ''], [], ['Date:', now], [], [], ['Unit', 'Description', 'Contractor', 'Interior/Exterior?', 'Completed'], ...data];
+  const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+  ws['!cols'] = [25, 101, 25, 19, 16].map(w => ({ wch: w }));
+  ws['!autofilter'] = { ref: `A11:E${11 + data.length}` };
+  const B = { font: { bold: true } };
+  ['B1', 'A3', 'A4', 'A6', 'A8', 'A11', 'B11', 'C11', 'D11', 'E11'].forEach(a => { if (ws[a]) ws[a].s = B; });
+  if (ws.B1) ws.B1.s = { font: { bold: true, sz: 14 } };
+  if (ws.B8) { ws.B8.z = 'dd/mm/yyyy'; ws.B8.s = { alignment: { horizontal: 'left' } }; }
+  data.forEach((r, i) => { const a = 'E' + (12 + i); if (ws[a]) ws[a].s = B; });
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Unit');
+  return new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 export async function buildEvidenceXlsx(L, ctx) {
   if (!window.XLSX) await loadScript(LIB.xlsx);

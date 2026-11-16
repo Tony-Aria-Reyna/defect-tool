@@ -37,6 +37,7 @@ export function projectSettings(p) {
     <label class="f">Sources<textarea id="psSrc" rows="5">${esc(lines(p.sources))}</textarea></label>
     <label class="f">Subcontractors (one per line; anyone working on an item can add to this by typing a new name)<textarea id="psSubs" rows="5">${esc(lines(p.subcontractors || []))}</textarea></label>
     <label class="f">Sources the contractor can close themselves (their own registers; one per line)<textarea id="psSelf" rows="2">${esc(lines(p.selfCloseSources || []))}</textarea></label>
+    <div class="grid"><label class="f">Contractor's register: Job No.<input id="psJob" value="${esc(p.jobNo || '')}" placeholder="No. 0022"></label><label class="f">Contractor's register: Access line<input id="psAcc" value="${esc(p.registerAccess || '')}" placeholder="Names and phone numbers"></label></div>
     <label class="f">${esc(sevLabel(p))} list (one per line)<textarea id="psSev" rows="5">${esc(lines(p.severities))}</textarea></label>
     <label class="f">Name of that field (Severity, Category…)<input id="psSevL" value="${esc(sevLabel(p))}"></label>
     <label class="f">Default for new items<input id="psSevD" value="${esc(p.sevDefault || '')}" placeholder="first in the list"></label>
@@ -61,7 +62,7 @@ export function projectSettings(p) {
   $('psOk').onclick = async () => {
     const name = $('psName').value.trim(); if (!name) return toast('Enter the project name');
     const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
-      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), subcontractors: fromLines($('psSubs').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
+      responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), jobNo: $('psJob').value.trim(), registerAccess: $('psAcc').value.trim(), subcontractors: fromLines($('psSubs').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
     if ($('psArch')) data.archived = $('psArch').checked;
     const b = busy('Saving…');
     try {
