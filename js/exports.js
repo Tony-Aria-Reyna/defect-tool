@@ -14,6 +14,40 @@ const hex = h => { const n = parseInt(h.slice(1), 16); return PDFLib.rgb((n >> 1
 
 async function embedAny(doc, bytes) { const b = new Uint8Array(bytes); if (b[0] === 0x89 && b[1] === 0x50) return doc.embedPng(b); return doc.embedJpg(b); }
 
+// Wall sheets: one A4 page (or more) per unit, plus common areas grouped by block and level, open items only, with tick boxes for
+// the subcontractor (done), the main contractor (accepted) and, for Maynard Marks items, their sign-off. Made to print and pin up.
+export async function buildUnitSheets(L, ctx, st = () => {}) {
+  if (!window.PDFLib) { st('Loading the PDF tools…'); await loadScript(LIB.pdflib); }
+  const P = PDFLib, doc = await P.PDFDocument.create(), pr = ctx.project, f = await doc.embedFont(P.StandardFonts.Helvetica), fb = await doc.embedFont(P.StandardFonts.HelveticaBold);
+  const W = 595.28, H = 841.89, M = 30, NAVY = hex('#011C35'), GREY = hex('#6a7886'), LINE = hex('#c9d0d8');
+  let res = null; try { res = await embedAny(doc, await ctx.getBytes(ctx.logoResero)); } catch (e) {}
+  const con = pr.contractor || 'Contractor', isMM = d => /^MM/i.test(d.id);
+  const groups = {}; L.forEach(d => { const k = d.unit ? 'Unit ' + d.unit : 'Common areas' + (d.block ? ', ' + (/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block) : '') + (d.level ? ', ' + d.level : ''); (groups[k] = groups[k] || []).push(d); });
+  const keys = Object.keys(groups).sort((a, b) => (a.startsWith('Unit') ? 0 : 1) - (b.startsWith('Unit') ? 0 : 1) || natural(a, b));
+  const wrap = (t, font, size, maxw) => { const out = []; clean(t).split('\n').forEach(par => { let ln = ''; par.split(/\s+/).forEach(w => { const tr = ln ? ln + ' ' + w : w; if (font.widthOfTextAtSize(tr, size) <= maxw) ln = tr; else { if (ln) out.push(ln); ln = w; } }); if (ln) out.push(ln); }); return out; };
+  const T = (pg, t, x, y, s, font, c) => pg.drawText(clean(t), { x, y, size: s, font: font || f, color: c || hex('#18232f') });
+  const C = [['Ref', 46], ['Room', 64], ['Item', 225], ['Subcontractor', 78], ['Sub done', 42], [con.split(' ')[0] + ' OK', 42], ['MM sign-off', 38]];
+  for (const k of keys) {
+    const items = groups[k].sort((a, b) => String(a.room || '').localeCompare(String(b.room || '')) || natural(a.id, b.id)); let pg, y, page = 0;
+    const head = () => { pg = doc.addPage([W, H]); page++; if (res) { const h = 20, w = h * res.width / res.height; pg.drawImage(res, { x: M, y: H - M - h, width: w, height: h }); }
+      T(pg, k, M, H - M - 52, 26, fb, NAVY); T(pg, (pr.name || '') + '  |  Open items at ' + nzDate(todayISO()) + '  |  ' + items.length + ' item' + (items.length === 1 ? '' : 's') + (page > 1 ? '  |  page ' + page : ''), M, H - M - 68, 9.5, f, GREY);
+      T(pg, 'Subcontractor: tick and initial when your item is complete. ' + con + ': tick when accepted. MM items also need Maynard Marks sign-off.', M, H - M - 82, 8, f, GREY);
+      y = H - M - 100; pg.drawRectangle({ x: M, y: y - 4, width: W - 2 * M, height: 16, color: NAVY }); let cx = M + 3; C.forEach(([h, w]) => { T(pg, h, cx, y + 1, 7.5, fb, hex('#ffffff')); cx += w; }); y -= 8; };
+    head();
+    for (const d of items) {
+      const lines = wrap((d.title || '') + (d.desc && d.desc !== d.title ? ': ' + d.desc : ''), f, 8, C[2][1] - 6).slice(0, 5), rl = wrap(d.room || '', f, 8, C[1][1] - 4).slice(0, 2), sl = wrap(d.subcontractor || d.responsible || '', f, 8, C[3][1] - 4).slice(0, 2);
+      const h = Math.max(26, 6 + 10 * Math.max(lines.length, rl.length, sl.length));
+      if (y - h < M + 30) head();
+      let cx = M + 3; T(pg, d.id, cx, y - 12, 8, fb); cx += C[0][1]; rl.forEach((l, i) => T(pg, l, cx, y - 12 - i * 10, 8)); cx += C[1][1]; lines.forEach((l, i) => T(pg, l, cx, y - 12 - i * 10, 8)); cx += C[2][1]; sl.forEach((l, i) => T(pg, l, cx, y - 12 - i * 10, 8)); cx += C[3][1];
+      [0, 1, 2].forEach(i => { const w = C[4 + i][1]; if (i === 2 && !isMM(d)) T(pg, 'n/a', cx + w / 2 - 7, y - 14, 7, f, GREY); else pg.drawRectangle({ x: cx + w / 2 - 8, y: y - h / 2 - 8, width: 16, height: 16, borderColor: NAVY, borderWidth: 1 }); cx += w; });
+      y -= h; pg.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.6, color: LINE });
+    }
+    T(pg, 'Unit signed off: ____________________   Date: __________', M, M + 6, 9, fb, NAVY);
+  }
+  if (!keys.length) { const pg = doc.addPage([W, H]); T(pg, 'No open items.', M, H - 80, 14, fb); }
+  return doc.save();
+}
+
 // ctx: {project, plans, getBytes(url) -> ArrayBuffer, logoResero (url)}
 export async function buildPdf(L, o, ctx, st = () => {}) {
   if (!window.PDFLib) { st('Loading the PDF tools…'); await loadScript(LIB.pdflib); }
