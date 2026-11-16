@@ -45,7 +45,7 @@ export async function buildUnitSheets(L, ctx, st = () => {}) {
     T(pg, 'Unit signed off: ____________________   Date: __________', M, M + 6, 9, fb, NAVY);
   }
   if (!keys.length) { const pg = doc.addPage([W, H]); T(pg, 'No open items.', M, H - 80, 14, fb); }
-  return doc.save();
+  return new Blob([await doc.save()], { type: 'application/pdf' });
 }
 
 // ctx: {project, plans, getBytes(url) -> ArrayBuffer, logoResero (url)}
