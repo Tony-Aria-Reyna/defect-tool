@@ -102,7 +102,9 @@ async function firebaseStore() {
     async claimReport() {
       const m = me(); if (!navigator.onLine) return { msg: 'No internet connection. Connect and try again.' };
       if (!user.emailVerified) return { msg: 'This sign-in has not confirmed the email address ' + m.email + ' yet, so the invitation cannot be matched to it.' };
-      let s; try { s = await F.getDocs(F.query(C('invites'), F.where('email', '==', m.email))); } catch (e) { return { msg: 'Could not look for invitations: ' + (e.code || e.message) }; }
+      // Right after the email is confirmed the database may still hold the old sign-in token, so refresh it and try again a few times.
+      let s, last; for (let i = 0; i < 4 && !s; i++) { try { if (i) { await auth.currentUser.getIdToken(true); await new Promise(r => setTimeout(r, 1500 * i)); } s = await F.getDocs(F.query(C('invites'), F.where('email', '==', m.email))); } catch (e) { last = e; } }
+      if (!s) return { msg: 'Could not look for invitations: ' + ((last && (last.code || last.message)) || '') + '. Sign out, sign in again, then press Check again.' };
       if (!s.docs.length) return { msg: 'There is no invitation waiting for ' + m.email + '. Ask the project administrator to check the address and send the invitation again from the live project (not test mode).' };
       let n = 0; const errs = [];
       for (const d of s.docs) { const { pid, role } = d.data(); try { await F.updateDoc(D('projects', pid), { [`members.${m.uid}`]: role, memberUids: F.arrayUnion(m.uid), [`memberInfo.${m.uid}`]: { name: m.name, email: m.email } }); await F.deleteDoc(d.ref); n++; } catch (e) { errs.push(e.code || e.message); } }
@@ -111,7 +113,7 @@ async function firebaseStore() {
     // A signed-in user accepts every invitation addressed to their verified email address.
     async claimInvites() {
       if (!user.email || !user.emailVerified || !navigator.onLine) return 0;
-      const m = me();
+      const m = me(); try { await auth.currentUser.getIdToken(true); } catch (e) {}
       const s = await F.getDocs(F.query(C('invites'), F.where('email', '==', m.email)));
       let n = 0;
       for (const d of s.docs) {
