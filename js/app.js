@@ -868,6 +868,10 @@ async function saveEditor() {
   if (!d.title) d.title = d.desc.split(/[.,;]/)[0].slice(0, 70);
   if (d.subcontractor) { d.subcontractor = d.subcontractor.trim(); addSubs([d.subcontractor]).catch(e => console.warn('subcontractor list', e)); }
   // Save in the background: the editor closes straight away so the next item can be opened, and a chip shows the save until it is done.
+  // Changing how an item is classified (category, type, source, trade or element) needs a reason, kept in the history with the change.
+  if (!ED.isNew && !limited(ED.d)) { const o0 = S.defects.find(x => x.id === ED.d.id) || ED.d, CL = { severity: 'category', type: 'type', source: 'raised by', trade: 'trade', element: 'element' };
+    const moved = Object.keys(CL).filter(k => (o0[k] ?? '') !== (d[k] ?? '')); const c0 = $('cmt') ? $('cmt').value.trim() : '';
+    if (moved.length && !c0) { const bx = $('cmt'); if (bx) { bx.scrollIntoView({ block: 'center', behavior: 'smooth' }); bx.focus(); bx.placeholder = 'Say why the ' + moved.map(k => CL[k]).join(' and ') + ' changed'; bx.classList.add('need'); } toast('Add a comment saying why you changed the ' + moved.map(k => CL[k]).join(' and ') + '. It is kept in the history.', 6000); return; } }
   const cm = $('cmt') ? $('cmt').value.trim() : '', E = ED; const b = bgSave(E.isNew ? 'new item' : d.id); closeEditor();
   try {
     if (E.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
@@ -888,7 +892,7 @@ async function saveEditor() {
       if (E.wfLabel) { ch.push(E.wfLabel.toLowerCase()); }
       if (o.aiReview && !lim) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
-      ['status', 'severity', 'responsible', 'subcontractor', 'targetDate', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
+      const LBL = { severity: 'category', source: 'raised by' }; ['status', 'severity', 'type', 'source', 'trade', 'element', 'responsible', 'subcontractor', 'targetDate', 'block', 'level', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : (LBL[k] || k) + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
       const ph = clean(d).photos; if (JSON.stringify(ph) !== JSON.stringify(o.photos || [])) { patch.photos = ph; ch.push('photos ' + (o.photos || []).length + ' → ' + ph.length); }
       const fl = clean(d).files; if (JSON.stringify(fl) !== JSON.stringify(o.files || [])) { patch.files = fl; ch.push('attachments ' + (o.files || []).length + ' → ' + fl.length); }
