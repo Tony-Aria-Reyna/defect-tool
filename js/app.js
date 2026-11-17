@@ -27,6 +27,18 @@ const SURFACES = ['Floor', 'Wall', 'Ceiling', 'Exterior cladding', 'Roof', 'Join
 
 let PV;                // plan viewer
 const urlCache = {};   // resolved image URLs
+// Every plan, ceiling, framing and elevation image is copied to the phone in the background when a project opens,
+// so switching between them works with poor or no reception. The service worker keeps them; already-kept ones are skipped.
+const KEPT = new Set();
+export async function keepPlansOnPhone(loud) {
+  const urls = new Set(), walk = o => { if (!o || typeof o !== 'object') return; for (const [k, v] of Object.entries(o)) { if (typeof v === 'string' && /^(img|image|url|src|thumb|pdfImg)$/i.test(k) && v) urls.add(v); else if (v && typeof v === 'object') walk(v); } };
+  (S.plans || []).forEach(walk); const todo = [...urls].filter(u => !KEPT.has(u)); if (!todo.length) { if (loud) toast('All ' + urls.size + ' plan images are already saved on this device'); return; }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  let ok = 0, bad = 0; const one = async u => { try { const r = await imgUrl(u); if (r && !r.startsWith('data:')) { const res = await fetch(r, { mode: 'no-cors' }); if (res.type !== 'opaque' && !res.ok) throw 0; await res.blob(); } KEPT.add(u); ok++; } catch (e) { bad++; } };
+  if (loud) toast('Saving ' + todo.length + ' plan images to this device…', 4000);
+  for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(one));
+  if (loud || bad) toast(bad ? `Saved ${ok} plan images to this device; ${bad} could not load (poor reception). They will be tried again next time.` : `All ${ok + (urls.size - todo.length)} plan images are saved on this device`, 6000);
+}
 async function imgUrl(u) { if (!u) return ''; if (urlCache[u]) return urlCache[u]; return (urlCache[u] = await S.store.resolveUrl(u)); }
 async function photoSrc(p) { if (p.data) return p.data; if (p.pending) return await pendingUrl(p.id); return p.url ? await imgUrl(p.url) : ''; }
 
@@ -158,6 +170,7 @@ export async function openProject(pid, quiet) {
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
     try { Sync.autoStart(); } catch (e) {}
+    setTimeout(() => keepPlansOnPhone(false), 4000);
     applyDeepLink(); Try.chip();
     const sc = myScope(); if (sc) S.project.sources = sc.slice();
     S.unsub = S.store.watchDefects(pid, list => { S.defects = list; filtersDirty = true; render(); flushOutbox().then(netbar).then(processPendingAI); }, e => toast('Sync problem: ' + friendly(e), 5000), sc);
@@ -1102,6 +1115,7 @@ function openMenu() {
     ${canInstall() ? `<button id="mInst">📲 Install ${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'on this phone' : 'as a desktop app'}<small>${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'Home screen app, stays signed in' : 'Opens in its own window from the Start menu or Dock'}</small></button>` : ''}
     ${can.realAdmin() ? `<button id="mViewAs">👁 View as…<small>${S.viewAs ? 'Currently viewing as ' + esc(ROLES[S.viewAs] || S.viewAs) + ' (tap to change or stop)' : 'Test the app as an editor, contractor or viewer'}</small></button>` : ''}
     ${a ? '<button id="mTpl">📦 Save set-up as a template<small>Start the next project with the same categories, lists and rules</small></button>' : ''}
+    <button id="mKeep">🗺 Save plans to this phone<small>So floor, ceiling, framing and elevation plans open with poor reception</small></button>
     <button id="mReload">🔄 Reload app<small>Get the latest version (v${APP.version} now)</small></button>
     <button id="mTry">🧪 15-minute try-out<small>Practise on a throwaway copy, then tell us what you think</small></button>
     <button id="mFb">💬 Send feedback<small>What works, what is confusing, what is missing</small></button>
@@ -1115,7 +1129,7 @@ function openMenu() {
   on('mTry', Try.start); on('mFb', () => Try.feedback(false)); on('mFbR', Try.results);
   on('mFind', () => Search.open()); on('mCk', () => Setup.checklist()); on('mTpl', Setup.saveTemplate);
   on('mPinQ', pinQueue); on('mTick', Tick.start); on('mSync', Sync.start); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
-  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp);
+  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp); on('mKeep', () => keepPlansOnPhone(true));
   on('mViewAs', () => { modal(`<h2>Test mode</h2><p>Try the app as another role on a <b>throwaway copy</b> of this project. Press every button you like: nothing is saved to the cloud, and leaving test mode throws the copy away.</p><div class="btnlist">${['admin', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${S.viewAs === r ? 'go' : ''}">${esc(ROLES[r] || r)}</button>`).join('')}${S.testMode ? '<button data-va="">Leave test mode</button>' : ''}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { closeModal(); b.dataset.va ? enterTestMode(b.dataset.va) : leaveTestMode(); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
 
@@ -1140,6 +1154,7 @@ function toolList() {
   t(e, '✨', 'Gemini settings', 'ai key helper voice dictation interpreter model google', [M, '✨ Gemini'], () => Admin.aiSettings());
   t(canInstall(), '📲', 'Install the app', 'install phone home screen desktop app download', [M, '📲 Install'], () => installDialog(false));
   t(true, '🔄', 'Reload app', 'update latest version refresh not updating old', [M, '🔄 Reload app'], reloadApp, 'Now on v' + APP.version);
+  t(true, '🗺', 'Save plans to this phone', 'offline plans slow reception floor ceiling framing elevation download cache save phone', [M, '🗺 Save plans to this phone'], () => keepPlansOnPhone(true));
   t(true, '✅', 'Site check', 'test camera microphone storage offline coverage before site', [M, '✅ Site check'], siteCheck);
   t(true, '❓', 'Help and quick guide', 'how do i guide question instructions manual', ['? button, top right'], helpDialog);
   t(true, '▾', 'Filters', 'filter narrow unit block level trade category subcontractor responsible', ['⚑ Defects', '☰ List', '▾ Filters button'], () => { setTab('list'); S.fOpen = true; filterChips(); });
