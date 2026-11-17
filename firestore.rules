@@ -58,6 +58,9 @@ service cloud.firestore {
         || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['subcontractors']))
         // editors and contractors take the next defect number
         || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
+        // a member records when they last opened the project (their own memberInfo entry only)
+        || (isMember(pid) && changed().hasOnly(['memberInfo'])
+            && request.resource.data.memberInfo.diff(resource.data.get('memberInfo', {})).affectedKeys().hasOnly([request.auth.uid]))
         // a user accepts an invitation sent to their verified email address
         || (verified()
             && exists(/databases/$(db)/documents/invites/$(pid + '_' + myEmail()))

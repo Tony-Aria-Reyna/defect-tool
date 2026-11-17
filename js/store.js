@@ -111,6 +111,8 @@ async function firebaseStore() {
       return { n, msg: n ? '' : 'An invitation was found but joining failed (' + errs.join(', ') + '). Send this message and your user ID to the project administrator.' };
     },
     // A signed-in user accepts every invitation addressed to their verified email address.
+    // Records when this person last opened the project, so admins can see who is active. Only their own entry changes.
+    async touch(pid) { const m = me(); try { await F.updateDoc(D('projects', pid), { [`memberInfo.${m.uid}.lastSeen`]: new Date().toISOString(), [`memberInfo.${m.uid}.email`]: m.email, [`memberInfo.${m.uid}.name`]: m.name }); } catch (e) {} },
     async claimInvites() {
       if (!user.email || !user.emailVerified || !navigator.onLine) return 0;
       const m = me(); try { await auth.currentUser.getIdToken(true); } catch (e) {}

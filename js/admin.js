@@ -133,13 +133,14 @@ function personAccess(p, email) {
     saveAccess(p, { ...(p.access || {}), people }, usersDialog);
   };
 }
+function lastSeenTxt(t) { if (!t) return 'Last active: not recorded yet'; const m = (Date.now() - Date.parse(t)) / 60000; const ago = m < 60 ? 'within the last hour' : m < 1440 ? Math.round(m / 60) + ' hours ago' : Math.round(m / 1440) === 1 ? 'yesterday' : Math.round(m / 1440) + ' days ago'; return 'Last active ' + ago + ' (' + new Date(t).toLocaleString('en-NZ', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) + ')'; }
 export async function usersDialog() {
   const p = await S.store.getProject(S.project.id); const inv = await S.store.listInvites(p.id).catch(() => []);
   const info = p.memberInfo || {};
   const roleSel = (v, attr) => `<select ${attr}>${Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   modal(`<h2>Users and access</h2>
   <table class="t"><tr><th>Person</th><th>Role</th><th></th></tr>
-  ${Object.entries(p.members || {}).map(([u, r]) => `<tr><td>${u !== S.user.uid && (info[u] || {}).email ? `<a href="#" data-pa="${esc(info[u].email)}" title="Set which sections this person can use">` : '<span>'}<b>${esc((info[u] || {}).name || '')}</b><br><span class="muted small">${esc((info[u] || {}).email || u)}</span>${u !== S.user.uid && (info[u] || {}).email ? '</a>' : '</span>'}${accTag(p, (info[u] || {}).email, r)}</td><td>${roleSel(r, `data-u="${esc(u)}" ${u === S.user.uid ? 'disabled' : ''}`)}</td><td>${u === S.user.uid ? '<span class="muted small">you</span>' : `<button class="btn" data-rm="${esc(u)}">Remove</button>`}</td></tr>`).join('')}
+  ${Object.entries(p.members || {}).map(([u, r]) => `<tr><td>${u !== S.user.uid && (info[u] || {}).email ? `<a href="#" data-pa="${esc(info[u].email)}" title="Set which sections this person can use">` : '<span>'}<b>${esc((info[u] || {}).name || '')}</b><br><span class="muted small">${esc((info[u] || {}).email || u)}</span>${u !== S.user.uid && (info[u] || {}).email ? '</a>' : '</span>'}${accTag(p, (info[u] || {}).email, r)}<br><span class="muted small">${lastSeenTxt((info[u] || {}).lastSeen)}</span></td><td>${roleSel(r, `data-u="${esc(u)}" ${u === S.user.uid ? 'disabled' : ''}`)}</td><td>${u === S.user.uid ? '<span class="muted small">you</span>' : `<button class="btn" data-rm="${esc(u)}">Remove</button>`}</td></tr>`).join('')}
   ${inv.map(i => `<tr><td><a href="#" data-pa="${esc(i.email)}" title="Set which sections this person can use">${esc(i.email)}</a>${accTag(p, i.email, i.role)}<br><span class="muted small">Invited ${esc(i.at ? i.at.slice(0, 10) : '')}, not signed in yet</span></td><td>${roleSel(i.role, `data-ir="${esc(i.email)}"`)}</td><td><button class="btn" data-ci="${esc(i.email)}">Cancel</button></td></tr>`).join('')}
   </table>
   <h3 class="sec">Invite someone</h3>

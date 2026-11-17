@@ -178,6 +178,7 @@ export async function openProject(pid, quiet) {
     S.project = withDefaults(p); S.role = (p.members || {})[S.user.uid] || (S.sup ? 'admin' : '');
     if (!S.role) { b && b.done(); return false; }
     S.local.lastProject = pid; saveLocal();
+    try { const ls = ((p.memberInfo || {})[S.user.uid] || {}).lastSeen; if (S.store.touch && navigator.onLine && (!ls || Date.now() - Date.parse(ls) > 30 * 60000)) S.store.touch(pid); } catch (e) {}
     S.plans = await S.store.listPlans(pid);
     S.ai = can.write() ? await S.store.getPrivate(pid) : {};
     S.curPlan = S.plans[0] ? S.plans[0].id : null;
