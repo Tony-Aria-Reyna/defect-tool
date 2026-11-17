@@ -258,6 +258,7 @@ function form(m, isNew) {
     <label class="f">Clause number<input id="mkC" value="${esc(m.clause || '')}" placeholder="e.g. 11.5"></label>
     <label class="f">What it says (read from the box; correct it if needed)<textarea id="mkX" rows="4">${esc(m.text || '')}</textarea></label>
     <label class="f">Note<input id="mkN" value="${esc(m.note || '')}" placeholder="Optional"></label>
+    <label class="f">Problem<textarea id="mkF" rows="3" placeholder="Leave empty if there is nothing wrong">${esc(m.flag || '')}</textarea><small class="note">Edit the wording, or clear it if this is not a problem.</small></label>
     <h4>Assets this applies to</h4>${pick(top(A, m.assetIds || []), m.assetIds || [], 'assets', 'a')}
     <details ${(m.taskIds || []).length ? 'open' : ''}><summary>Maintenance tasks this applies to${(m.taskIds || []).length ? ' (' + m.taskIds.length + ')' : ''}</summary>${pick(top(T, m.taskIds || []), m.taskIds || [], 'tasks', 't')}</details>
     <div class="act"><button id="mkX2">Cancel</button><button id="mkS" class="go">Save</button></div>`;
@@ -265,16 +266,18 @@ function form(m, isNew) {
   const ids = k => [...$('dvSide').querySelectorAll(`[data-pick=${k}] input[type=checkbox]:checked`)].map(i => i.value);
   $('mkX2').onclick = () => { const cur = (V.d.marks || []).find(x => x.id === m.id); cur ? detail(cur) : home(); };
   $('mkS').onclick = async () => {
-    const o = { ...m, kind: $('mkK').value, period: $('mkP').value.trim(), clause: $('mkC').value.trim(), text: $('mkX').value.trim().slice(0, 900), note: $('mkN').value.trim(), assetIds: ids('a'), taskIds: ids('t'), pending: false, updated: new Date().toISOString(), by: S.user.email };
+    const o = { ...m, kind: $('mkK').value, period: $('mkP').value.trim(), clause: $('mkC').value.trim(), text: $('mkX').value.trim().slice(0, 900), note: $('mkN').value.trim(), flag: $('mkF').value.trim(), assetIds: ids('a'), taskIds: ids('t'), pending: false, updated: new Date().toISOString(), by: S.user.email };
     if (!o.assetIds.length && !o.taskIds.length && !(await confirmBox('This clause is not linked to an asset or a task yet. Save it anyway?', 'Save'))) return;
     const b = busy('Saving…');
     try { if (isNew || !o.snip) { try { o.snip = await makeSnip(o); } catch (e) { console.warn('snip', e); } }
-      const rest = (V.d.marks || []).filter(x => x.id !== o.id); await saveMarks([...rest, o]); b.done(); toast('Saved'); detail(o); }
+      const rest = (V.d.marks || []).filter(x => x.id !== o.id); await saveMarks([...rest, o], m.flag, o.flag); b.done(); toast('Saved'); detail(o); }
     catch (e) { b.done(); toast('Could not save: ' + e.message, 6000); }
   };
   overlay();
 }
-async function saveMarks(marks) { const patch = { marks }; if (V.d.source == null && marks.length) patch.source = true; await S.store.patchItem(S.project.id, 'docs', V.d.id, patch); V.d = { ...V.d, ...patch }; }
+// When a box's problem wording is edited or cleared, the document's problem list follows, so badges and "To check" stay true.
+async function saveMarks(marks, oldFlag, newFlag) { const patch = { marks };
+  if (oldFlag !== undefined && oldFlag !== newFlag) { const L = (V.d.aiProblems || []).filter(x => x !== oldFlag); if (newFlag) L.push(newFlag); patch.aiProblems = [...new Set(L)]; } if (V.d.source == null && marks.length) patch.source = true; await S.store.patchItem(S.project.id, 'docs', V.d.id, patch); V.d = { ...V.d, ...patch }; }
 // A picture of the marked box, kept beside the document so it can be shown on the asset and in exports without opening the PDF.
 async function makeSnip(m) {
   const pg = await V.pdf.getPage(m.page), base = pg.getViewport({ scale: 1 }), sc = Math.max(1.2, Math.min(3, 1000 / (m.w * base.width))), vp = pg.getViewport({ scale: sc });
