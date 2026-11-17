@@ -59,7 +59,10 @@ async function firebaseStore() {
       return true;
     },
     async signInPassword(email, pw) { await U.signInWithEmailAndPassword(auth, email, pw); },
-    async createPassword(email, pw) { try { await U.createUserWithEmailAndPassword(auth, email, pw); } catch (e) { if ((e.code || '') === 'auth/email-already-in-use') { await U.signInWithEmailAndPassword(auth, email, pw); } else throw e; } },
+    async createPassword(email, pw) { try { const c = await U.createUserWithEmailAndPassword(auth, email, pw); try { await U.sendEmailVerification(c.user, { url: location.origin + location.pathname }); } catch (x) {} } catch (e) { if ((e.code || '') === 'auth/email-already-in-use') { await U.signInWithEmailAndPassword(auth, email, pw); } else throw e; } },
+    // A password account has not proved it owns its email address; this sends Firebase's confirmation email, and reloads to see if it was done.
+    async sendVerify() { await U.sendEmailVerification(auth.currentUser, { url: location.origin + location.pathname }); },
+    async reloadUser() { try { await U.reload(auth.currentUser); user = auth.currentUser; await auth.currentUser.getIdToken(true); } catch (e) {} return !!(auth.currentUser && auth.currentUser.emailVerified); },
     async resetPassword(email) { await U.sendPasswordResetEmail(auth, email, { url: location.origin + location.pathname }); },
     async getLibrary(name) { try { const s = await readDoc(D('library', name)); return s.exists() ? (s.data().items || []) : []; } catch (e) { return []; } },
     async addToLibrary(name, item) { await localWrite(F.setDoc(D('library', name), { items: F.arrayUnion(JSON.parse(JSON.stringify(item))), updated: new Date().toISOString() }, { merge: true })); },
@@ -97,7 +100,7 @@ async function firebaseStore() {
     // The same as claimInvites, but says what it found so a person stuck on "not added yet" can see why.
     async claimReport() {
       const m = me(); if (!navigator.onLine) return { msg: 'No internet connection. Connect and try again.' };
-      if (!user.emailVerified) return { msg: 'This sign-in has not confirmed the email address ' + m.email + '. Sign out and sign in with Google, or with the email sign-in link.' };
+      if (!user.emailVerified) return { msg: 'This sign-in has not confirmed the email address ' + m.email + ' yet, so the invitation cannot be matched to it.' };
       let s; try { s = await F.getDocs(F.query(C('invites'), F.where('email', '==', m.email))); } catch (e) { return { msg: 'Could not look for invitations: ' + (e.code || e.message) }; }
       if (!s.docs.length) return { msg: 'There is no invitation waiting for ' + m.email + '. Ask the project administrator to check the address and send the invitation again from the live project (not test mode).' };
       let n = 0; const errs = [];
