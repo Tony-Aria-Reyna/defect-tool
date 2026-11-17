@@ -188,13 +188,14 @@ function props() {
   const el = $('mkProps'); if (!el || !MK) return; const s = MK.sel && MK.strokes.includes(MK.sel) ? MK.sel : null, cur = s ? (s.col || COLS[0]) : MK.col, hasText = s && (s.tool === 'text' || s.tool === 'dim');
   const drawing = MK.cur && MK.cur.tool === 'poly' ? MK.cur.p.length : 0;
   const AL = { l: '<svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h8M3 15h11"/></svg>', c: '<svg viewBox="0 0 20 20"><path d="M3 5h14M6 10h8M4.5 15h11"/></svg>', r: '<svg viewBox="0 0 20 20"><path d="M3 5h14M9 10h8M6 15h11"/></svg>' };
-  const key = [s ? MK.strokes.indexOf(s) : -1, cur, hasText, s ? s.al || 'l' : '', MK.undo.length, MK.redo.length, drawing, s && s.tool === 'poly' ? !!s.closed : ''].join('|'); if (el.dataset.k === key) return; el.dataset.k = key; el.scrollLeft = 0;
+  const key = [s ? MK.strokes.indexOf(s) : -1, cur, hasText, s ? s.al || 'l' : '', MK.undo.length, MK.redo.length, drawing, s && s.tool === 'poly' ? !!s.closed : '', SNAP_ON].join('|'); if (el.dataset.k === key) return; el.dataset.k = key; el.scrollLeft = 0;
   if (drawing) { el.innerHTML = `<button data-pg="close" ${drawing < 3 ? 'disabled style="opacity:.4"' : ''} class="pgo">⬠ Close shape</button><button data-pg="open" ${drawing < 2 ? 'disabled style="opacity:.4"' : ''}>✔ Finish (leave open)</button><button data-pg="back">↶ Last point</button><button data-pg="x">Cancel shape</button>`; el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => polyEnd(b.dataset.pg)); return; }
   const ib = (a, icon, title, cls) => `<button class="ic ${cls || ''}" data-a="${a}" title="${title}" aria-label="${title}">${icon}</button>`;
-  el.innerHTML = `<button class="sw on" id="mkCol" style="background:${cur}" title="Colour: tap to change"></button>` + (s ? (hasText ? ib('edit', '✎', 'Edit the text') : '') + (s.tool === 'text' ? ['l', 'c', 'r'].map(a => `<button class="ic ${(s.al || 'l') === a ? 'on' : ''}" data-al="${a}" title="${a === 'l' ? 'Align left' : a === 'c' ? 'Centre' : 'Align right'}">${AL[a]}</button>`).join('') : '') + (s.tool === 'poly' ? `<button data-a="toggle">${s.closed ? 'Open it' : 'Close it'}</button>` : '') + ib('smaller', 'A−', 'Thinner or smaller') + ib('bigger', 'A+', 'Thicker or bigger') + ib('dup', '⧉', 'Copy') + ib('del', '🗑', 'Delete', 'del') : '<span class="muted small" style="color:#aaa;align-self:center;margin-left:6px">Colour for the next mark. Tap it to change.</span>');
+  el.innerHTML = `<button class="sw on" id="mkCol" style="background:${cur}" title="Colour: tap to change"></button>` + (s ? (hasText ? ib('edit', '✎', 'Edit the text') : '') + (s.tool === 'text' ? ['l', 'c', 'r'].map(a => `<button class="ic ${(s.al || 'l') === a ? 'on' : ''}" data-al="${a}" title="${a === 'l' ? 'Align left' : a === 'c' ? 'Centre' : 'Align right'}">${AL[a]}</button>`).join('') : '') + (s.tool === 'poly' ? `<button data-a="toggle">${s.closed ? 'Open it' : 'Close it'}</button>` : '') + `<button data-a="snap" class="${SNAP_ON ? 'on' : ''}" title="Snap lines and corners square. Turn off to place them freely.">${SNAP_ON ? '⊾ Square on' : '⊾ Square off'}</button>` + ib('smaller', 'A−', 'Thinner or smaller') + ib('bigger', 'A+', 'Thicker or bigger') + ib('dup', '⧉', 'Copy') + ib('del', '🗑', 'Delete', 'del') : `<button data-a="snap" class="${SNAP_ON ? 'on' : ''}" title="Snap lines and corners square. Turn off to place them freely.">${SNAP_ON ? '⊾ Square on' : '⊾ Square off'}</button><span class="muted small" style="color:#aaa;align-self:center;margin-left:6px">Colour for the next mark. Tap it to change.</span>`);
   $('mkCol').onclick = () => colourPicker(cur, c => { MK.col = c; if (s && MK.strokes.includes(s)) { snap(); s.col = c; } draw(); });
   el.querySelectorAll('[data-al]').forEach(b => b.onclick = () => { snap(); s.al = b.dataset.al; draw(); });
   el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => { const a = b.dataset.a;
+    if (a === 'snap') { SNAP_ON = !SNAP_ON; try { localStorage.setItem('mkSnap', SNAP_ON ? '1' : '0'); } catch (e) {} toast(SNAP_ON ? 'Corners and lines snap square' : 'Square snapping off: corners go where you put them'); draw(); return; }
     if (a === 'del') { snap(); MK.strokes = MK.strokes.filter(q => q !== s); MK.sel = null; }
     else if (a === 'dup') { snap(); const off = base().tol * 1.5, n = JSON.parse(JSON.stringify(s)); n.p = n.p.map(q => [q[0] + off, q[1] + off]); MK.strokes.push(n); MK.sel = n; }
     else if (a === 'toggle') { snap(); s.closed = !s.closed; }
@@ -221,8 +222,10 @@ function colourPicker(cur, done) {
 }
 // Right angles: a corner snaps square to the line before it (and level or plumb with the photo) when it is within a few degrees. Move it further and it is left where it is.
 const SNAP_DEG = 7;
+// Square snapping can be switched off (remembered on this device) so corners and lines go exactly where they are put.
+let SNAP_ON = true; try { SNAP_ON = localStorage.getItem('mkSnap') !== '0'; } catch (e) {}
 function squareUp(prev, p, before) {
-  if (!prev) return { p, on: false }; const dx = p[0] - prev[0], dy = p[1] - prev[1], len = Math.hypot(dx, dy); if (len < 4) return { p, on: false };
+  if (!prev || !SNAP_ON) return { p, on: false }; const dx = p[0] - prev[0], dy = p[1] - prev[1], len = Math.hypot(dx, dy); if (len < 4) return { p, on: false };
   const ang = Math.atan2(dy, dx), dirs = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
   let ref = null; if (before) { const r = Math.atan2(prev[1] - before[1], prev[0] - before[0]); ref = r; [r + Math.PI / 2, r - Math.PI / 2, r, r + Math.PI].forEach(d => dirs.push(d)); }
   let best = null, bd = SNAP_DEG * Math.PI / 180; dirs.forEach(d => { const diff = Math.abs(Math.atan2(Math.sin(ang - d), Math.cos(ang - d))); if (diff < bd) { bd = diff; best = d; } });
