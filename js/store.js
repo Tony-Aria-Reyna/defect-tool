@@ -61,6 +61,7 @@ async function firebaseStore() {
     async signInPassword(email, pw) { await U.signInWithEmailAndPassword(auth, email, pw); },
     async createPassword(email, pw) { try { const c = await U.createUserWithEmailAndPassword(auth, email, pw); try { await U.sendEmailVerification(c.user, { url: location.origin + location.pathname }); } catch (x) {} } catch (e) { if ((e.code || '') === 'auth/email-already-in-use') { await U.signInWithEmailAndPassword(auth, email, pw); } else throw e; } },
     // A password account has not proved it owns its email address; this sends Firebase's confirmation email, and reloads to see if it was done.
+    get verified() { return !!(auth.currentUser && auth.currentUser.emailVerified); },
     async sendVerify() { await U.sendEmailVerification(auth.currentUser, { url: location.origin + location.pathname }); },
     async reloadUser() { try { await U.reload(auth.currentUser); user = auth.currentUser; await auth.currentUser.getIdToken(true); } catch (e) {} return !!(auth.currentUser && auth.currentUser.emailVerified); },
     async resetPassword(email) { await U.sendPasswordResetEmail(auth, email, { url: location.origin + location.pathname }); },
