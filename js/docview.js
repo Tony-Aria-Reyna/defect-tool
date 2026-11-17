@@ -154,10 +154,10 @@ const names = (ids, list, key) => (ids || []).map(id => list.find(x => x.id === 
 async function overlayPage(pp) {
   let h = ''; const all = (V.d.marks || []).slice().sort((a, b) => a.page - b.page || a.y - b.y);
   all.forEach((m, i) => { if (m.page !== pp.p) return; const an = names(m.assetIds, fm().assets, 'element'), tn = names(m.taskIds, fm().tasks, 'title');
-    h += `<div class="dvm ${KCLS[m.kind] || 'ko'}${m.flag ? ' flag' : ''}${m.pending ? ' pend' : ''}${V.sel === m.id ? ' sel' : ''}" data-m="${esc(m.id)}" style="left:${m.x * 100}%;top:${m.y * 100}%;width:${m.w * 100}%;height:${m.h * 100}%"><i>${i + 1}</i><div class="dvtip"><b>${esc(m.kind || 'Requirement')}${m.period ? ': ' + esc(m.period) : ''}</b>${m.flag ? '<br><span style="color:#ffb4b4">Problem: ' + esc(m.flag) + '</span>' : ''}${m.pending ? '<br>Marked by AI, not checked yet' : ''}${m.clause ? '<br>Clause ' + esc(m.clause) : ''}${an.length ? '<br>Assets: ' + esc(an.join('; ')) : ''}${tn.length ? '<br>Tasks: ' + esc(tn.join('; ')) : ''}<br><u>Click to open</u></div></div>`; });
+    h += `<div class="dvm ${KCLS[m.kind] || 'ko'}${m.flag ? ' flag' : ''}${m.pending ? ' pend' : ''}${V.sel === m.id ? ' sel' : ''}" data-m="${esc(m.id)}" style="z-index:${Math.max(1, Math.round(1000 - m.w * m.h * 1000))};left:${m.x * 100}%;top:${m.y * 100}%;width:${m.w * 100}%;height:${m.h * 100}%"><i>${i + 1}</i><div class="dvtip"><b>${esc(m.kind || 'Requirement')}${m.period ? ': ' + esc(m.period) : ''}</b>${m.flag ? '<br><span style="color:#ffb4b4">Problem: ' + esc(m.flag) + '</span>' : ''}${m.pending ? '<br>Marked by AI, not checked yet' : ''}${m.clause ? '<br>Clause ' + esc(m.clause) : ''}${an.length ? '<br>Assets: ' + esc(an.join('; ')) : ''}${tn.length ? '<br>Tasks: ' + esc(tn.join('; ')) : ''}<br><u>Click to open</u></div></div>`; });
   if (V.hl && V.hl.length && pp.pg && pp.vp1) { const set = new Set(V.hl); try { for (const r of await runs(pp)) { if (norm(r.s).split(' ').some(w => set.has(w))) h += `<div class="dvhl" style="left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%"></div>`; } } catch (e) {} }
   if (!V) return; pp.o.innerHTML = h;
-  pp.o.querySelectorAll('.dvm').forEach(el => el.onclick = e => { if (V.mode === 'mark') return; e.stopPropagation(); const m = (V.d.marks || []).find(x => x.id === el.dataset.m); if (m) detail(m); });
+  pp.o.querySelectorAll('.dvm').forEach(el => el.onclick = e => { if (V.mode === 'mark') return; e.stopPropagation(); const m = (V.d.marks || []).find(x => x.id === el.dataset.m); if (m) { detail(m); overlay(); } });
 }
 function overlay() { if (V) V.pp.forEach(pp => { if (pp.gen === V.gen) overlayPage(pp); }); }
 function wireDraw() {
@@ -231,13 +231,15 @@ function drawResults() {
 async function snipImg(el, m) { if (!m.snip) { el.style.display = 'none'; return; } try { el.src = await S.store.resolveUrl(m.snip); } catch (e) { el.style.display = 'none'; } }
 function detail(m) {
   if (!V) return; V.side = 'detail'; V.sel = m.id; const A = (m.assetIds || []).map(id => fm().assets.find(a => a.id === id)).filter(Boolean), T = (m.taskIds || []).map(id => fm().tasks.find(t => t.id === id)).filter(Boolean);
-  $('dvSide').innerHTML = `<button class="dvback" id="dvB">‹ Search and list</button>
+  // Boxes in reading order, so Previous and Next step through the document the same way the numbers on the page run.
+  const all = (V.d.marks || []).slice().sort((a, b) => a.page - b.page || a.y - b.y), ix = all.findIndex(x => x.id === m.id);
+  $('dvSide').innerHTML = `<div class="dvnav"><button class="dvback" id="dvB">‹ Search and list</button><span><button class="mini" id="dvPv" ${ix <= 0 ? 'disabled' : ''}>‹ Previous</button> <b>${ix + 1} of ${all.length}</b> <button class="mini" id="dvNx" ${ix >= all.length - 1 ? 'disabled' : ''}>Next ›</button></span></div>
     <h3><span class="dvk ${KCLS[m.kind] || 'ko'}">${esc(m.kind || 'Requirement')}</span></h3>
     ${m.period ? `<p class="dvper">${esc(m.period)}</p>` : ''}<p class="muted small">${esc(V.d.title)} · page ${m.page}${m.clause ? ' · clause ' + esc(m.clause) : ''}</p>
     <img class="dvsnip" id="dvSn" alt="The marked clause">${m.text ? `<p class="dvtext">${esc(m.text)}</p>` : ''}${m.note ? `<p><b>Note:</b> ${esc(m.note)}</p>` : ''}${m.flag ? `<p style="color:#a32222"><b>Problem:</b> ${esc(m.flag)}</p>` : ''}${m.pending ? `<p class="muted small">Marked by AI. Check the box is in the right place and linked to the right asset.${can.edit() ? ' <button class="mini" id="dvOk">✔ Accept</button>' : ''}</p>` : ''}
     <h4>Applies to</h4>${A.map(a => `<button class="dvlink" data-a="${esc(a.id)}">▤ ${esc(a.ref || '')} ${esc(a.element)}<small>Open the asset</small></button>`).join('')}${T.map(t => `<button class="dvlink" data-t="${esc(t.id)}">⟳ ${esc(t.title)}<small>Open the maintenance task</small></button>`).join('')}${!A.length && !T.length ? '<p class="muted small">Not linked to an asset or task yet.</p>' : ''}
     ${can.edit() ? '<div class="act"><button id="dvDel" class="warn">Delete</button><button id="dvEd" class="go">Edit</button></div>' : ''}`;
-  snipImg($('dvSn'), m); $('dvB').onclick = home;
+  snipImg($('dvSn'), m); $('dvB').onclick = home; const step = async k => { const t = all[ix + k]; if (!t) return; await show(t.page, t.y); detail(t); overlay(); }; $('dvPv').onclick = () => step(-1); $('dvNx').onclick = () => step(1);
   if ($('dvOk')) $('dvOk').onclick = async () => { const o = { ...m, pending: false, checkedBy: S.user.email }; await saveMarks((V.d.marks || []).map(x => x.id === m.id ? o : x)); toast('Accepted'); detail(o); };
   $('dvSide').querySelectorAll('[data-a]').forEach(b => b.onclick = () => { const id = b.dataset.a; if (V) V.ret = null; close(); X.openAsset(id); });
   $('dvSide').querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const id = b.dataset.t; if (V) V.ret = null; close(); X.openTask(id); });
