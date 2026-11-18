@@ -112,6 +112,7 @@ async function firebaseStore() {
     },
     // A signed-in user accepts every invitation addressed to their verified email address.
     // Records when this person last opened the project, so admins can see who is active. Only their own entry changes.
+    async addActive(pid, day, mins) { const m = me(); await F.updateDoc(D('projects', pid), { [`memberInfo.${m.uid}.act.${day}`]: F.increment(mins), [`memberInfo.${m.uid}.lastSeen`]: new Date().toISOString() }); },
     async touch(pid) { const m = me(); try { await F.updateDoc(D('projects', pid), { [`memberInfo.${m.uid}.lastSeen`]: new Date().toISOString(), [`memberInfo.${m.uid}.email`]: m.email, [`memberInfo.${m.uid}.name`]: m.name }); } catch (e) {} },
     async claimInvites() {
       if (!user.email || !user.emailVerified || !navigator.onLine) return 0;

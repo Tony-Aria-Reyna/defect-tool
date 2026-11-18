@@ -178,6 +178,7 @@ export async function openProject(pid, quiet) {
     S.project = withDefaults(p); S.role = (p.members || {})[S.user.uid] || (S.sup ? 'admin' : '');
     if (!S.role) { b && b.done(); return false; }
     S.local.lastProject = pid; saveLocal();
+    ActiveTime.start(pid);
     try { const ls = ((p.memberInfo || {})[S.user.uid] || {}).lastSeen; if (S.store.touch && navigator.onLine && (!ls || Date.now() - Date.parse(ls) > 30 * 60000)) S.store.touch(pid); } catch (e) {}
     S.plans = await S.store.listPlans(pid);
     S.ai = can.write() ? await S.store.getPrivate(pid) : {};
@@ -1268,3 +1269,14 @@ async function addPhotos(fs) {
 window.addEventListener('rd-defects-changed', () => { filtersDirty = true; render(); });
 boot();
 autoFitAll();
+
+/* Active time: counts a minute only when the app is on screen and the person has tapped, typed or scrolled in the last 2 minutes */
+const ActiveTime = (() => {
+  let pid = null, lastAct = 0, pend = 0, tick = null;
+  const day = () => new Date().toLocaleDateString('en-CA');
+  const mark = () => { lastAct = Date.now(); };
+  ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(n => window.addEventListener(n, mark, { passive: true, capture: true }));
+  const flush = () => { if (!pid || pend < 1 || !navigator.onLine || !S.store.addActive) return; const m = pend; pend = 0; S.store.addActive(pid, day(), m).catch(() => { pend += m; }); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+  return { start(p) { if (pid && pid !== p) flush(); pid = p; mark(); if (!tick) tick = setInterval(() => { if (!document.hidden && Date.now() - lastAct < 120000) pend++; if (pend >= 5) flush(); }, 60000); } };
+})();
