@@ -211,21 +211,38 @@ function applyProjectChrome() {
 }
 
 /* ================================================================ filters & list */
-function fillSel(id, first, arr, v) { $(id).innerHTML = `<option value="">${first}</option>` + arr.map(a => `<option ${a === v ? 'selected' : ''} value="${esc(a)}">${esc(a)}</option>`).join(''); }
+const MS = '||', mv = v => v ? String(v).split(MS) : [], mHas = (v, x) => !v || mv(v).includes(x), mTxt = v => mv(v).map(x => x === '-' ? 'common areas' : x).join(' or ');
+function fillSel(id, first, arr, v) { const many = mv(v).length > 1; $(id).innerHTML = `<option value="">${first}</option>` + arr.map(a => `<option ${!many && a === v ? 'selected' : ''} value="${esc(a)}">${esc(a)}</option>`).join('') + (many ? `<option selected value="${esc(v)}" data-sum="1">${esc(mv(v).length + ' selected: ' + mTxt(v))}</option>` : ''); }
+// Every filter dropdown opens as a tick list, so several values can be chosen at once
+function multiPick(sel, key) {
+  sel.addEventListener('mousedown', e => { e.preventDefault(); open(); }); sel.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  sel.addEventListener('touchend', e => { e.preventDefault(); open(); });
+  function open() {
+    document.querySelectorAll('.mpop').forEach(x => x.remove());
+    const opts = [...sel.options].filter(o => o.value && !o.dataset.sum), cur = new Set(mv(S.F[key])), r = sel.getBoundingClientRect();
+    const pop = document.createElement('div'); pop.className = 'mpop'; pop.style.left = Math.max(4, Math.min(r.left, innerWidth - 284)) + 'px'; pop.style.top = Math.min(r.bottom + 4, innerHeight - 340) + 'px';
+    pop.innerHTML = `<div class="mh"><b>${esc(sel.options[0].text)}</b><button data-x="all">All</button><button data-x="none">None</button></div><div class="ml">${opts.map(o => `<label><input type="checkbox" value="${esc(o.value)}" ${cur.has(o.value) ? 'checked' : ''}> ${esc(o.text)}</label>`).join('')}</div><div class="mf"><button data-x="clr">Show all</button><button class="go" data-x="ok">Apply</button></div>`;
+    document.body.appendChild(pop);
+    const boxes = [...pop.querySelectorAll('input')], done = v => { pop.remove(); document.removeEventListener('pointerdown', away, true); S.F[key] = v; filtersDirty = true; render(); };
+    const away = e => { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('pointerdown', away, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', away, true), 0);
+    pop.onclick = e => { const x = e.target.dataset.x; if (!x) return; if (x === 'all' || x === 'none') boxes.forEach(b => b.checked = x === 'all'); if (x === 'clr') done(''); if (x === 'ok') { const v = boxes.filter(b => b.checked).map(b => b.value); done(v.length === boxes.length ? '' : v.join(MS)); } };
+  }
+}
 function initFilters() {
   const p = S.project, F = S.F, D = S.defects;
   const blocks = [...new Set([...S.plans.map(x => x.block), ...D.map(d => d.block)].filter(Boolean))].sort(natural);
   const levels = [...new Set([...S.plans.map(x => x.level), ...D.map(d => d.level)].filter(Boolean))];
   const units = [...new Set([...unitList(p), ...D.map(d => d.unit).filter(Boolean).map(String)])].sort(natural);
   fillSel('fBlock', 'All blocks', blocks, F.block); fillSel('fLevel', 'All levels', levels, F.level);
-  $('fUnit').innerHTML = '<option value="">All units</option><option value="-">Common / no unit</option>' + units.map(u => `<option ${u === F.unit ? 'selected' : ''}>${esc(u)}</option>`).join('');
+  fillSel('fUnit', 'All units', ['-', ...units], F.unit); $('fUnit').querySelector('option[value="-"]').textContent = 'Common / no unit';
   setProjectCtx(p); const sl = sevLabel(p); fillSel('fSev', sl === 'Severity' ? 'All severities' : 'All ' + sl.toLowerCase().replace(/y$/, 'ie') + 's', p.severities, F.sev); const so = document.querySelector('#sort option[value=sev]'); if (so) so.textContent = 'Sort: ' + sl.toLowerCase(); fillSel('fTrade', 'All trades', p.trades, F.trade);
   { const by = [...new Set(D.map(d => d.source).filter(Boolean))].sort(); fillSel('fBy', 'All raised by (company)', by, F.by); $('fBy').style.display = by.length > 1 ? '' : 'none'; } { const subs = subList(); fillSel('fSub', 'All subcontractors', subs, F.sub); $('fSub').style.display = subs.length ? '' : 'none'; } fillSel('fResp', 'All responsible', [...new Set([...p.responsible, ...D.map(d => d.responsible).filter(Boolean)])], F.resp);
 }
 let filtersDirty = true;
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && (!F.block || d.block === F.block) && (!F.level || d.level === F.level) && (!F.unit || (F.unit === '-' ? !d.unit : String(d.unit) === F.unit)) && (!F.sev || d.severity === F.sev) && (!F.trade || d.trade === F.trade) && (!F.resp || d.responsible === F.resp) && (!F.sub || d.subcontractor === F.sub) && (!F.by || (d.source || '') === F.by) && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
+  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && mHas(F.block, d.block) && mHas(F.level, d.level) && (!F.unit || mv(F.unit).some(u => u === '-' ? !d.unit : String(d.unit) === u)) && mHas(F.sev, d.severity) && mHas(F.trade, d.trade) && mHas(F.resp, d.responsible) && mHas(F.sub, d.subcontractor) && mHas(F.by, d.source || '') && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -255,9 +272,9 @@ export async function render() {
   renderPins();
 }
 // Filters fold away under the search box; anything that is narrowing the list shows as a chip that can be tapped off.
-const F_NAMES = { block: 'Block', level: 'Level', unit: 'Unit', sev: null, trade: 'Trade', resp: 'Responsible', sub: 'Subcontractor' };
+const F_NAMES = { block: 'Block', level: 'Level', unit: 'Unit', sev: null, trade: 'Trade', resp: 'Responsible', sub: 'Subcontractor', by: 'Raised by' };
 function filterChips() {
-  const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => [k, (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + (k === 'unit' && F[k] === '-' ? 'common areas' : F[k])]);
+  const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => [k, (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + mTxt(F[k])]);
   if (F.q) on.unshift(['q', 'Search "' + F.q + '"']); if (F.review) on.push(['review', 'To check']); if (F.toReview) on.push(['toReview', 'For me to inspect']);
   const n = on.filter(o => o[0] !== 'q').length, tg = $('fTog'), open = S.fOpen == null ? !isMobile() : S.fOpen;
   $('fMore').classList.toggle('open', open); tg.classList.toggle('on', open); tg.classList.toggle('has', n > 0); tg.innerHTML = (open ? '▴' : '▾') + ' Filters' + (n ? ` <b>${n}</b>` : '');
@@ -407,7 +424,7 @@ function histHtml(h) {
 // On the plan, say when a filter is hiding pins, and offer to clear it there and then.
 const DEF_STATUS = ['Open', 'In progress', 'Ready for review', 'Disputed'];
 function activeFilterNames() {
-  const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + (k === 'unit' && F[k] === '-' ? 'common areas' : F[k]));
+  const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + mTxt(F[k]));
   if (F.q) on.unshift('search "' + F.q + '"'); if (F.review) on.push('to check'); if (F.toReview) on.push('for me to inspect');
   const st = [...F.status]; if (!F.review && !F.toReview && (st.length !== DEF_STATUS.length || !DEF_STATUS.every(x => F.status.has(x)))) on.push('status ' + (st.length ? st.join(', ') : 'none'));
   return on;
@@ -416,7 +433,9 @@ function planFilterBar(onPlan, ids) {
   let bar = $('pfBar'); if (!bar) { bar = document.createElement('div'); bar.id = 'pfBar'; bar.className = 'pfbar'; $('planPane').insertBefore(bar, $('vp')); }
   const on = activeFilterNames(); if (!on.length) { bar.style.display = 'none'; return; }
   const shown = onPlan.filter(d => ids.has(d.id)).length, open = onPlan.filter(d => d.status !== 'Closed').length;
-  bar.innerHTML = `<span>⚑ <b>Filter on</b>: ${esc(on.join(' · '))}<br><small>${shown} of ${onPlan.length} pins on this plan shown${open !== onPlan.length ? ' (' + open + ' not closed)' : ''}</small></span><button id="pfClr">Clear filter</button>`;
+  const st = S.F.status, rv = S.F.review, tr = S.F.toReview; S.F.status = new Set(S.project.statuses); S.F.review = S.F.toReview = false; let any; try { any = filtered(); } finally { S.F.status = st; S.F.review = rv; S.F.toReview = tr; }
+  const all = filtered(), unp = all.filter(d => !d.plan || d.x == null).length, byS = S.project.statuses.map(x => [x, any.filter(d => d.status === x).length]).filter(x => x[1]);
+  bar.innerHTML = `<span>⚑ <b>Filter on</b>: ${esc(on.join(' · '))}<br><small><b>Whole project: ${all.length} item${all.length === 1 ? '' : 's'} match</b>${unp ? ' (' + unp + ' not pinned)' : ''} · ${shown} on this plan${open !== onPlan.length ? ' (' + open + ' of ' + onPlan.length + ' pins not closed)' : ''}</small><br><span class="pfst">${byS.map(([x, n]) => `<i style="background:${SCOL[x]}"></i>${esc(x)} <b>${n}</b>`).join(' ')}${any.length ? ` <span class="muted">· ${any.length} in total, all statuses</span>` : ''}</span></span><button id="pfClr">Clear filter</button>`;
   bar.style.display = ''; $('pfClr').onclick = () => $('clr').click();
 }
 function renderPins() {
@@ -1195,9 +1214,10 @@ function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, pinDragLabel: (id, x, y) => { const fp = S.plans.find(q => q.id === S.curPlan); if (!fp) return ''; const hit = locate(fp.zones, x, y) || {}; return [id, hit.unit ? 'Unit ' + hit.unit : '', hit.room || '', !hit.unit && !hit.room ? [fp.block ? 'Block ' + fp.block : '', fp.level || ''].filter(Boolean).join(' ') || fp.name || '' : ''].filter(Boolean).join(' · '); }, onPinMoved: movePin });
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned, elevSpot, Sync });
   FM.init({ render, getBytes }); const placeIt = (d, opt) => Placer.place(d, { pinPatch, elevSpot }, { rules: S.project.placeRules, ...(opt || {}) }); Tick.init({ render, reloadProject, pinPatch, placeIt }); Sync.init({ render, reloadProject, pinPatch, addSubs, placeIt });
-  [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['fBy', 'by', 'change'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
+  [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['fBy', 'by', 'change'], ['sort', 'sort', 'change']].forEach(([id, k]) => { if (id[0] === 'f') multiPick($(id), k); });
+  [['q', 'q', 'input'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
-  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
+  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   Search.init({ tools: toolList, units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
   Try.init({ enterTestMode, leaveTestMode, saveLocal, bar: viewAsBar });
