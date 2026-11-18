@@ -92,7 +92,13 @@ function accTag(p, email, role) {
   if (o.sources.length && ['editor', 'viewer'].includes(role)) bits.push('items from ' + o.sources.join(', '));
   return bits.length ? `<br><span class="small" style="color:var(--teal)">🔒 ${esc(bits.join('; '))}</span>` : '';
 }
-const secBoxes = (sel, name) => Object.entries(SECTIONS).map(([k, l]) => `<label style="display:inline-flex;gap:4px;margin:2px 10px 2px 0"><input type="checkbox" name="${name}" value="${k}" ${sel.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('');
+const SEC_IC = { dash: '◫', defects: '⚑', assets: '▤', maint: '⟳', comp: '✓', docs: '🗀', contacts: '☎', guide: '📖' };
+// Toggle list: every item on by default; switching one off greys it out. sel = saved list ([] means all on)
+const togList = (items, sel, name) => `<div class="tgl">${items.map(([k, l, ic]) => { const on = !sel.length || sel.includes(k); return `<label class="tg ${on ? '' : 'off'}"><span class="ic">${ic || '•'}</span><span class="nm">${esc(l)}</span><input type="checkbox" name="${name}" value="${esc(k)}" ${on ? 'checked' : ''}><span class="sl"></span></label>`; }).join('')}</div>`;
+const secBoxes = (sel, name) => togList(Object.entries(SECTIONS).map(([k, l]) => [k, l, SEC_IC[k]]), sel, name);
+const wireTg = () => document.querySelectorAll('.tg input').forEach(x => x.onchange = () => x.closest('.tg').classList.toggle('off', !x.checked));
+// All on is saved as [] (no limit); returns null if everything is off
+const onList = name => { const all = [...document.querySelectorAll(`input[name="${name}"]`)], on = all.filter(x => x.checked).map(x => x.value); return !on.length ? null : on.length === all.length ? [] : on; };
 const picked = name => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(x => x.value);
 async function saveAccess(p, access, done) {
   try { await S.store.updateProject(p.id, { access, orgScopes: {} }); p.access = access; p.orgScopes = {}; S.project.access = access; S.project.orgScopes = {}; toast('Access saved. It applies the next time those people open the project.', 5000); done && done(); }
@@ -102,16 +108,19 @@ async function saveAccess(p, access, done) {
 async function accessDialog(p, inv) {
   const doms = new Set([...Object.values(p.memberInfo || {}).map(i => domOf(i.email)), ...inv.map(i => domOf(i.email)), ...Object.keys(((p.access || {}).orgs) || {}), ...Object.keys(p.orgScopes || {})]);
   doms.delete(''); doms.delete(domOf(S.user.email));
-  const rows = [...doms].sort().map((d, i) => { const o = orgOf(p, d); return `<div class="card" style="padding:10px;margin:8px 0" data-dom="${esc(d)}"><b>${esc(d)}</b>
-    <p class="small muted" style="margin:4px 0">Sections they can use (none ticked = all sections)</p>${secBoxes(o.sections, 'as' + i)}
-    <p class="small muted" style="margin:8px 0 4px">Defect registers their editors and viewers can see (none ticked = all)</p>${(p.sources || []).map(s => `<label style="display:inline-flex;gap:4px;margin:2px 10px 2px 0"><input type="checkbox" name="ar${i}" value="${esc(s)}" ${o.sources.includes(s) ? 'checked' : ''}>${esc(s)}</label>`).join('')}</div>`; }).join('');
-  modal(`<h2>Access by organisation</h2><p class="note">Each company is recognised by the end of its email address, so new people from that company get the same access automatically. Admins are never limited. The contractor role always sees every defect register.</p>
+  const rows = [...doms].sort().map((d, i) => { const o = orgOf(p, d); return `<div class="card acc" data-dom="${esc(d)}"><h3>${esc(d)}</h3>
+    <div class="cols"><div><p class="lbl">Sections they can use</p>${secBoxes(o.sections, 'as' + i)}</div>
+    ${(p.sources || []).length ? `<div><p class="lbl">Defect registers editors and viewers can see</p>${togList(p.sources.map(x => [x, x, '⚑']), o.sources, 'ar' + i)}</div>` : ''}</div></div>`; }).join('');
+  modal(`<h2>Access by organisation</h2><p class="note">Everything is on by default. Switch off what a company should not see. Each company is recognised by the end of its email address, so new people from that company get the same access automatically. Admins are never limited, and the contractor role always sees every defect register.</p>
   ${rows || '<p class="empty">No other organisations on this project yet. Invite someone first.</p>'}
   <div class="act"><button id="acX">Back</button>${rows ? '<button class="go" id="acGo">Save</button>' : ''}</div>`, true);
-  $('acX').onclick = () => usersDialog();
+  wireTg(); $('acX').onclick = () => usersDialog();
   if ($('acGo')) $('acGo').onclick = () => {
-    const orgs = {};
-    document.querySelectorAll('[data-dom]').forEach((el, i) => { const sections = picked('as' + i), sources = picked('ar' + i); if (sections.length || sources.length) orgs[el.dataset.dom] = { sections, sources }; });
+    const orgs = {}; let bad = '';
+    document.querySelectorAll('[data-dom]').forEach((el, i) => { const sections = onList('as' + i), sources = $(`[name="ar${i}"]`) ? onList('ar' + i) : [];
+      if (!sections) bad = bad || el.dataset.dom + ' needs at least one section switched on'; else if (!sources) bad = bad || el.dataset.dom + ' needs at least one defect register switched on';
+      else if (sections.length || sources.length) orgs[el.dataset.dom] = { sections, sources }; });
+    if (bad) return toast(bad, 5000);
     saveAccess(p, { ...(p.access || {}), orgs }, usersDialog);
   };
 }
@@ -121,14 +130,15 @@ function personAccess(p, email) {
   const per = ((((p.access || {}).people) || {})[email] || {}).sections || [];
   modal(`<h2>${esc(email)}</h2><p class="note">${o.sections.length ? `${esc(d)} can use: <b>${esc(o.sections.map(k => SECTIONS[k]).join(', '))}</b>.` : `${esc(d)} has no section limit.`}</p>
   <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="org" ${per.length ? '' : 'checked'}> Same as their organisation</label>
-  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="own" ${per.length ? 'checked' : ''}> Only these sections:</label>
-  <div style="margin-left:22px">${secBoxes(per.length ? per : o.sections, 'ps')}</div>
+  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="own" ${per.length ? 'checked' : ''}> Only these sections for this person:</label>
+  <div id="paL" class="${per.length ? '' : 'dim'}">${secBoxes(per.length ? per : o.sections, 'ps')}</div>
   <p class="note">Admins are never limited, whatever is set here.</p>
   <div class="act"><button id="paX">Back</button><button class="go" id="paGo">Save</button></div>`, true);
+  wireTg(); document.querySelectorAll('[name="paM"]').forEach(r => r.onchange = () => $('paL').classList.toggle('dim', r.value === 'org' && r.checked));
   $('paX').onclick = () => usersDialog();
   $('paGo').onclick = () => {
-    const own = document.querySelector('input[name="paM"]:checked').value === 'own', l = picked('ps');
-    if (own && !l.length) return toast('Tick at least one section, or choose "Same as their organisation"');
+    const own = document.querySelector('input[name="paM"]:checked').value === 'own', l = onList('ps');
+    if (own && !l) return toast('Switch on at least one section, or choose "Same as their organisation"');
     const people = { ...(((p.access || {}).people) || {}) }; if (own) people[email] = { sections: l }; else delete people[email];
     saveAccess(p, { ...(p.access || {}), people }, usersDialog);
   };
