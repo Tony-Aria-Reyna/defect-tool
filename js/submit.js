@@ -281,7 +281,7 @@ export function bulk(files) {
 }
 
 /* ================================================================ link what is already in the library: no upload, the document becomes a submission and is checked */
-const libCands = () => fm().docs.filter(d => !d.submitted && DV.isPdf(d) && !/(^|\/)Superseded\//i.test(d.srcPath || '') && !/superseded/i.test(d.title || ''));
+const libCands = () => fm().docs.filter(d => !d.submitted && !d.superseded && DV.isPdf(d) && !/(^|\/)Superseded\//i.test(d.srcPath || '') && !/superseded/i.test(d.title || ''));
 const isWarr = d => /warrant|deed|guarant|bond|security/i.test([d.type, d.title, d.fileName].join(' '));
 export function kindFromText(t) {
   t = String(t || ''); const c = customKinds().find(n => t.toLowerCase().includes(n.toLowerCase())); if (c) return 'c:' + c;
@@ -304,26 +304,70 @@ export function linkExisting(a) {
   $('lkQ').oninput = draw; $('lkX').onclick = closeModal; draw(); $('lkQ').focus();
 }
 // Every warranty already in the library, matched to its element in one go
+// Every warranty already in the library, matched to its element in one go. Documents that look like versions of each other are
+// grouped: you compare them side by side and decide which is current. Nothing is left out or deleted without you choosing it.
+const ML = { over: {} };
+const TPL = /(^|[^a-z])(form of|template|draft|fillable|prepopulated|blank|unexecuted)([^a-z]|$)/i;
+const dateIn = d => { const m = /(\d{1,2})[-./](\d{1,2})[-./](20\d\d)/.exec([d.title, d.fileName].join(' ')); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(d.created || '').slice(0, 10); };
+const simWords = d => new Set(words([d.title, d.fileName].join(' ')).filter(w => !/^\d+$/.test(w) && !['yr', 'check', 'signed', 'dated', 'unsigned', 'version', 'issue', 'copy', 'final'].includes(w)));
+const similar = (x, y) => { const A = simWords(x), B = simWords(y); if (!A.size || !B.size) return false; let n = 0; A.forEach(w => B.has(w) && n++); return n / Math.min(A.size, B.size) >= 0.7; };
 export function matchLibrary() {
   const L = libCands().filter(isWarr); if (!L.length) return toast('No unlinked warranties in the library');
   const A = fm().assets.filter(a => a.status !== 'Not applicable').sort((a, b) => natural(a.system, b.system) || natural(a.ref || '', b.ref || ''));
-  // blank forms and templates are left out; where there are several versions of one guarantee or deed for one element, only the newest is put forward
-  const TPL = /\b(form of|template|draft|fillable|prepopulated|blank|unexecuted)\b/i, dateIn = d => { const m = /(\d{1,2})[-./](\d{1,2})[-./](20\d\d)/.exec(d.title || ''); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(d.created || '').slice(0, 10); };
-  const rows = L.map(d => { const g = guess([d.title, d.party, d.fileName].join(' ')), k = kindOf(d), lk = (d.assetIds || []).map(id => A.find(a => a.id === id)).filter(Boolean); const own = ['sch19', 'sch18', 'bond'].includes(k) && g.sure; return { d, a: own ? g.a : lk[0] || g.a, sure: own || !!lk[0] || g.sure, k, why: '' }; });
-  rows.forEach(r => { if (TPL.test(r.d.title || '') || TPL.test(r.d.fileName || '')) { r.why = 'blank form or template: left out'; r.a = null; } });
-  const grp = {}; rows.filter(r => r.a && r.k !== 'product' && r.k !== 'other').forEach(r => (grp[r.a.id + '|' + r.k] = grp[r.a.id + '|' + r.k] || []).push(r));
-  Object.values(grp).forEach(G => { if (G.length < 2) return; G.sort((x, y) => dateIn(y.d).localeCompare(dateIn(x.d))); G.slice(1).forEach(r => { r.why = 'older version (newest is ' + (dateIn(G[0].d) || 'listed') + '): left out'; r.a = null; }); });
-  rows.sort((x, y) => (!!x.why - !!y.why) || natural(x.d.system || '', y.d.system || '') || natural(x.d.title, y.d.title));
-  const opt = id => `<option value="">Skip</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element)}</option>`).join('');
-  const nOut = rows.filter(r => r.why).length;
-  modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions${nOut ? `. ${nOut} are blank forms, templates or older versions and are left out (listed at the bottom; type an element in to include one)` : ''}. Each has been matched to its element by its name and the company. To change one, click it and type any word: element, company, product or ref. Clear it to leave that document out. They are checked in the background, a few at a time.</p>
-  <table class="ftable bkt"><tr><th>Document</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')}${r.why ? ' · <b>' + esc(r.why) + '</b>' : r.sure ? '' : ' · <i>check this match</i>'}</span></td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to skip')}</td><td><select id="mlK${i}">${kindOpts(r.k)}</select></td></tr>`).join('')}</table>
+  const rows = L.map(d => { const g = guess([d.title, d.party, d.fileName].join(' ')), k = kindOf(d), lk = (d.assetIds || []).map(id => A.find(a => a.id === id)).filter(Boolean), own = ['sch19', 'sch18', 'bond'].includes(k) && g.sure;
+    const o = ML.over[d.id]; return { d, a: o ? A.find(a => a.id === o.a) || null : own ? g.a : lk[0] || g.a, sure: own || !!lk[0] || g.sure, k: o ? o.k : k, tpl: TPL.test([d.title, d.fileName].join(' ')) }; });
+  // groups: same element and type, or near-identical names, in the same building system
+  const gid = new Map(); let next = 0;
+  rows.forEach((r, i) => rows.forEach((q, j) => { if (j <= i) return; const same = (r.a && q.a && r.a.id === q.a.id && r.k === q.k && !['product', 'other'].includes(r.k)) || ((r.d.system || '') === (q.d.system || '') && similar(r.d, q.d));
+    if (!same) return; const g = gid.get(r.d.id) ?? gid.get(q.d.id) ?? next++; [r, q].forEach(x => { const old = gid.get(x.d.id); if (old != null && old !== g) rows.forEach(y => { if (gid.get(y.d.id) === old) gid.set(y.d.id, g); }); gid.set(x.d.id, g); }); }));
+  const groups = {}; rows.forEach(r => { const g = gid.get(r.d.id); if (g != null) (groups[g] = groups[g] || []).push(r); });
+  Object.values(groups).forEach(G => G.sort((x, y) => (x.tpl - y.tpl) || dateIn(y.d).localeCompare(dateIn(x.d))));
+  rows.forEach(r => { const G = groups[gid.get(r.d.id)]; r.grp = G && G.length > 1 ? G : null; r.newest = r.grp ? r.grp[0] === r : true; });
+  // first time through, only the newest of a group and no templates are put forward; your own choices are kept
+  rows.forEach(r => { if (ML.over[r.d.id]) return; if (r.tpl || !r.newest) r.a = null; });
+  rows.sort((x, y) => natural(x.d.system || '', y.d.system || '') || (gid.get(x.d.id) ?? 1e9) - (gid.get(y.d.id) ?? 1e9) || (x.grp && y.grp ? x.grp.indexOf(x) - y.grp.indexOf(y) : 0) || natural(x.d.title, y.d.title));
+  const nG = Object.values(groups).filter(G => G.length > 1).length, note = r => r.grp ? `<span class="mlg ${r.newest ? '' : 'old'}">${r.newest ? '⧉ newest of ' + r.grp.length + ' similar' : '⧉ similar to a newer document'} · <a href="#" data-cmp="${esc(r.d.id)}">compare side by side</a></span>` : '';
+  modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. ${nG ? `<b>${nG} groups look like versions of the same document</b>: only the newest of each is filled in. Use “compare side by side” to check, then link, move to Superseded or delete.` : ''} Blank forms and templates start empty. Click an element box and type to change it; leave it empty to leave the document out.</p>
+  <table class="ftable bkt"><tr><th>Document</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr class="${r.grp ? 'mlgr' : ''}${r.grp && !r.newest ? ' mlold' : ''}"><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')} · ${esc(dateIn(r.d) ? nzDate(dateIn(r.d)) : '')}${r.tpl ? ' · <b>blank form or template</b>' : ''}${!r.grp && !r.tpl && !r.sure ? ' · <i>check this match</i>' : ''}</span>${note(r)}</td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to leave out')}</td><td><select id="mlK${i}">${kindOpts(r.k)}</select></td></tr>`).join('')}</table>
   <div class="act"><button id="mlX">Cancel</button><button class="go" id="mlGo">Link and check</button></div>`, true);
-  $('mlX').onclick = closeModal; wirePicks(A);
+  const keep = () => rows.forEach((r, i) => { if (document.querySelector(`[data-apk="mlA${i}"]`)) ML.over[r.d.id] = { a: pickVal('mlA' + i), k: $('mlK' + i).value }; });
+  $('mlX').onclick = () => { ML.over = {}; closeModal(); }; wirePicks(A);
+  document.querySelectorAll('[data-cmp]').forEach(l => l.onclick = e => { e.preventDefault(); keep(); const r = rows.find(x => x.d.id === l.dataset.cmp); compare(r.grp.map(x => x.d), r.grp[0].a || r.a || A.find(a => a.id === pickVal('mlA' + rows.indexOf(r))), r.k); });
   $('mlGo').onclick = async () => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === pickVal('mlA' + i)), k: $('mlK' + i).value })).filter(x => x.a);
-    if (!go.length) return toast('Nothing chosen'); closeModal(); const b = busy('Linking…'); let n = 0;
+    if (!go.length) return toast('Nothing chosen'); ML.over = {}; closeModal(); const b = busy('Linking…'); let n = 0;
     try { for (const x of go) { b.set(`Linking ${++n} of ${go.length}…`); await convert(x.d, x.a, x.k); } b.done(); toast(`${go.length} linked. Checking in the background: results appear as they finish.`, 6000); } catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
     refresh(); };
+}
+
+/* ---------------- compare similar documents side by side, then decide */
+async function renderInto(el, d, token) {
+  el.innerHTML = '<p class="muted small">Loading…</p>';
+  try { const pdf = await DV.loadPdf(d); if (el.dataset.tok !== token) return; el.innerHTML = `<p class="muted small">${pdf.numPages} page${pdf.numPages === 1 ? '' : 's'}</p>`;
+    for (let p = 1; p <= Math.min(pdf.numPages, 12); p++) { const pg = await pdf.getPage(p), base = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(2, 900 / base.width) }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; c.className = 'cmpg';
+      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; if (el.dataset.tok !== token) return; el.appendChild(c); }
+    if (pdf.numPages > 12) el.insertAdjacentHTML('beforeend', '<p class="muted small">First 12 pages shown. Open it to see the rest.</p>'); pdf.destroy();
+  } catch (e) { el.innerHTML = `<p class="note">Could not show this document: ${esc(e.message)}</p>`; }
+}
+function compare(G, a, k) {
+  G = G.map(d => fm().docs.find(x => x.id === d.id)).filter(Boolean); if (G.length < 2) return matchLibrary();
+  let L = 0, R = 1; const adm = can.admin();
+  const side = (i, w) => { const d = G[i]; return `<div class="cmps"><div class="cmph"><select data-side="${w}">${G.map((x, j) => `<option value="${j}" ${j === i ? 'selected' : ''}>${esc(nzDate(dateIn(x)) || '')} · ${esc(x.title)}</option>`).join('')}</select>
+    <div class="small muted">${esc(d.fileName || '')} · ${(d.size / 1e6).toFixed(1)} MB · added ${esc(nzDate(String(d.created || '').slice(0, 10)))}${d.createdBy ? ' by ' + esc(d.createdBy) : ''}</div>
+    <div class="cmpa"><button class="btn2 go sm" data-use="${w}">✔ Link this one</button><button class="btn2 sm" data-sup="${w}">Move to Superseded</button>${adm ? `<button class="btn2 sm warn" data-del="${w}">🗑 Delete</button>` : ''}<button class="btn2 sm" data-open="${w}">Open</button></div></div><div class="cmpb" id="cmp${w}"></div></div>`; };
+  const draw = () => { modal(`<h2>⧉ Compare similar documents (${G.length})</h2><p class="note">Scroll each side to compare. Pick which to link, move older versions to Superseded (kept, but out of the way), or delete a file that should not be here.</p><div class="cmpw">${side(L, 'L')}${side(R, 'R')}</div><div class="act"><button id="cmX">‹ Back to the list</button></div>`, true);
+    $('mbox').classList.add('xwide'); ['L', 'R'].forEach(w => { const el = $('cmp' + w); el.dataset.tok = Math.random().toString(36); renderInto(el, G[w === 'L' ? L : R], el.dataset.tok); });
+    const both = [$('cmpL'), $('cmpR')]; let lock = false; both.forEach((el, i) => el.onscroll = () => { if (lock) return; lock = true; const o = both[1 - i]; o.scrollTop = el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight) * (o.scrollHeight - o.clientHeight); requestAnimationFrame(() => lock = false); });
+    document.querySelectorAll('[data-side]').forEach(s => s.onchange = () => { if (s.dataset.side === 'L') L = +s.value; else R = +s.value; draw(); });
+    const pick = w => G[w === 'L' ? L : R];
+    $('cmX').onclick = () => { $('mbox').classList.remove('xwide'); matchLibrary(); };
+    document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { $('mbox').classList.remove('xwide'); closeModal(); DV.open(pick(b.dataset.open), { ret: () => compare(G, a, k) }); });
+    document.querySelectorAll('[data-use]').forEach(b => b.onclick = () => { const d = pick(b.dataset.use); G.forEach(x => { if (x.id !== d.id) ML.over[x.id] = { a: '', k: (ML.over[x.id] || {}).k || kindOf(x) }; }); ML.over[d.id] = { a: (a && a.id) || (ML.over[d.id] || {}).a || '', k: (ML.over[d.id] || {}).k || k || kindOf(d) }; $('mbox').classList.remove('xwide'); toast('Set to link this one. The others are left out.', 3500); matchLibrary(); });
+    document.querySelectorAll('[data-sup]').forEach(b => b.onclick = async () => { const d = pick(b.dataset.sup); if (!(await confirmBox(`Move "${d.title}" to Superseded? It stays in the library, marked superseded, and is left out of warranty matching.`, 'Move to Superseded'))) return draw();
+      try { await S.store.patchItem(S.project.id, 'docs', d.id, { superseded: true, supersededAt: now(), supersededBy: S.user.email, title: /superseded/i.test(d.title) ? d.title : d.title + ' (superseded)' }); delete ML.over[d.id]; toast('Moved to Superseded'); G = G.filter(x => x.id !== d.id); if (G.length < 2) { $('mbox').classList.remove('xwide'); return matchLibrary(); } L = 0; R = 1; draw(); } catch (e) { toast('Could not move: ' + e.message, 6000); draw(); } });
+    document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { const d = pick(b.dataset.del); if (!(await confirmBox(`Delete "${d.title}" (${d.fileName || ''})? The file is removed from the library and cannot be recovered. Your copy in the OneDrive folders is not touched.`, 'Delete for good'))) return draw();
+      try { await S.store.deleteItem(S.project.id, 'docs', d.id); if (d.path) { try { await S.store.deleteFile(d.path); } catch (e) {} } delete ML.over[d.id]; toast('Deleted'); G = G.filter(x => x.id !== d.id); if (G.length < 2) { $('mbox').classList.remove('xwide'); return matchLibrary(); } L = 0; R = 1; draw(); } catch (e) { toast('Could not delete: ' + e.message, 6000); draw(); } });
+  };
+  draw();
 }
 
 /* ================================================================ submit */
