@@ -169,8 +169,8 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
       { const lm = o.comments === false ? null : latestMove(d); if (lm) { const head = wrap(`Latest: ${lm.label}, ${nzDate(String(lm.when || '').slice(0, 10)) || ''}${lm.who ? ', ' + lm.who : ''}`, fb, 8.5, colW - 12).slice(0, 2), body = lm.text ? wrap((lm.noteWho && lm.noteWho !== lm.who ? lm.noteWho + ': ' : '') + lm.text, f, 8.5, colW - 12).slice(0, 5) : [];
           const bh = (head.length + body.length) * 10.5 + 8, floor = top - half + 26; if (ty - 6 - bh > floor) { ty -= 6; dpg.drawRectangle({ x: M + 8, y: ty - bh + 4, width: colW, height: bh, color: hex('#eef6f8'), borderColor: hex(SCOL[d.status] || '#3bafbe'), borderWidth: 0.8 }); ty -= 7;
             head.forEach(l => { txt(dpg, l, M + 14, ty, 8.5, fb, NAVY); ty -= 10.5; }); body.forEach(l => { txt(dpg, l, M + 14, ty, 8.5); ty -= 10.5; }); } } }
-      const ph = recentPhotos(d).slice(0, o.single ? 4 : 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
-      const snips = []; { const p1 = d.plan && ctx.plans.find(p => p.id === d.plan); if (p1 && d.x != null) snips.push({ p: p1, x: d.x, y: d.y }); const p2 = d.plan2 && ctx.plans.find(p => p.id === d.plan2); if (p2 && d.x2 != null) snips.push({ p: p2, x: d.x2, y: d.y2 }); }
+      const ph = o.noPh ? [] : recentPhotos(d).slice(0, o.single ? 4 : 3), ax = M + colW + 24, aw = W - M - 8 - ax, ah = half - 40, by = top - 24 - ah;
+      const snips = []; if (!o.noSnip) { const p1 = d.plan && ctx.plans.find(p => p.id === d.plan); if (p1 && d.x != null) snips.push({ p: p1, x: d.x, y: d.y }); const p2 = d.plan2 && ctx.plans.find(p => p.id === d.plan2); if (p2 && d.x2 != null) snips.push({ p: p2, x: d.x2, y: d.y2 }); }
       const snip = async (sp, sx, sw, sh) => { try { const im = await getPlanImg(sp.p); const zoomDiv = sp.p.kind === 'elevation' ? 4 : 3; const sc = Math.min(sw / (im.width / zoomDiv), sh / (im.height / zoomDiv)), cw = sw / sc, ch = sh / sc;
           let cx = sp.x * im.width - cw / 2, cy = sp.y * im.height - ch / 2; cx = Math.max(0, Math.min(im.width - cw, cx)); cy = Math.max(0, Math.min(im.height - ch, cy));
           const ox = sx - cx * sc, oy = by + sh - (im.height - cy) * sc + (im.height - cy) * sc - (ch) * sc; const oy2 = by - (im.height - cy - ch) * sc;
@@ -191,6 +191,57 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
   // ---- footers, links
   // A single-item sheet keeps only the item's own page: no summary and no one-row schedule.
   if (o.single) { const keep = new Set(Object.values(detail).map(t => t.pg)); for (let i = pages.length - 1; i >= 0; i--) if (!keep.has(pages[i])) { doc.removePage(i); pages.splice(i, 1); } links.length = 0; Object.keys(rowRefs).forEach(k => delete rowRefs[k]); }
+  // ---- full item pack (single item): every photo, the whole history, the plans it is pinned on, attached documents
+  if (o.single && o.pack && L[0]) {
+    const d = L[0], K = o.pack, TOPY = H - M - HEAD - 18, BOT = M + 10;
+    if (K.history) {
+      st('Writing the full history…'); let hp = newPage('Full history'), yy = TOPY; txt(hp, 'Full history (' + (d.history || []).length + ' entries, oldest first)', M, yy, 12, fb, NAVY); yy -= 20;
+      const ents = (d.history || []).slice().sort((a, b) => String(a.t || '').localeCompare(String(b.t || '')));
+      for (const h of ents) {
+        const head = [String(h.t || '').slice(0, 16).replace('T', ' '), h.who || ''].filter(Boolean).join('  ·  ') + (h.st && h.st[1] ? '   [' + (h.st[0] ? h.st[0] + ' -> ' : '') + h.st[1] + ']' : '');
+        const body = wrap(h.txt || '', f, 9, W - 2 * M - 20); if ((h.photos || []).length) body.push('(' + h.photos.length + ' photo' + (h.photos.length === 1 ? '' : 's') + ' attached, shown in the photo pages)');
+        const need = 14 + body.length * 11 + 8; if (yy - need < BOT) { hp = newPage('Full history (continued)'); yy = TOPY; }
+        if (h.st && h.st[1]) hp.drawRectangle({ x: M, y: yy - need + 12, width: 3, height: need - 4, color: hex(SCOL[h.st[1]] || '#3bafbe') });
+        txt(hp, head, M + 10, yy, 9, fb, NAVY); yy -= 12; body.forEach(l => { txt(hp, l, M + 10, yy, 9); yy -= 11; }); yy -= 8;
+        hp.drawRectangle({ x: M + 10, y: yy + 4, width: W - 2 * M - 10, height: 0.4, color: LINE });
+      }
+    }
+    if (K.photos) {
+      const all = []; (d.photos || []).filter(x => x.url).forEach(x => all.push({ ...x, cap: (x.name || 'Photo') + (x.t ? ', ' + String(x.t).slice(0, 10) : '') }));
+      (d.history || []).forEach(h => (h.photos || []).filter(x => x.url).forEach(x => all.push({ ...x, cap: (x.name || 'Photo') + ', ' + String(h.t || '').slice(0, 10) + (h.who ? ', ' + h.who : '') })));
+      const seen = new Set(), uniq = all.filter(x => !seen.has(x.url) && seen.add(x.url));
+      const gw = (W - 2 * M - 12) / 2, gh = (TOPY - BOT - 40) / 2;
+      for (let i = 0; i < uniq.length; i++) {
+        if (i % 4 === 0) { st('Adding photos ' + (i + 1) + ' to ' + Math.min(i + 4, uniq.length) + ' of ' + uniq.length + '…'); var pp = newPage('Photos (' + uniq.length + ')'); }
+        const cx = M + (i % 2) * (gw + 12), cy = TOPY - 6 - (Math.floor(i % 4 / 2) + 1) * (gh + 20) + 20;
+        try { const im = await embedAny(doc, await ctx.getBytes(uniq[i].url)); const sc = Math.min(gw / im.width, gh / im.height); pp.drawImage(im, { x: cx + (gw - im.width * sc) / 2, y: cy + (gh - im.height * sc) / 2, width: im.width * sc, height: im.height * sc }); }
+        catch (e) { txt(pp, 'Photo could not be loaded', cx + 10, cy + gh / 2, 9, f, GREY); }
+        txt(pp, (i + 1) + '. ' + uniq[i].cap, cx, cy - 12, 8, f, GREY);
+      }
+    }
+    if (K.plans) {
+      for (const [pid, x, y2] of [[d.plan, d.x, d.y], [d.plan2, d.x2, d.y2]]) {
+        const pl = pid && ctx.plans.find(p => p.id === pid); if (!pl || x == null) continue; st('Adding plan ' + (pl.code || pl.name) + '…');
+        try { const im = await getPlanImg(pl), lp = newPage('Location: ' + (pl.code ? pl.code + ' ' : '') + (pl.name || '')), aw = W - 2 * M, ah = TOPY - BOT - 10, sc = Math.min(aw / im.width, ah / im.height), ox = M + (aw - im.width * sc) / 2, oy = BOT + (ah - im.height * sc) / 2;
+          lp.drawImage(im, { x: ox, y: oy, width: im.width * sc, height: im.height * sc }); const px = ox + x * im.width * sc, py = oy + (1 - y2) * im.height * sc;
+          lp.drawCircle({ x: px, y: py, size: 14, borderColor: hex('#d62828'), borderWidth: 2.5 }); lp.drawCircle({ x: px, y: py, size: 5, color: hex(SCOL[d.status] || '#d62828'), borderColor: P.rgb(1, 1, 1), borderWidth: 1 });
+          txt(lp, d.id + '  ' + (locText(d) || ''), M, TOPY + 4, 9, fb, NAVY); } catch (e) { console.warn('plan page', e); }
+      }
+    }
+    if (K.docs && (d.files || []).length) {
+      const list = [], ix = newPage('Attached documents');
+      for (const fl of d.files) {
+        const u = fl.url || fl.data; if (!u) { list.push([fl.name, 'not uploaded yet']); continue; } st('Adding ' + (fl.name || 'document') + '…');
+        try { const b = new Uint8Array(await ctx.getBytes(u));
+          if (b[0] === 0x25 && b[1] === 0x50) { const src = await P.PDFDocument.load(b, { ignoreEncryption: true }), cp = await doc.copyPages(src, src.getPageIndices()); cp.forEach(q => doc.addPage(q)); list.push([fl.name, 'included, ' + cp.length + ' page' + (cp.length === 1 ? '' : 's')]); }
+          else if ((b[0] === 0xFF && b[1] === 0xD8) || (b[0] === 0x89 && b[1] === 0x50)) { const im = await embedAny(doc, b), ip = newPage('Document: ' + (fl.name || '')), aw = W - 2 * M, ah = TOPY - BOT, sc = Math.min(aw / im.width, ah / im.height); ip.drawImage(im, { x: M + (aw - im.width * sc) / 2, y: BOT + (ah - im.height * sc) / 2, width: im.width * sc, height: im.height * sc }); list.push([fl.name, 'included as an image']); }
+          else list.push([fl.name, 'cannot be embedded in a PDF, open it in the app']);
+        } catch (e) { list.push([fl.name, 'could not be read: ' + e.message]); }
+      }
+      let yy = TOPY; txt(ix, 'Attached documents (' + list.length + ')', M, yy, 12, fb, NAVY); yy -= 20;
+      list.forEach(([nm, how], i) => { txt(ix, (i + 1) + '. ' + (nm || 'Document'), M, yy, 9.5, fb); txt(ix, how, M + 360, yy, 9, f, GREY); yy -= 15; });
+    }
+  }
   const n = pages.length, foot = `Prepared by ${APP.company}${pr.client ? ' for ' + pr.client : ''}`;
   pages.forEach((p, i) => { p.drawRectangle({ x: M, y: M - 22, width: W - 2 * M, height: 0.5, color: LINE }); txt(p, foot, M, M - 32, 7.5, f, GREY); const t = 'Page ' + (i + 1) + ' of ' + n; txt(p, t, W - M - f.widthOfTextAtSize(t, 7.5), M - 32, 7.5, f, GREY); });
   const annot = (page, dict) => { const ref = doc.context.register(doc.context.obj(dict)); let an = page.node.lookup(P.PDFName.of('Annots')); if (!an) { an = doc.context.obj([]); page.node.set(P.PDFName.of('Annots'), an); } an.push(ref); };

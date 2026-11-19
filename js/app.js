@@ -1064,13 +1064,26 @@ async function createFromAI(extra, base, why, review) {
 // One item as its own PDF (team layout: photos, plan with the pin, latest comment), then Share or Save. Uses the saved copy, so unsaved edits are not in it.
 async function sendItem() {
   if (!ED || ED.isNew) return; const d = S.defects.find(x => x.id === ED.d.id); if (!d) return toast('Save the item first');
-  const p = S.project, bz = busy('Building the PDF for ' + d.id + '…');
-  try {
-    const where = [d.unit ? 'Unit ' + d.unit : '', d.room].filter(Boolean).join(', ');
-    const b = await buildPdf([d], { single: true, team: true, comments: true, photos: true, plans: false, sig: false, title: 'Defect ' + d.id, sub: where || 'Single item', intro: 'This sheet covers one item. Please complete it and let us know when it is ready for inspection.' }, { project: p, plans: S.plans, getBytes, logoResero: 'img/resero-navy.png', me: S.user.name }, t => bz.set(t || 'Building the PDF for ' + d.id + '…'));
-    bz.done(); deliver(b, `${safeName(p.name)} - ${safeName(d.id)}${d.unit ? ' - Unit ' + safeName(String(d.unit)) : ''} - ${stamp()}.pdf`, 'PDF');
-  } catch (e) { console.error(e); bz.done(); toast(/fetch|CORS/i.test(e.message) ? 'Photos or plans could not be read. Check your connection and try again.' : 'Could not build the PDF: ' + e.message, 6000); }
+  const nPh = (d.photos || []).filter(x => x.url).length + (d.history || []).reduce((n, h) => n + (h.photos || []).filter(x => x.url).length, 0), nPl = [d.plan && d.x != null, d.plan2 && d.x2 != null].filter(Boolean).length, nF = (d.files || []).length, nH = (d.history || []).length;
+  let K = { sumPh: true, sumPl: true, photos: false, history: false, plans: false, docs: false }; try { Object.assign(K, JSON.parse(localStorage.getItem('sendPack') || '{}')); } catch (e) {}
+  const row = (k, ic, t, sub, n) => `<label class="tg ${n === 0 ? 'off' : ''}"><span class="ic">${ic}</span><span class="nm">${t}<br><small class="muted">${sub}</small></span><input type="checkbox" id="sp_${k}" ${K[k] && n !== 0 ? 'checked' : ''} ${n === 0 ? 'disabled' : ''}><span class="sl"></span></label>`;
+  modal(`<h2>📤 Send ${esc(d.id)}</h2><p class="note">The first page always has the item's details, description and latest update. Choose what else goes in the PDF.</p>
+  <p class="small muted" style="margin:10px 0 4px">ON THE FIRST PAGE</p><div class="tgl">${row('sumPh', '📷', 'Latest photos', 'Up to 4 of the most recent', nPh)}${row('sumPl', '📍', 'Plan cut-out', 'A close-up of where it is pinned', nPl)}</div>
+  <p class="small muted" style="margin:14px 0 4px">EXTRA PAGES</p><div class="tgl">${row('photos', '🖼', 'All photos', nPh + ' photo' + (nPh === 1 ? '' : 's') + ', four to a page, with date and who took them', nPh)}${row('history', '🕘', 'Full history', nH + ' entries: every comment, status change and edit, oldest first', nH)}${row('plans', '🗺', 'Full plan location', nPl ? 'The whole plan sheet' + (nPl > 1 ? 's' : '') + ' with the pin circled' : 'Not pinned yet', nPl)}${row('docs', '📎', 'Attached documents', nF ? nF + ' file' + (nF === 1 ? '' : 's') + ': PDFs and images are added in full, other files are listed' : 'No documents attached', nF)}</div>
+  <div class="act"><button id="spAll">Everything</button><button id="spX">Cancel</button><button class="go" id="spGo">Build PDF</button></div>`);
+  wireTg(); const ids = Object.keys(K); $('spX').onclick = closeModal;
+  $('spAll').onclick = () => ids.forEach(k => { const c = $('sp_' + k); if (!c.disabled) { c.checked = true; c.closest('.tg').classList.remove('off'); } });
+  $('spGo').onclick = async () => {
+    ids.forEach(k => K[k] = $('sp_' + k).checked); try { localStorage.setItem('sendPack', JSON.stringify(K)); } catch (e) {} closeModal();
+    const p = S.project, bz = busy('Building the PDF for ' + d.id + '…');
+    try {
+      const where = [d.unit ? 'Unit ' + d.unit : '', d.room].filter(Boolean).join(', '), full = K.photos || K.history || K.plans || K.docs;
+      const b = await buildPdf([d], { single: true, team: true, comments: true, photos: true, plans: false, sig: false, noPh: !K.sumPh, noSnip: !K.sumPl, pack: K, title: 'Defect ' + d.id, sub: where || 'Single item', intro: 'This sheet covers one item. Please complete it and let us know when it is ready for inspection.' }, { project: p, plans: S.plans, getBytes, logoResero: 'img/resero-navy.png', me: S.user.name }, t => bz.set(t || 'Building the PDF for ' + d.id + '…'));
+      bz.done(); deliver(b, `${safeName(p.name)} - ${safeName(d.id)}${d.unit ? ' - Unit ' + safeName(String(d.unit)) : ''}${full ? ' - full record' : ''} - ${stamp()}.pdf`, 'PDF');
+    } catch (e) { console.error(e); bz.done(); toast(/fetch|CORS/i.test(e.message) ? 'Photos or plans could not be read. Check your connection and try again.' : 'Could not build the PDF: ' + e.message, 6000); }
+  };
 }
+const wireTg = () => document.querySelectorAll('.tg input').forEach(x => x.onchange = () => x.closest('.tg').classList.toggle('off', !x.checked));
 
 /* ================================================================ export */
 export function getBytes(u) { return (async () => { const src = u.startsWith('data:') ? u : await imgUrl(u); let r = await fetch(src, { mode: 'cors' }); if (!r.ok) r = await fetch(src + (src.includes('?') ? '&' : '?') + 'pdf=' + Date.now(), { mode: 'cors', cache: 'no-store' }); if (!r.ok) throw new Error('fetch ' + r.status); return await r.arrayBuffer(); })(); }
