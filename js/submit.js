@@ -199,6 +199,12 @@ export async function runCheck(d0, onProg = () => {}) {
 /* ================================================================ background checks: up to three at once, the page stays usable */
 const Q = [], RUN = new Set(); let running = 0;
 export const checking = id => RUN.has(id) || Q.some(d => d.id === id);
+// The AI check is optional: each person chooses, and the choice is remembered on this device
+export const aiOn = () => { try { return localStorage.getItem('subAI') !== '0'; } catch (e) { return true; } };
+const setAi = v => { try { localStorage.setItem('subAI', v ? '1' : '0'); } catch (e) {} };
+const aiToggle = id => `<label class="sbai"><input type="checkbox" id="${id}" ${aiOn() ? 'checked' : ''}> <b>Check automatically with AI</b> <span class="muted small">Untick to review it yourself: it goes straight to review, and you can run the check later from Details.</span></label>`;
+async function manual(d) { const sub = plain({ ...d.sub, status: 'Awaiting review', check: { at: now(), manual: true, items: [] }, history: [...(d.sub.history || []), { t: now(), who: S.user.name, txt: 'Sent for manual review (automatic check not run).' }] }); await S.store.patchItem(S.project.id, 'docs', d.id, { sub }); refresh(); }
+export const route = (d, ai) => (ai === false || (ai == null && !aiOn())) ? manual(d) : enqueue(d);
 export function enqueue(d) { if (checking(d.id)) return; Q.push(d); pump(); }
 function pump() {
   while (running < 3 && Q.length) { const d = Q.shift(); running++; RUN.add(d.id); refresh();
@@ -287,7 +293,8 @@ export function bulk(files) {
   const rows = L.map(f => ({ f, ...guess(f.name) }));
   modal(`<h2>⬆ Submit ${L.length} document${L.length === 1 ? '' : 's'}</h2><p class="note">Each file has been matched to the element it most likely covers${skipped ? ` (${skipped} non-PDF file${skipped === 1 ? '' : 's'} left out)` : ''}. Check the matches, then submit. They upload and are checked in the background, so you can carry on working.</p>
   <table class="ftable bkt bkbig"><colgroup><col style="width:150px"><col><col style="width:34%"><col style="width:200px"></colgroup><tr><th></th><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td><canvas class="bkth" id="bkT${i}" title="Click to see it larger"></canvas></td><td>${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by company or name' : 'matching…'}</span></td><td>${pickHtml('bkA' + i, r.a)}</td><td><select id="bkK${i}">${kindOpts(r.k)}</select></td></tr>`).join('')}</table>
-  <div class="act"><button id="bkX">Cancel</button><button class="go" id="bkGo">Submit and check</button></div>`, true);
+  ${aiToggle('bkAi')}
+  <div class="act"><button id="bkX">Cancel</button><button class="go" id="bkGo">Submit</button></div>`, true);
   $('mbox').classList.add('xwide'); $('bkX').onclick = () => { $('mbox').classList.remove('xwide'); closeModal(); }; const touched = new Set(); wirePicks(A, k => touched.add(k));
   // page 1 of each file, so the match can be checked at a glance; click for a big view
   rows.forEach(async (r, i) => { try { const L = await DV.pdfLib(), pdf = await L.getDocument({ data: new Uint8Array(await r.f.arrayBuffer()) }).promise, pg = await pdf.getPage(1), b = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1100 / b.width }), c = $('bkT' + i); if (!c) return; c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; c.onclick = () => c.classList.toggle('big'); pdf.destroy(); } catch (e) { console.warn('thumb', e); } });
@@ -296,8 +303,8 @@ export function bulk(files) {
   $('bkGo').onclick = async () => {
     const go = L.map((f, i) => ({ f, a: fm().assets.find(a => a.id === pickVal('bkA' + i)), k: $('bkK' + i).value }));
     const miss = go.filter(x => !x.a).length; if (miss) return toast(`Choose the element for ${miss} file${miss === 1 ? '' : 's'}`);
-    $('mbox').classList.remove('xwide'); closeModal(); const b = busy('Uploading…'); let n = 0;
-    try { for (const x of go) { b.set(`Uploading ${++n} of ${go.length}: ${x.f.name}`); enqueue(await upload(x.f, x.a, x.k, '', null, typeOf(x.k, 'Other'))); } b.done(); toast(`${go.length} uploaded. Checking in the background: the results appear in the list as they finish.`, 6000); }
+    const useAi = $('bkAi').checked; setAi(useAi); $('mbox').classList.remove('xwide'); closeModal(); const b = busy('Uploading…'); let n = 0;
+    try { for (const x of go) { b.set(`Uploading ${++n} of ${go.length}: ${x.f.name}`); route(await upload(x.f, x.a, x.k, '', null, typeOf(x.k, 'Other')), useAi); } b.done(); toast(useAi ? `${go.length} uploaded. Checking in the background: the results appear in the list as they finish.` : `${go.length} uploaded and sent for review.`, 6000); }
     catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
     try { X.showSubs ? X.showSubs() : X.render(); } catch (e) {}
   };
@@ -311,19 +318,20 @@ export function kindFromText(t) {
   return /schedule\s*19|sch\s*19|weather\s*tight/i.test(t) ? 'sch19' : /schedule\s*18|sch\s*18|parent\s*company/i.test(t) ? 'sch18' : /\bbond\b|bank guarantee|retention|performance security|advance payment/i.test(t) ? 'bond' : /schedule\s*13|sch\s*13|deed/i.test(t) ? 'deed' : /warrant|guarant/i.test(t) ? 'product' : 'other';
 }
 const kindOf = d => kindFromText([d.type, d.title, d.fileName].join(' '));
-async function convert(d, a, k) {
+async function convert(d, a, k, ai) {
   const sub = { kind: k, status: 'Checking', by: S.user.email, byName: S.user.name, at: now(), note: 'Linked from the document library.', replaces: '', history: [{ t: now(), who: S.user.name, txt: 'Linked from the document library and submitted for checking.' }] };
   const patch = plain({ submitted: true, source: false, assetIds: [...new Set([a.id, ...(d.assetIds || [])])], type: typeOf(k, d.type), system: d.system || a.system || '', sub });
-  await S.store.patchItem(S.project.id, 'docs', d.id, patch); const r = { ...d, ...patch }; enqueue(r); return r;
+  await S.store.patchItem(S.project.id, 'docs', d.id, patch); const r = { ...d, ...patch }; route(r, ai); return r;
 }
 export function linkExisting(a) {
   const W = words([a.installer, a.element, a.product].join(' ')), score = d => { const h = words([d.title, d.party, d.fileName].join(' ')); return W.filter(w => h.some(x => x.startsWith(w) || w.startsWith(x))).length + ((d.assetIds || []).includes(a.id) ? 5 : 0) + (isWarr(d) ? 1 : 0); };
   const L = libCands().map(d => ({ d, sc: score(d) })).sort((x, y) => y.sc - x.sc || natural(x.d.title, y.d.title));
   modal(`<h2>🔗 Link a document to ${esc(a.ref || '')} ${esc(a.element)}</h2><p class="note">Choose a document already in the library. It is checked the same way as an upload. The best matches are at the top.</p>
   <input type="search" id="lkQ" placeholder="Search the library…" style="width:100%;margin-bottom:8px"><div class="lkl" id="lkL"></div>
+  ${aiToggle('lkAi')}
   <div class="act"><button id="lkX">Cancel</button></div>`, true);
   const draw = () => { const q = $('lkQ').value.toLowerCase().trim(); $('lkL').innerHTML = L.filter(x => !q || q.split(' ').every(w => [x.d.title, x.d.fileName, x.d.system].join(' ').toLowerCase().includes(w))).slice(0, 60).map(({ d, sc }) => `<div class="lkr"><div><b>${esc(d.title)}</b><br><span class="muted small">${esc(d.system || '')} · ${esc(d.type || '')}${(d.assetIds || []).includes(a.id) ? ' · already linked to this element' : ''}</span></div><select data-lk="${esc(d.id)}">${kindOpts(kindOf(d))}</select><button class="btn2 sm" data-lkgo="${esc(d.id)}">Link</button></div>`).join('') || '<p class="muted">No documents match.</p>';
-    document.querySelectorAll('[data-lkgo]').forEach(b => b.onclick = async () => { const d = fm().docs.find(x => x.id === b.dataset.lkgo), k = document.querySelector(`[data-lk="${b.dataset.lkgo}"]`).value || kindOf(d); closeModal(); try { await convert(d, a, k); toast('Linked. Checking in the background.', 4000); refresh(); } catch (e) { toast('Could not link: ' + e.message, 6000); } }); };
+    document.querySelectorAll('[data-lkgo]').forEach(b => b.onclick = async () => { const d = fm().docs.find(x => x.id === b.dataset.lkgo), k = document.querySelector(`[data-lk="${b.dataset.lkgo}"]`).value || kindOf(d); const useAi = $('lkAi').checked; setAi(useAi); closeModal(); try { await convert(d, a, k, useAi); toast(useAi ? 'Linked. Checking in the background.' : 'Linked and sent for review.', 4000); refresh(); } catch (e) { toast('Could not link: ' + e.message, 6000); } }); };
   $('lkQ').oninput = draw; $('lkX').onclick = closeModal; draw(); $('lkQ').focus();
 }
 // Every warranty already in the library, matched to its element in one go
@@ -352,7 +360,8 @@ export function matchLibrary() {
   const nG = Object.values(groups).filter(G => G.length > 1).length, note = r => r.grp ? `<span class="mlg ${r.newest ? '' : 'old'}">${r.newest ? '⧉ newest of ' + r.grp.length + ' similar' : '⧉ similar to a newer document'} · <a href="#" data-cmp="${esc(r.d.id)}">compare side by side</a></span>` : '';
   modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. ${nG ? `<b>${nG} groups look like versions of the same document</b>: only the newest of each is filled in. Use “compare side by side” to check, then link, move to Superseded or delete.` : ''} Blank forms and templates start empty. Click an element box and type to change it; leave it empty to leave the document out.</p>
   <table class="ftable bkt"><colgroup><col><col style="width:31%"><col style="width:180px"><col style="width:132px"></colgroup><tr><th>Document</th><th>Element</th><th>Type</th><th></th></tr>${rows.map((r, i) => `<tr class="${r.grp ? 'mlgr' : ''}${r.grp && !r.newest ? ' mlold' : ''}"><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')} · ${esc(dateIn(r.d) ? nzDate(dateIn(r.d)) : '')}${r.empty ? ' · <b style="color:#a32222">no file stored (empty entry)</b>' : ''}${r.tpl ? ' · <b>blank form or template</b>' : ''}${!r.grp && !r.tpl && !r.a ? ' · <b style="color:#8a5e00">no element fits: choose one or create it</b>' : !r.grp && !r.tpl && !r.sure ? ' · <i>check this match</i>' : ''}</span>${note(r)}</td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to leave out')}</td><td><select id="mlK${i}">${kindOpts(r.k)}</select></td><td class="mlact">${r.d.size ? `<button class="mini" data-mv="${esc(r.d.id)}" title="View the document">👁</button>` : '<span class="mlph"></span>'}${r.tpl && can.edit() ? `<button class="mini" data-mt="${esc(r.d.id)}" title="Keep it for the project team under Documents > Templates. Never in the handover export.">📋</button>` : '<span class="mlph"></span>'}${can.admin() ? `<button class="mini warn" data-md="${esc(r.d.id)}" title="Delete from the library">🗑</button>` : ''}</td></tr>`).join('')}</table>
-  <div class="act"><button id="mlX">Cancel</button><button class="go" id="mlGo">Link and check</button></div>`, true);
+  ${aiToggle('mlAi')}
+  <div class="act"><button id="mlX">Cancel</button><button class="go" id="mlGo">Link</button></div>`, true);
   const keep = () => rows.forEach((r, i) => { if (document.querySelector(`[data-apk="mlA${i}"]`)) ML.over[r.d.id] = { a: pickVal('mlA' + i), k: $('mlK' + i).value }; });
   $('mlX').onclick = () => { ML.over = {}; ML.solo = new Set(); closeModal(); }; wirePicks(A);
   const docOf = id => fm().docs.find(x => x.id === id);
@@ -363,8 +372,8 @@ export function matchLibrary() {
     try { await S.store.deleteItem(S.project.id, 'docs', d.id); if (d.path && d.size) { try { await S.store.deleteFile(d.path); } catch (e) {} } delete ML.over[d.id]; toast('Deleted'); } catch (e) { toast('Could not delete: ' + e.message, 6000); } matchLibrary(); });
   document.querySelectorAll('[data-cmp]').forEach(l => l.onclick = e => { e.preventDefault(); keep(); const r = rows.find(x => x.d.id === l.dataset.cmp); compare(r.grp.map(x => x.d), r.grp[0].a || r.a || A.find(a => a.id === pickVal('mlA' + rows.indexOf(r))), r.k); });
   $('mlGo').onclick = async () => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === pickVal('mlA' + i)), k: $('mlK' + i).value })).filter(x => x.a);
-    if (!go.length) return toast('Nothing chosen'); ML.over = {}; closeModal(); const b = busy('Linking…'); let n = 0;
-    try { for (const x of go) { b.set(`Linking ${++n} of ${go.length}…`); await convert(x.d, x.a, x.k); } b.done(); toast(`${go.length} linked. Checking in the background: results appear as they finish.`, 6000); } catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
+    if (!go.length) return toast('Nothing chosen'); const useAi = $('mlAi').checked; setAi(useAi); ML.over = {}; closeModal(); const b = busy('Linking…'); let n = 0;
+    try { for (const x of go) { b.set(`Linking ${++n} of ${go.length}…`); await convert(x.d, x.a, x.k, useAi); } b.done(); toast(useAi ? `${go.length} linked. Checking in the background: results appear as they finish.` : `${go.length} linked and sent for review.`, 6000); } catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
     refresh(); };
 }
 
@@ -415,6 +424,7 @@ export function submitDialog(a, replaces) {
   <label class="f" id="sbTW" style="display:none">Document type<select id="sbT">${(X.DOC_TYPES || []).filter(t => !/^Warranty/.test(t)).map(t => `<option>${esc(t)}</option>`).join('')}</select></label>
   <label class="f">File (PDF)<input type="file" id="sbF" accept=".pdf,application/pdf"></label>
   <label class="f">Note to the reviewer (optional)<textarea id="sbN" rows="2" placeholder="e.g. Signed copy to follow by post"></textarea></label>
+  ${aiToggle('sbAi')}
   <p class="note" id="sbHint"></p>
   <div class="act"><button id="sbX">Cancel</button><button class="go" id="sbGo">Upload and check</button></div>`);
   const kind = () => document.querySelector('input[name="sbK"]:checked').value;
@@ -427,15 +437,15 @@ export function submitDialog(a, replaces) {
     if (f.size > 150e6) return toast('That file is over 150 MB');
     if (k !== 'other' && !/\.pdf$/i.test(f.name)) return toast('Warranties must be submitted as a PDF');
     const type = typeOf(k, $('sbT').value);
-    closeModal(); const b = busy('Uploading ' + f.name + '…'); let d;
+    const useAi = $('sbAi') ? $('sbAi').checked : aiOn(); setAi(useAi); closeModal(); const b = busy('Uploading ' + f.name + '…'); let d;
     try { d = await upload(f, a, k, note, replaces, type); } catch (e) { b.done(); return toast(e.message === 'offline' ? 'No connection: the file was not uploaded. Try again when you are back online.' : 'Could not upload: ' + e.message, 8000); }
-    b.done(); enqueue(d); toast('Uploaded. Checking in the background: the result appears in the list in about a minute.', 5000);
+    b.done(); route(d, useAi); toast(useAi ? 'Uploaded. Checking in the background: the result appears in the list in about a minute.' : 'Uploaded and sent for review.', 5000);
   };
 }
 
 /* ================================================================ one submission: result, actions, history */
 const ICON = { true: '✓', false: '✗', null: '?' };
-const checkHtml = (c, sel, d) => !c ? '<p class="muted small">Not checked yet.</p>' : c.error ? `<p class="note">The automatic check could not run (${esc(c.error)}). It has gone to the reviewer as it is. Use “Check again” to retry.</p>` : c.skipped ? '<p class="muted small">Supporting document: no automatic check.</p>'
+const checkHtml = (c, sel, d) => c && c.manual ? '<p class="note">Reviewing by hand: the automatic check was not run. Use Details > Check again to run it.</p>' : !c ? '<p class="muted small">Not checked yet.</p>' : c.error ? `<p class="note">The automatic check could not run (${esc(c.error)}). It has gone to the reviewer as it is. Use “Check again” to retry.</p>` : c.skipped ? '<p class="muted small">Supporting document: no automatic check.</p>'
   : `<div class="ckl">${c.items.map(i => `<div class="ck ${i.ok === true ? 'ok' : i.ok === false ? 'bad' : 'unk'}${sel === i.k ? ' sel' : ''}${d && (d.marks || []).some(m => m.ck === i.k) ? ' go' : ''}" data-ck="${esc(i.k)}"><i>${ICON[i.ok]}</i><div><b>${esc(i.label)}</b>${i.found ? `<small>Found: ${esc(i.found)}</small>` : ''}${i.ok === false && i.fix ? `<small class="fix">To fix: ${esc(i.fix)}</small>` : ''}${i.ok === null ? '<small>Could not be told from the document: the reviewer will check this.</small>' : ''}</div></div>`).join('')}</div>`;
 const handMarks = d => (d.marks || []).filter(m => !m.chk && (m.flag || m.note)).sort((x, y) => x.page - y.page || x.y - y.y);
 // The document viewer's side panel is the review screen: the check, the actions, and the next one to review.
