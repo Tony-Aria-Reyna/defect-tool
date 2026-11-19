@@ -722,3 +722,4 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .duer{cursor:pointer}.duer:hover{background:#f6f9fc}
 .dk{display:inline-block;font-size:11px;padding:1px 6px;border-radius:6px;background:var(--grey);color:#334;margin-right:4px;vertical-align:1px}
 #dpL{max-height:55vh;overflow:auto}
+.cmppg{font-size:12px;color:#667;margin:10px 0 3px}.cmplk{font-weight:400;white-space:nowrap;margin-left:4px}.cmplk input{vertical-align:-2px}
