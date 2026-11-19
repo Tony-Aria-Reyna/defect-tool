@@ -101,7 +101,7 @@ export function feedback(fromTry) {
     catch (e) { $('fbGo').disabled = false; $('fbSt').innerHTML = 'Could not send from here (' + esc(e.message) + '). <a href="#" id="fbCopy">Copy my answers</a> and send them to the project team another way.'; $('fbCopy').onclick = async ev => { ev.preventDefault(); try { await navigator.clipboard.writeText(text(rec)); toast('Copied'); } catch (x) { toast('Could not copy'); } }; }
   };
 }
-const text = r => [`Resero Defects feedback from ${r.by} (${r.role}, ${r.device}, v${r.version})`, `Ease: ${r.ease || '-'}/5 · Would use on site: ${r.use || '-'}`, `Worked well: ${r.good || '-'}`, `Confusing: ${r.bad || '-'}`, `Missing: ${r.missing || '-'}`, ...(r.steps || []).filter(x => x.result !== 'ok').map(x => `${x.step}: ${x.result}${x.note ? ' · ' + x.note : ''}`)].join('\n');
+const text = r => [`Resero Site feedback from ${r.by} (${r.role}, ${r.device}, v${r.version})`, `Ease: ${r.ease || '-'}/5 · Would use on site: ${r.use || '-'}`, `Worked well: ${r.good || '-'}`, `Confusing: ${r.bad || '-'}`, `Missing: ${r.missing || '-'}`, ...(r.steps || []).filter(x => x.result !== 'ok').map(x => `${x.step}: ${x.result}${x.note ? ' · ' + x.note : ''}`)].join('\n');
 
 // Admin view of what has come in.
 export async function results() {

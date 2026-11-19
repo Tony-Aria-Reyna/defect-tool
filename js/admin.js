@@ -229,7 +229,7 @@ export async function plansDialog() {
   document.querySelectorAll('[data-open]').forEach(el => el.onclick = async e => { e.stopPropagation(); await collect(); closeModal(); S.view = S.view || {}; S.view[el.dataset.open] = el.dataset.vk || 'floor'; X.setTab('plan'); await X.showPlan(el.dataset.open); });
   document.querySelectorAll('.vname').forEach(i => { i.oninput = () => { i.size = Math.max(6, Math.min(22, i.value.length + 1)); }; i.onclick = e => e.stopPropagation(); });
   $('plExp').onclick = async () => { await collect();
-    const out = { app: 'Resero Defects', type: 'zones-export', project: S.project.name, exported: new Date().toISOString(), version: 1,
+    const out = { app: 'Resero Site', type: 'zones-export', project: S.project.name, exported: new Date().toISOString(), version: 1,
       plans: S.plans.map(p => ({ id: p.id, name: p.name, code: p.code || '', block: p.block || '', level: p.level || '', kind: p.kind || 'floor', w: p.w, h: p.h, zones: (p.zones || []).map(z => ({ id: z.id, kind: z.kind, name: z.name || '', unit: z.unit || '', room: z.room || '', block: z.block || '', level: z.level || '', poly: z.poly })), links: p.links || undefined })) };
     download(new Blob([JSON.stringify(out)], { type: 'application/json' }), `${(S.project.name || 'project').replace(/[^\w -]+/g, '')} - boundaries export ${todayISO()}.json`);
     toast('Boundaries exported. Send that file back and the remaining units can be mapped for you.', 6000); };

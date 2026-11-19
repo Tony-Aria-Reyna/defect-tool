@@ -102,20 +102,20 @@ export async function buildFmManual(mode, st = () => {}) {
   st('Writing the manual…');
   w.h1('How to use this manual', 'use');
   w.para(`This manual brings together what ${p.client || 'the owner'} needs to operate, maintain and keep ${p.name} compliant: key dates and contacts, the compliance schedule and building warrant of fitness (BWoF) obligations, the planned maintenance schedule, the asset and warranty register, and an index of the handover documents.`);
-  w.para('Blue text is a link. In the contents it jumps to the section; in the tables it opens the document. ' + (mode === 'zip' ? 'Links open the files in the Documents folder supplied with this manual, so keep the folder and this file together.' : 'Links open the online copy in Resero Defects, which needs internet access and a signed-in account for some files.'));
-  w.para('Many warranties depend on the maintenance in this manual being carried out and recorded. Keep maintenance records (in Resero Defects or with this manual) for the life of each warranty.', { bold: true });
+  w.para('Blue text is a link. In the contents it jumps to the section; in the tables it opens the document. ' + (mode === 'zip' ? 'Links open the files in the Documents folder supplied with this manual, so keep the folder and this file together.' : 'Links open the online copy in Resero Site, which needs internet access and a signed-in account for some files.'));
+  w.para('Many warranties depend on the maintenance in this manual being carried out and recorded. Keep maintenance records (in Resero Site or with this manual) for the life of each warranty.', { bold: true });
   w.h1('Key dates and contacts', 'dates');
   w.table([{ label: 'Item', w: .55, key: 'a' }, { label: 'Date', w: .45, key: 'b' }], [['Practical completion', p.pcDate], ['Defects notification period ends', dnpEnd], ['Code Compliance Certificate issued', p.cccDate], ['Building warrant of fitness due', p.bwofDue], ['Weathertightness guarantee ends (10 years from PC)', p.pcDate ? addFreq(p.pcDate, 10, 'years') : '']].map(([a, b]) => ({ a, b: b ? nzDate(b) : 'To be confirmed' })), { size: 9.5 });
   const C = contacts('FM');
   if (C.length) { w.h2('Contacts'); w.table([{ label: 'Role', w: .26, key: 'role', bold: true }, { label: 'Company / name', w: .3, key: 'name' }, { label: 'Phone', w: .18, key: 'phone' }, { label: 'Email', w: .26, key: 'email' }], C, { size: 9 }); }
-  else w.para('Contacts: add them in Resero Defects (Dashboard > Contacts) and regenerate this manual.', { color: w.GREY });
+  else w.para('Contacts: add them in Resero Site (Dashboard > Contacts) and regenerate this manual.', { color: w.GREY });
   st('Compliance…');
   w.h1('Compliance schedule and building warrant of fitness', 'comp');
   w.para(`The building has a compliance schedule${p.csNumber ? ' (' + p.csNumber + ')' : ''} listing its specified systems. Under the Building Act 2004 the owner must have each system inspected and maintained as the schedule requires, obtain a Form 12A certificate from an Independent Qualified Person (IQP) for each system every year, then sign the building warrant of fitness, display it in a public place in the building, and give a copy to Auckland Council. ${p.bwofDue ? 'The next BWoF is due ' + nzDate(p.bwofDue) + '.' : ''}${p.iqp ? ' IQP: ' + p.iqp + '.' : ''}`);
   w.table([{ label: 'System', w: .1, key: 'ss', bold: true }, { label: 'Description and location', w: .3, key: r => r.name + (r.location ? '\n' + r.location : '') }, { label: 'Performance standard', w: .28, key: 'standard' }, { label: 'Inspection, maintenance and reporting', w: .32, key: 'inspections' }], SY.slice().sort((a, b) => natural(a.ss, b.ss)));
   st('Maintenance…');
   w.h1('Maintenance schedule', 'maint');
-  w.para('Planned and compliance maintenance. Frequencies come from the compliance schedule, the performance standards and the manufacturers\' requirements; confirm them against the O&M manuals. Record each completed task, with any report, in Resero Defects.');
+  w.para('Planned and compliance maintenance. Frequencies come from the compliance schedule, the performance standards and the manufacturers\' requirements; confirm them against the O&M manuals. Record each completed task, with any report, in Resero Site.');
   SYSTEMS.forEach(sys => { const rows = T.filter(t => t.system === sys).sort((a, b) => natural(a.ss || 'zz', b.ss || 'zz') || natural(a.title, b.title)); if (!rows.length) return; w.h2(sys); w.table([{ label: 'Task', w: .44, key: r => (r.ss ? r.ss + ' ' : '') + r.title }, { label: 'Frequency', w: .14, key: r => freqText(r) }, { label: 'Responsible', w: .2, key: 'responsible' }, { label: 'Standard / reference', w: .22, key: 'standard' }], rows); });
   st('Assets and warranties…');
   w.h1('Assets and warranties', 'assets');
@@ -128,7 +128,7 @@ export async function buildFmManual(mode, st = () => {}) {
   SYSTEMS.concat(['']).forEach(sys => { const rows = Dd.filter(d => (d.system || '') === sys).sort((a, b) => natural(a.type, b.type) || natural(a.title, b.title)); if (!rows.length) return; w.h2(sys || 'General'); w.table([{ label: 'Document', w: .58, key: 'title', link: d => target(d, mode) }, { label: 'Type', w: .24, key: 'type' }, { label: 'Expiry', w: .18, key: d => d.expiry ? nzDate(d.expiry) : '' }], rows, { size: 8 }); });
   w.h1('Defects notification period', 'dnp');
   const open = S.defects.filter(d => d.status !== 'Closed');
-  w.para(`The defects notification period runs for ${p.dnpMonths || 12} months from practical completion${dnpEnd ? ', to ' + nzDate(dnpEnd) : ''}. Report any defect found in this period to the property team so it can be logged in Resero Defects and passed to the contractor. ${open.length ? open.length + ' items were open at the date of this manual:' : 'There were no open items at the date of this manual.'}`);
+  w.para(`The defects notification period runs for ${p.dnpMonths || 12} months from practical completion${dnpEnd ? ', to ' + nzDate(dnpEnd) : ''}. Report any defect found in this period to the property team so it can be logged in Resero Site and passed to the contractor. ${open.length ? open.length + ' items were open at the date of this manual:' : 'There were no open items at the date of this manual.'}`);
   if (open.length) w.table([{ label: 'ID', w: .1, key: 'id', bold: true }, { label: 'Item', w: .45, key: r => r.title + (r.desc ? '\n' + r.desc : '') }, { label: 'Location', w: .25, key: r => [r.block && 'Block ' + r.block, r.level, r.unit && 'Unit ' + r.unit, r.room].filter(Boolean).join(', ') }, { label: 'Status', w: .2, key: 'status' }], open.sort((a, b) => natural(a.id, b.id)).slice(0, 400), { size: 8 });
   return w.finish();
 }

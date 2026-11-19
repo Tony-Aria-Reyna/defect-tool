@@ -592,6 +592,6 @@ function icsBlob() {
   const fmt = iso => iso.replace(/-/g, ''), esc2 = s => String(s || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n');
   T.forEach(t => { let d = t.nextDue, k = 0; while (d && d <= end && k < 60) { ev.push(['BEGIN:VEVENT', `UID:${t.id}-${d}@resero-defects`, `DTSTAMP:${fmt(todayISO())}T000000Z`, `DTSTART;VALUE=DATE:${fmt(d)}`, `SUMMARY:${esc2((t.ss ? t.ss + ' ' : '') + t.title)} (${esc2(p.name)})`, `DESCRIPTION:${esc2([t.category, freqText(t), t.responsible && 'Responsible: ' + t.responsible, t.standard, t.instructions].filter(Boolean).join('\n'))}`, 'END:VEVENT'].join('\r\n')); if (!t.freqN) break; d = addFreq(d, t.freqN, t.freqUnit); k++; } });
   if (p.bwofDue) ev.push(['BEGIN:VEVENT', `UID:bwof-${p.bwofDue}@resero-defects`, `DTSTAMP:${fmt(todayISO())}T000000Z`, `DTSTART;VALUE=DATE:${fmt(p.bwofDue)}`, `SUMMARY:BWoF due (${esc2(p.name)})`, 'BEGIN:VALARM', 'TRIGGER:-P30D', 'ACTION:DISPLAY', 'DESCRIPTION:BWoF due in 30 days', 'END:VALARM', 'END:VEVENT'].join('\r\n'));
-  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Resero Property//Resero Defects//EN', 'CALSCALE:GREGORIAN', `X-WR-CALNAME:${esc2(p.name)} maintenance`, ...ev, 'END:VCALENDAR'].join('\r\n');
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Resero Property//Resero Site//EN', 'CALSCALE:GREGORIAN', `X-WR-CALNAME:${esc2(p.name)} maintenance`, ...ev, 'END:VCALENDAR'].join('\r\n');
   return new Blob([ics], { type: 'text/calendar' });
 }

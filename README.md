@@ -1,4 +1,4 @@
-# Resero Defects
+# Resero Site
 
 Defect registers and facility management for Resero projects. Each project has:
 - **Dashboard**: open defects, maintenance due, warranties expiring, BWoF countdown, Form 12A status, documents outstanding, key dates.

@@ -1,5 +1,5 @@
 rules_version = '2';
-// Resero Defects - Firestore security rules.
+// Resero Site - Firestore security rules.
 // Paste into Firebase console > Firestore Database > Rules > Publish (or deploy with the Firebase CLI).
 // System administrators: Firestore document system/admins with field "uids" (array of user IDs).
 service cloud.firestore {

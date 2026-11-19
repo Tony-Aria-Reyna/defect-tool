@@ -1,5 +1,5 @@
 rules_version = '2';
-// Resero Defects - Firebase Storage security rules.
+// Resero Site - Firebase Storage security rules.
 // Paste into Firebase console > Storage > Rules > Publish.
 service firebase.storage {
   match /b/{bucket}/o {

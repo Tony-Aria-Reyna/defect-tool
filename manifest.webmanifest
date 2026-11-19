@@ -1,6 +1,6 @@
 {
- "name": "Resero Defects",
- "short_name": "Resero Defects",
+ "name": "Resero Site",
+ "short_name": "Resero Site",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",

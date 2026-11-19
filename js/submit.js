@@ -223,7 +223,7 @@ function decide(d0, accept) {
       if (a && st && st !== a.status) await S.store.patchItem(S.project.id, 'assets', a.id, { status: st });
       b.done();
       if (accept) return toast('Accepted');
-      const link = location.origin + location.pathname, body = `${a ? (a.ref || '') + ' ' + (a.element || '') : d.title}\nDocument: ${d.fileName || d.title}\n\nThis has been sent back. What has to change:\n\n${note}\n\nOpen it in Resero Defects (Assets & warranties > Warranty submissions) to see the marked-up copy and upload the corrected version:\n${link}`;
+      const link = location.origin + location.pathname, body = `${a ? (a.ref || '') + ' ' + (a.element || '') : d.title}\nDocument: ${d.fileName || d.title}\n\nThis has been sent back. What has to change:\n\n${note}\n\nOpen it in Resero Site (Assets & warranties > Warranty submissions) to see the marked-up copy and upload the corrected version:\n${link}`;
       modal(`<h2>Sent back</h2><p>${esc(s.byName || s.by || 'The contractor')} will see this under <b>Warranty submissions</b>, with your note and the boxes on the document.</p><p class="muted small">The app does not send emails by itself. Use the button to tell them now.</p><div class="act"><button id="sbD">Done</button><a class="sbmail" id="sbM" href="mailto:${esc(s.by || '')}?subject=${encodeURIComponent((S.project.name || '') + ': warranty sent back, ' + (a ? a.element : d.title))}&body=${encodeURIComponent(body)}">✉ Email ${esc(s.byName || s.by || 'them')}</a></div>`);
       $('sbD').onclick = () => detail(r); $('sbM').onclick = () => setTimeout(() => detail(r), 400);
     } catch (e) { b.done(); toast('Could not save: ' + e.message, 7000); }

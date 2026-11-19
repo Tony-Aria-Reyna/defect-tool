@@ -1,4 +1,4 @@
-// Resero Defects - main app: sign in, projects, workspace, defect editor.
+// Resero Site - main app: sign in, projects, workspace, defect editor.
 import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
@@ -49,7 +49,7 @@ async function boot() {
   initMarkup();
   try { S.store = await createStore(); }
   catch (e) { console.error(e); document.body.innerHTML = '<p style="padding:20px">The app could not start: ' + esc(e.message) + '</p>'; return; }
-  if (isDemo()) document.title = 'Resero Defects (demo)';
+  if (isDemo()) document.title = 'Resero Site (demo)';
   $('sGoogle').onclick = async () => { try { await S.store.signInGoogle(); } catch (e) { $('sMsg').textContent = friendly(e); } };
   const sEm = () => { const e = $('sEmail').value.trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(e)) { $('sMsg').textContent = 'Enter your email address first.'; $('sEmail').focus(); return ''; } return e; };
   const sPw = () => { const p = $('sPw').value; if (p.length < 8) { $('sMsg').textContent = 'Use a password of at least 8 characters.'; $('sPw').focus(); return ''; } return p; };

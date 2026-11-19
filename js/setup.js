@@ -13,7 +13,7 @@ const pick = p => { const o = {}; KEYS.forEach(k => { if (p[k] != null && !(Arra
 export function saveTemplate() {
   const p = S.project; if (!p) return;
   const t = { type: 'template', v: 1, title: p.name + ' set-up', from: p.name, made: new Date().toISOString(), contractor: p.contractor || '', project: pick(p), subcontractors: p.subcontractors || [] };
-  deliver(new Blob([JSON.stringify(t, null, 1)], { type: 'application/json' }), `${safeName(p.name)} - PROJECT TEMPLATE (drop into Resero Defects) - ${stamp()}.json`, 'Project template');
+  deliver(new Blob([JSON.stringify(t, null, 1)], { type: 'application/json' }), `${safeName(p.name)} - PROJECT TEMPLATE (drop into Resero Site) - ${stamp()}.json`, 'Project template');
   toast('Template saved. On the projects page choose + New project, or drop this file there, to start the next job with the same set-up.', 7000);
 }
 
