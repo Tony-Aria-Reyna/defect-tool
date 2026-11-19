@@ -19,7 +19,21 @@ const plain = o => JSON.parse(JSON.stringify(o));
 export const STATUS = ['Checking', 'Failed check', 'Awaiting review', 'Sent back', 'Accepted', 'Superseded'];
 const ST_CLS = { 'Accepted': 'st-ok', 'Awaiting review': 'st-info', 'Failed check': 'st-bad', 'Sent back': 'st-bad', 'Checking': 'st-grey', 'Superseded': 'st-grey' };
 const chip = s => `<span class="st ${ST_CLS[s] || 'st-grey'}">${s === 'Checking' ? '<i class="sbspin"></i>' : ''}${esc(s === 'Failed check' ? 'Failed check: fix and resubmit' : s === 'Checking' ? 'Checking…' : s || '')}</span>`;
-const KIND = { deed: 'Schedule 13 deed (installer or subcontractor)', product: 'Manufacturer or product warranty', other: 'Supporting document (O&M manual, PS3, test record…)' };
+// The kinds of document that can be submitted. Built in: the NZS 3910/3916 schedules and the usual securities.
+// A project can add its own under Project settings > Warranty and guarantee types (checked with general points).
+const KIND0 = {
+  deed: ['Schedule 13 deed (installer or subcontractor warranty)', 'Sch 13 deed', 'Schedule 13 Deed', 'Warranty (Schedule 13 deed)'],
+  sch19: ['Schedule 19 weathertightness guarantee (Contractor)', 'Sch 19 guarantee', 'Schedule 19 Weathertightness Guarantee', 'Guarantee (Schedule 19 weathertightness)'],
+  sch18: ['Schedule 18 parent company guarantee', 'Sch 18 PCG', 'Schedule 18 Parent Company Guarantee', 'Guarantee (Schedule 18 parent company)'],
+  bond: ['Bond or bank guarantee (performance, retention, advance payment)', 'Bond', 'Bond', 'Bond / security'],
+  product: ['Manufacturer or product warranty', 'Product warranty', 'Product Warranty', 'Warranty (product)'],
+  other: ['Supporting document (O&M manual, PS3, test record…)', 'Supporting', '', ''],
+};
+const customKinds = () => String((S.project && S.project.guaranteeTypes) || '').split('\n').map(x => x.trim()).filter(Boolean).slice(0, 20);
+const kinds = () => { const o = { ...KIND0 }; customKinds().forEach(n => { o['c:' + n] = [n, n.slice(0, 22), n, n]; }); return o; };
+const KIND = new Proxy({}, { get: (_, k) => (kinds()[k] || [])[0] });
+export const kindOpts = sel => Object.entries(kinds()).map(([k, v]) => `<option value="${esc(k)}" ${k === sel ? 'selected' : ''}>${esc(v[1])}</option>`).join('');
+const isDeedLike = k => ['deed', 'sch19', 'sch18'].includes(k);
 export const isSub = d => !!(d && d.submitted && d.sub);
 export const subsOf = id => fm().docs.filter(d => isSub(d) && (d.assetIds || []).includes(id)).sort((a, b) => String(b.sub.at || '').localeCompare(String(a.sub.at || '')));
 const live = L => L.filter(d => d.sub.status !== 'Superseded');
@@ -27,7 +41,7 @@ const assetOf = d => fm().assets.find(a => (d.assetIds || []).includes(a.id));
 export const counts = () => { const L = fm().docs.filter(isSub); return { review: L.filter(d => d.sub.status === 'Awaiting review').length, fix: L.filter(d => ['Failed check', 'Sent back'].includes(d.sub.status)).length, accepted: L.filter(d => d.sub.status === 'Accepted').length }; };
 
 /* ================================================================ naming convention: [Contractor] - [Document type] - [What it covers] (warranty length) */
-const TYPE_LBL = { deed: 'Schedule 13 Deed', product: 'Product Warranty' };
+const TYPE_LBL = new Proxy({}, { get: (_, k) => (kinds()[k] || [])[2] || undefined });
 const TYPE_SHORT = [[/o&m/i, 'O&M Manual'], [/care/i, 'Care & Maintenance Guide'], [/producer|certificate/i, 'Producer Statement'], [/commission|test/i, 'Commissioning & Test Record'], [/as-built/i, 'As-Built Drawing'], [/data sheet/i, 'Product Data Sheet']];
 const FOLDER = [[/schedule 13/i, 'Warranties/Schedule 13 Deeds'], [/warranty/i, 'Warranties/Product Warranties'], [/o&m/i, 'O&M Manuals'], [/care/i, 'Care & Maintenance Guides'], [/producer|certificate/i, 'Producer Statements & Certificates'], [/commission|test/i, 'Commissioning & Test Data'], [/as-built/i, 'As-Built Drawings'], [/data sheet/i, 'Product Data Sheets']];
 const tidy = t => String(t || '').replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
@@ -37,7 +51,7 @@ export function convName(d, sub = d.sub) {
   if (sub.nameFixed) return d.title;
   const c = sub.check || {}, a = assetOf(d), items = c.items || [], bad = k => items.some(i => i.k === k && i.ok === false);
   let tag = '';
-  if (sub.status !== 'Accepted' && items.length) { const t = [bad('form') && 'wrong form', bad('contractor') && 'Contractor misnamed', bad('principal') && 'Principal misnamed', bad('owner') && 'owner not named', bad('complete') && 'blank template', (bad('exec') || bad('contractorSig')) && 'execution incomplete', bad('principalBlank') && 'Principal block signed'].filter(Boolean), n = items.filter(i => i.ok === false).length; tag = t.length ? ` (${t.slice(0, 2).join(', ')})` : n ? ` (${n} to fix)` : ''; }
+  if (sub.status !== 'Accepted' && items.length) { const t = [bad('form') && 'wrong form', bad('contractor') && 'Contractor misnamed', bad('principal') && 'Principal misnamed', bad('owner') && 'owner not named', bad('complete') && 'blank template', (bad('exec') || bad('contractorSig')) && 'execution incomplete', bad('principalBlank') && 'Principal block signed', bad('contractDate') && 'contract date blank', bad('signed') && 'unsigned', bad('amount') && 'no amount'].filter(Boolean), n = items.filter(i => i.ok === false).length; tag = t.length ? ` (${t.slice(0, 2).join(', ')})` : n ? ` (${n} to fix)` : ''; }
   const who = tidy(c.warrantor || d.party || (a && a.installer) || 'Unknown'), type = TYPE_LBL[sub.kind] || (TYPE_SHORT.find(([re]) => re.test(d.type || '')) || [0, d.type || 'Document'])[1];
   const works = tidy(c.worksShort || (a && a.element) || ''), per = tidy(c.periodShort || '');
   return `${who} - ${type}${tag}${works ? ' - ' + works : ''}${per ? ` (${per})` : ''}`.slice(0, 180);
@@ -68,7 +82,48 @@ const productPoints = p => [
   ['issuer', 'Issued by the manufacturer or supplier', 'It is issued by a named manufacturer or supplier and carries a date, a reference number or a signature.'],
   ['complete', 'Completed, not a blank template', 'The details are filled in. A template with empty fields for the parties, works or periods does not meet this.'],
 ];
-const MARK_KIND = { principal: 'Parties', contractor: 'Parties', warrantor: 'Parties', owner: 'Parties', period: 'Warranty period', date: 'Date', exec: 'Execution and signatures', contractorSig: 'Execution and signatures', principalBlank: 'Execution and signatures' };
+const ctr = p => p.contractor || 'the Contractor', prn = p => p.client || 'the Principal';
+const sch19Points = p => [
+  ['form', 'On the contract\'s Schedule 19 weathertightness guarantee form', 'The document is the contract\'s Schedule 19 form of weathertightness guarantee given by the Contractor, not a subcontractor warranty or a company\'s own form.'],
+  ['principal', `In favour of ${prn(p)}`, `The guarantee is given to "${prn(p)}" by name. Any other company, a council or a former owner does not meet this.`],
+  ['contractor', `Given by ${ctr(p)}`, `The Contractor giving the guarantee is "${ctr(p)}". "Ltd" for "Limited" is acceptable; any extra or different word (for example "North", "Holdings") is a different company.`],
+  ['contractDate', 'Contract date filled in', 'The date of the construction contract is filled in where the form asks for it. "[insert date]", a blank or a placeholder does not meet this.'],
+  ['period', 'Guarantee period stated from the PC certificate', 'The guarantee period is stated (normally 10 years) and runs from the date of the practical completion certificate.'],
+  ['date', 'Date of the deed filled in', 'The date of the deed itself is filled in.'],
+];
+const sch18Points = p => [
+  ['form', 'On the contract\'s Schedule 18 parent company guarantee form', 'The document is the contract\'s Schedule 18 form of parent company guarantee.'],
+  ['principal', `In favour of ${prn(p)}`, `The guarantee is given to "${prn(p)}" by name.`],
+  ['contractor', `Guarantees ${ctr(p)}`, `The company whose obligations are guaranteed is "${ctr(p)}". Any extra or different word in the name is a different company.`],
+  ['guarantor', 'Guarantor is the parent company, named in full', 'The guarantor is a different company from the Contractor (the parent or holding company), named with its full registered name.'],
+  ['contractDate', 'Contract date filled in', 'The date of the construction contract is filled in. "[●]", "[insert date]" or a blank does not meet this.'],
+  ['date', 'Date of the deed filled in', 'The date of the deed itself is filled in.'],
+];
+const bondPoints = p => [
+  ['issuer', 'Issued by a bank or insurer', 'The bond or guarantee is issued by a named bank, insurer or surety company, on its letterhead or form.'],
+  ['principal', `Beneficiary is ${prn(p)}`, `The beneficiary (the party that can call on it) is "${prn(p)}".`],
+  ['contractor', `On behalf of ${ctr(p)}`, `It is given on behalf of "${ctr(p)}". Any extra or different word in the name is a different company.`],
+  ['amount', 'Amount stated', 'A sum of money is stated, in figures or words.'],
+  ['expiry', 'Expiry or release stated', 'An expiry date, or the event on which it is released or reduced (for example practical completion or the end of the defects period), is stated.'],
+  ['signed', 'Signed by the issuer', 'It is signed for the bank, insurer or surety (a signature can be seen, or it states it is digitally signed).'],
+];
+const customPoints = (p, name) => [
+  ['form', `It is a ${name}`, `The document is a ${name}.`],
+  ['principal', `Names ${prn(p)} or this property`, `It names "${prn(p)}" as the party it is given to, or clearly identifies this project or property (${[p.name, p.address].filter(Boolean).join(', ')}).`],
+  ['party', 'Who gives it is named in full', 'The company or person giving it is named in full.'],
+  ['works', 'What it covers is clear', 'It says what works, products or obligations it covers.'],
+  ['period', 'Period or expiry stated', 'A period, an expiry date or a release event is stated.'],
+  ['date', 'Dated', 'It carries a date.'],
+];
+const execFor = (p, k) => k === 'deed' ? execPoints(p) : k === 'sch19' ? [
+  ['exec', `${ctr(p)} has executed it as a deed`, `In the block for the Contractor (or Guarantor) there are real signatures (handwriting or a pasted signature image) of two directors, OR of one director together with a witness who has signed and added their occupation and address. Check the company named in the execution block is "${ctr(p)}", not a holding company or another company. A typed name alone is not a signature.`],
+  ['principalBlank', `Principal block left blank for ${prn(p)}`, 'Any block for the Principal has no signature in it.'],
+] : k === 'sch18' ? [
+  ['exec', 'Guarantor has executed it as a deed', 'In the block for the Guarantor (the parent company) there are real signatures of two directors, OR of one director with a witness who has signed and added their occupation and address. A typed name alone is not a signature.'],
+  ['principalBlank', `Principal block left blank for ${prn(p)}`, 'Any block for the Principal has no signature in it.'],
+] : [];
+const frontFor = (p, k) => k === 'deed' ? deedPoints(p) : k === 'sch19' ? sch19Points(p) : k === 'sch18' ? sch18Points(p) : k === 'bond' ? bondPoints(p) : String(k).startsWith('c:') ? customPoints(p, k.slice(2)) : productPoints(p);
+const MARK_KIND = { contractDate: 'Date', guarantor: 'Parties', issuer: 'Parties', amount: 'Other', expiry: 'Date', signed: 'Execution and signatures', party: 'Parties', principal: 'Parties', contractor: 'Parties', warrantor: 'Parties', owner: 'Parties', period: 'Warranty period', date: 'Date', exec: 'Execution and signatures', contractorSig: 'Execution and signatures', principalBlank: 'Execution and signatures' };
 
 function brief(p, a, points, where) {
   return `You are checking a construction warranty document in New Zealand before the Principal's project manager accepts it. Check ONLY the numbered points below, strictly and literally. Do not be generous: if a point is not clearly met, it is not met.
@@ -103,7 +158,7 @@ export async function runCheck(d0, onProg = () => {}) {
     const first = Math.min(n, 3); for (let k = 1; k <= first; k++) await page(k);
     const scanned = pages[1].t.length < 200, found = {}, meta = {};
     const take = (j, pgNo) => { if (!j) return; ['warrantor', 'works', 'period', 'date', 'worksShort', 'periodShort'].forEach(k => { if (j[k] && !meta[k]) meta[k] = String(j[k]).slice(0, 200); }); (j.items || []).forEach(it => { if (it && it.k) found[it.k] = { ...it, page: Math.max(1, Math.min(n, +it.page || pgNo || 1)) }; }); };
-    const front = kind === 'deed' ? deedPoints(p) : productPoints(p);
+    const front = frontFor(p, kind), execs = execFor(p, kind);
     // the front matter: from the words where the PDF has them, from a picture of page 1 where it is a scan
     const askFront = async () => {
       onProg(scanned ? 'Reading page 1 (scanned)…' : 'Reading the parties, works and period…');
@@ -113,13 +168,13 @@ export async function runCheck(d0, onProg = () => {}) {
     };
     // the execution page is always looked at as a picture: a typed name is not a signature
     const askExec = async () => {
-      if (kind !== 'deed') return; let ex = n;
+      if (!execs.length) return; let ex = n;
       for (let k = Math.min(n, 12); k >= 1; k--) { const t = (await page(k)).t; if (/signed\s+(on behalf|by)|in witness/i.test(t)) { ex = k; break; } }
       onProg('Looking at the signatures on page ' + ex + '…');
-      take(parse(await aiCall(brief(p, a, execPoints(p), Q_BOX) + `\n\nThe picture is page ${ex} of ${n}: the execution (signature) page. Judge the signatures from what you can SEE in the picture, not from the typed names. Use "page":${ex}.`, await pageImage((await page(ex)).pg))), ex);
+      take(parse(await aiCall(brief(p, a, execs, Q_BOX) + `\n\nThe picture is page ${ex} of ${n}: the execution (signature) page. Judge the signatures from what you can SEE in the picture, not from the typed names. Use "page":${ex}.`, await pageImage((await page(ex)).pg))), ex);
     };
     await Promise.all([askFront(), askExec()]);
-    const defs = kind === 'deed' ? [...deedPoints(p), ...execPoints(p)] : front;
+    const defs = [...front, ...execs];
     if (!defs.some(([k]) => found[k])) throw new Error('the AI answer could not be read');
     const items = defs.map(([k, label]) => { const r = found[k] || {}; return { k, label, ok: r.ok === true ? true : r.ok === false ? false : null, found: String(r.found || '').slice(0, 240), fix: r.ok === true ? '' : String(r.fix || '').slice(0, 300) }; });
     // a box on the page for every point that failed, so the marked-up copy shows where
@@ -155,13 +210,13 @@ function resume() { if (!can.write()) return; fm().docs.filter(d => isSub(d) && 
 
 async function upload(f, a, k, note, replaces, type) {
   const pid = S.project.id, id = uid(), path = `projects/${pid}/docs/${id}/${safeName(f.name)}`, url = await S.store.putFile(path, f);
-  const d = { id, title: `${a.installer ? a.installer + ' - ' : ''}${k === 'deed' ? 'Schedule 13 Deed' : k === 'product' ? 'Product Warranty' : type} - ${a.element || ''}`.slice(0, 180), type, system: a.system || '', party: a.installer || '', assetIds: [a.id], url, path, fileName: f.name, size: f.size, mime: f.type || 'application/pdf', srcPath: '', taskId: '', audience: 'FM', created: now(), createdBy: S.user.email, submitted: true, source: false, marks: [],
+  const d = { id, title: `${a.installer ? a.installer + ' - ' : ''}${TYPE_LBL[k] || type} - ${a.element || ''}`.slice(0, 180), type, system: a.system || '', party: a.installer || '', assetIds: [a.id], url, path, fileName: f.name, size: f.size, mime: f.type || 'application/pdf', srcPath: '', taskId: '', audience: 'FM', created: now(), createdBy: S.user.email, submitted: true, source: false, marks: [],
     sub: { kind: k, status: 'Checking', by: S.user.email, byName: S.user.name, at: now(), note, replaces: replaces ? replaces.id : '', history: [{ t: now(), who: S.user.name, txt: 'Submitted' + (replaces ? ' as a corrected version' : '') + (note ? ': ' + note : '') + '.' }] } };
   await S.store.saveItem(pid, 'docs', plain(d));
   if (replaces && replaces.sub.status !== 'Accepted') { try { await S.store.patchItem(pid, 'docs', replaces.id, { sub: plain({ ...replaces.sub, status: 'Superseded', history: [...(replaces.sub.history || []), { t: now(), who: S.user.name, txt: 'Replaced by a corrected version.' }] }) }); } catch (e) { console.warn('supersede', e); } }
   return d;
 }
-const typeOf = (k, t) => k === 'deed' ? 'Warranty (Schedule 13 deed)' : k === 'product' ? 'Warranty (product)' : t;
+const typeOf = (k, t) => (kinds()[k] || [])[3] || t;
 
 /* ================================================================ smart element picker: type any part of the ref, element, company, product or system */
 const ALIAS = { hwc: 'hot water cylinder', ps3: 'producer statement', om: 'o&m', sch: 'schedule', ac: 'air conditioning heat pump', hvac: 'heat pump ventilation', ff: 'fire', bwof: 'compliance', tank: 'rainwater tank', gutter: 'gutter spouting membrane', roof: 'roof roofing', door: 'door doors', window: 'window joinery glazing', wall: 'wall cladding plaster' };
@@ -189,7 +244,10 @@ const words = t => String(t || '').toLowerCase().replace(/\.pdf$/, '').split(/[^
 function guess(name) {
   const W = words(name); let best = null, bs = 0;
   for (const a of fm().assets) { if (a.status === 'Not applicable') continue; const hay = words([a.installer, a.element, a.product].join(' ')); const sc = W.filter(w => hay.some(h => h.startsWith(w) || w.startsWith(h))).length; if (sc > bs) { bs = sc; best = a; } }
-  const k = /schedule\s*13|sch\s*13|deed/i.test(name) ? 'deed' : /warrant|guarant/i.test(name) ? 'product' : 'other';
+  const k = kindFromText(name);
+  // a contract-wide guarantee goes on its own element when the register has one
+  const own = { sch19: /weathertight/i, sch18: /parent company/i, bond: /bond|retention|security/i }[k];
+  if (own) { const hit = fm().assets.find(a => own.test(a.element || '')); if (hit) return { a: hit, k, sure: true }; }
   return { a: bs ? best : null, k, sure: bs >= 2 };
 }
 async function aiGuess(f, rows) {
@@ -207,7 +265,7 @@ export function bulk(files) {
   const opt = id => `<option value="">Choose the element…</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element + (a.installer ? ' (' + a.installer + ')' : ''))}</option>`).join('');
   const rows = L.map(f => ({ f, ...guess(f.name) }));
   modal(`<h2>⬆ Submit ${L.length} document${L.length === 1 ? '' : 's'}</h2><p class="note">Each file has been matched to the element it most likely covers${skipped ? ` (${skipped} non-PDF file${skipped === 1 ? '' : 's'} left out)` : ''}. Check the matches, then submit. They upload and are checked in the background, so you can carry on working.</p>
-  <table class="ftable bkt"><tr><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small">${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by name' : 'matching…'}</span></td><td>${pickHtml('bkA' + i, r.a)}</td><td><select id="bkK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
+  <table class="ftable bkt"><tr><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small">${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by name' : 'matching…'}</span></td><td>${pickHtml('bkA' + i, r.a)}</td><td><select id="bkK${i}">${kindOpts(r.k)}</select></td></tr>`).join('')}</table>
   <div class="act"><button id="bkX">Cancel</button><button class="go" id="bkGo">Submit and check</button></div>`, true);
   $('bkX').onclick = closeModal; const touched = new Set(); wirePicks(A, k => touched.add(k));
   rows.forEach(async (r, i) => { if (r.sure) return; const g = await aiGuess(r.f); const box = document.querySelector(`[data-apk="bkA${i}"]`); if (!box) return; if (g && g.a && !touched.has('bkA' + i)) { box.dataset.id = g.a.id; box.querySelector('input').value = label(g.a); $('bkS' + i).textContent = 'matched by reading page 1'; } else $('bkS' + i).textContent = g && g.a ? '' : 'no match found: choose it'; if (g && g.k && !$('bkK' + i).dataset.touched) $('bkK' + i).value = g.k; });
@@ -224,8 +282,12 @@ export function bulk(files) {
 
 /* ================================================================ link what is already in the library: no upload, the document becomes a submission and is checked */
 const libCands = () => fm().docs.filter(d => !d.submitted && DV.isPdf(d) && !/(^|\/)Superseded\//i.test(d.srcPath || '') && !/superseded/i.test(d.title || ''));
-const isWarr = d => /warrant|deed|guarant/i.test([d.type, d.title, d.fileName].join(' '));
-const kindOf = d => /schedule 13|sch 13|deed/i.test([d.type, d.title].join(' ')) ? 'deed' : isWarr(d) ? 'product' : 'other';
+const isWarr = d => /warrant|deed|guarant|bond|security/i.test([d.type, d.title, d.fileName].join(' '));
+export function kindFromText(t) {
+  t = String(t || ''); const c = customKinds().find(n => t.toLowerCase().includes(n.toLowerCase())); if (c) return 'c:' + c;
+  return /schedule\s*19|sch\s*19|weather\s*tight/i.test(t) ? 'sch19' : /schedule\s*18|sch\s*18|parent\s*company/i.test(t) ? 'sch18' : /\bbond\b|bank guarantee|retention|performance security|advance payment/i.test(t) ? 'bond' : /schedule\s*13|sch\s*13|deed/i.test(t) ? 'deed' : /warrant|guarant/i.test(t) ? 'product' : 'other';
+}
+const kindOf = d => kindFromText([d.type, d.title, d.fileName].join(' '));
 async function convert(d, a, k) {
   const sub = { kind: k, status: 'Checking', by: S.user.email, byName: S.user.name, at: now(), note: 'Linked from the document library.', replaces: '', history: [{ t: now(), who: S.user.name, txt: 'Linked from the document library and submitted for checking.' }] };
   const patch = plain({ submitted: true, source: false, assetIds: [...new Set([a.id, ...(d.assetIds || [])])], type: typeOf(k, d.type), system: d.system || a.system || '', sub });
@@ -237,7 +299,7 @@ export function linkExisting(a) {
   modal(`<h2>🔗 Link a document to ${esc(a.ref || '')} ${esc(a.element)}</h2><p class="note">Choose a document already in the library. It is checked the same way as an upload. The best matches are at the top.</p>
   <input type="search" id="lkQ" placeholder="Search the library…" style="width:100%;margin-bottom:8px"><div class="lkl" id="lkL"></div>
   <div class="act"><button id="lkX">Cancel</button></div>`, true);
-  const draw = () => { const q = $('lkQ').value.toLowerCase().trim(); $('lkL').innerHTML = L.filter(x => !q || q.split(' ').every(w => [x.d.title, x.d.fileName, x.d.system].join(' ').toLowerCase().includes(w))).slice(0, 60).map(({ d, sc }) => `<div class="lkr"><div><b>${esc(d.title)}</b><br><span class="muted small">${esc(d.system || '')} · ${esc(d.type || '')}${(d.assetIds || []).includes(a.id) ? ' · already linked to this element' : ''}</span></div><select data-lk="${esc(d.id)}"><option value="">Link as…</option><option value="deed" ${kindOf(d) === 'deed' && sc ? 'selected' : ''}>Sch 13 deed</option><option value="product" ${kindOf(d) === 'product' && sc ? 'selected' : ''}>Product warranty</option><option value="other">Supporting</option></select><button class="btn2 sm" data-lkgo="${esc(d.id)}">Link</button></div>`).join('') || '<p class="muted">No documents match.</p>';
+  const draw = () => { const q = $('lkQ').value.toLowerCase().trim(); $('lkL').innerHTML = L.filter(x => !q || q.split(' ').every(w => [x.d.title, x.d.fileName, x.d.system].join(' ').toLowerCase().includes(w))).slice(0, 60).map(({ d, sc }) => `<div class="lkr"><div><b>${esc(d.title)}</b><br><span class="muted small">${esc(d.system || '')} · ${esc(d.type || '')}${(d.assetIds || []).includes(a.id) ? ' · already linked to this element' : ''}</span></div><select data-lk="${esc(d.id)}">${kindOpts(kindOf(d))}</select><button class="btn2 sm" data-lkgo="${esc(d.id)}">Link</button></div>`).join('') || '<p class="muted">No documents match.</p>';
     document.querySelectorAll('[data-lkgo]').forEach(b => b.onclick = async () => { const d = fm().docs.find(x => x.id === b.dataset.lkgo), k = document.querySelector(`[data-lk="${b.dataset.lkgo}"]`).value || kindOf(d); closeModal(); try { await convert(d, a, k); toast('Linked. Checking in the background.', 4000); refresh(); } catch (e) { toast('Could not link: ' + e.message, 6000); } }); };
   $('lkQ').oninput = draw; $('lkX').onclick = closeModal; draw(); $('lkQ').focus();
 }
@@ -248,7 +310,7 @@ export function matchLibrary() {
   const rows = L.map(d => { const lk = (d.assetIds || []).map(id => A.find(a => a.id === id)).filter(Boolean); const g = guess([d.title, d.party, d.fileName].join(' ')); return { d, a: lk[0] || g.a, sure: !!lk[0] || g.sure, k: kindOf(d) }; }).sort((x, y) => natural(x.d.system || '', y.d.system || '') || natural(x.d.title, y.d.title));
   const opt = id => `<option value="">Skip</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element)}</option>`).join('');
   modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. To change one, click it and type any word: element, company, product or ref. Clear it to leave that document out. They are checked in the background, a few at a time.</p>
-  <table class="ftable bkt"><tr><th>Document</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')}${r.sure ? '' : ' · <i>check this match</i>'}</span></td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to skip')}</td><td><select id="mlK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
+  <table class="ftable bkt"><tr><th>Document</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')}${r.sure ? '' : ' · <i>check this match</i>'}</span></td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to skip')}</td><td><select id="mlK${i}">${kindOpts(r.k)}</select></td></tr>`).join('')}</table>
   <div class="act"><button id="mlX">Cancel</button><button class="go" id="mlGo">Link and check</button></div>`, true);
   $('mlX').onclick = closeModal; wirePicks(A);
   $('mlGo').onclick = async () => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === pickVal('mlA' + i)), k: $('mlK' + i).value })).filter(x => x.a);
@@ -259,19 +321,19 @@ export function matchLibrary() {
 
 /* ================================================================ submit */
 export function submitDialog(a, replaces) {
-  const k0 = replaces ? replaces.sub.kind : 'deed';
+  const k0 = replaces ? replaces.sub.kind : (/weathertight/i.test(a.element || '') ? 'sch19' : /parent company/i.test(a.element || '') ? 'sch18' : /bond|retention|security/i.test(a.element || '') ? 'bond' : 'deed');
   modal(`<h2>⬆ Submit for ${esc(a.ref || '')} ${esc(a.element || '')}</h2>
   ${replaces ? `<p class="note">This replaces <b>${esc(replaces.fileName || replaces.title)}</b> (${esc(replaces.sub.status)}). The earlier version is kept in the history.</p>` : ''}
   <p class="muted small">${[a.installer ? 'Installer: ' + esc(a.installer) : '', a.instWarranty ? 'Required from the installer: ' + esc(a.instWarranty) : '', a.mfrWarranty && a.mfrWarranty !== '-' ? 'Required from the manufacturer: ' + esc(a.mfrWarranty) : ''].filter(Boolean).join(' · ')}</p>
   <p class="lbl2">What are you submitting?</p>
-  <div class="sbk">${Object.entries(KIND).map(([k, l]) => `<label><input type="radio" name="sbK" value="${k}" ${k === k0 ? 'checked' : ''}> ${esc(l)}</label>`).join('')}</div>
+  <div class="sbk">${Object.entries(kinds()).map(([k, [l]]) => `<label><input type="radio" name="sbK" value="${k}" ${k === k0 ? 'checked' : ''}> ${esc(l)}</label>`).join('')}</div>
   <label class="f" id="sbTW" style="display:none">Document type<select id="sbT">${(X.DOC_TYPES || []).filter(t => !/^Warranty/.test(t)).map(t => `<option>${esc(t)}</option>`).join('')}</select></label>
   <label class="f">File (PDF)<input type="file" id="sbF" accept=".pdf,application/pdf"></label>
   <label class="f">Note to the reviewer (optional)<textarea id="sbN" rows="2" placeholder="e.g. Signed copy to follow by post"></textarea></label>
   <p class="note" id="sbHint"></p>
   <div class="act"><button id="sbX">Cancel</button><button class="go" id="sbGo">Upload and check</button></div>`);
   const kind = () => document.querySelector('input[name="sbK"]:checked').value;
-  const sync = () => { const k = kind(); $('sbTW').style.display = k === 'other' ? '' : 'none'; $('sbF').accept = k === 'other' ? '' : '.pdf,application/pdf'; $('sbHint').textContent = k === 'deed' ? 'It is checked straight away: form, parties, works, period, date and signatures. You will see the result in about a minute and can fix anything before it goes for review.' : k === 'product' ? 'It is checked straight away: owner or property named, product, period and issuer.' : 'Supporting documents go straight to the reviewer.'; };
+  const sync = () => { const k = kind(); $('sbTW').style.display = k === 'other' ? '' : 'none'; $('sbF').accept = k === 'other' ? '' : '.pdf,application/pdf'; $('sbHint').textContent = isDeedLike(k) && k !== 'deed' ? 'It is checked straight away against the contract form: parties, contract date, period and execution as a deed.' : k === 'bond' ? 'It is checked straight away: issuer, beneficiary, contractor, amount and expiry or release date.' : k.startsWith('c:') ? 'It is checked straight away: parties, what it covers, period and signatures.' : k === 'deed' ? 'It is checked straight away: form, parties, works, period, date and signatures. You will see the result in about a minute and can fix anything before it goes for review.' : k === 'product' ? 'It is checked straight away: owner or property named, product, period and issuer.' : 'Supporting documents go straight to the reviewer.'; };
   document.querySelectorAll('input[name="sbK"]').forEach(r => r.onchange = sync); sync();
   $('sbX').onclick = () => replaces ? detail(replaces) : closeModal();
   $('sbGo').onclick = async () => {
@@ -279,7 +341,7 @@ export function submitDialog(a, replaces) {
     if (!f.size) return toast('That file reads as empty (0 bytes). If it is in OneDrive, open it once so it downloads, then choose it again.', 9000);
     if (f.size > 150e6) return toast('That file is over 150 MB');
     if (k !== 'other' && !/\.pdf$/i.test(f.name)) return toast('Warranties must be submitted as a PDF');
-    const type = k === 'deed' ? 'Warranty (Schedule 13 deed)' : k === 'product' ? 'Warranty (product)' : $('sbT').value;
+    const type = typeOf(k, $('sbT').value);
     closeModal(); const b = busy('Uploading ' + f.name + '…'); let d;
     try { d = await upload(f, a, k, note, replaces, type); } catch (e) { b.done(); return toast(e.message === 'offline' ? 'No connection: the file was not uploaded. Try again when you are back online.' : 'Could not upload: ' + e.message, 8000); }
     b.done(); enqueue(d); toast('Uploaded. Checking in the background: the result appears in the list in about a minute.', 5000);
@@ -454,7 +516,7 @@ export function view(tabs) {
   <p class="muted small">${can.edit() ? `${C.review} awaiting your review · ${C.fix} with the contractor to fix · ${C.accepted} accepted.` : `Submit each warranty against the element it covers. It is checked straight away so you can fix anything before it is reviewed. ${C.fix} need fixing · ${C.review} with the reviewer · ${C.accepted} accepted.`}</p>
   ${rows.length ? `<table class="ftable sbt"><tr><th>Ref</th><th>Element</th><th class="hm">Required</th><th>Status</th><th>Submitted</th><th></th></tr>
   ${rows.map(({ a, L }) => { const g = a.system !== last ? `<tr class="grp"><td colspan="6">${esc(a.system)}</td></tr>` : ''; last = a.system;
-    return g + `<tr><td>${esc(a.ref || '')}</td><td><b>${esc(a.element || '')}</b><br><span class="muted small">${esc([a.installer, a.product].filter(Boolean).join(' · '))}</span></td><td class="hm small">${esc([a.instWarranty && 'Installer: ' + a.instWarranty, a.mfrWarranty && a.mfrWarranty !== '-' && 'Manufacturer: ' + a.mfrWarranty].filter(Boolean).join(' · '))}</td><td><span class="st ${a.status === 'Received' ? 'st-ok' : a.status === 'Not received' ? 'st-bad' : 'st-warn'}">${esc(a.status || '')}</span></td><td>${L.map(d => `<a href="#" class="sbchip" data-sd="${esc(d.id)}" title="${esc(d.title)}">${chip(d.sub.status)}<small>${esc(d.sub.kind === 'deed' ? 'Deed' : d.sub.kind === 'product' ? 'Product' : 'Supporting')} · ${esc(dt(d.sub.at))}</small></a>`).join('') || '<span class="muted small">Nothing yet</span>'}</td><td class="sbbtns">${wr ? `<button class="btn2 sm" data-sub="${esc(a.id)}">⬆ Submit</button>` : ''}${can.edit() ? `<button class="btn2 sm" data-lnk="${esc(a.id)}" title="Link a document already in the library">🔗 Link</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">Nothing matches. Change the filter to see more.</div>'}`;
+    return g + `<tr><td>${esc(a.ref || '')}</td><td><b>${esc(a.element || '')}</b><br><span class="muted small">${esc([a.installer, a.product].filter(Boolean).join(' · '))}</span></td><td class="hm small">${esc([a.instWarranty && 'Installer: ' + a.instWarranty, a.mfrWarranty && a.mfrWarranty !== '-' && 'Manufacturer: ' + a.mfrWarranty].filter(Boolean).join(' · '))}</td><td><span class="st ${a.status === 'Received' ? 'st-ok' : a.status === 'Not received' ? 'st-bad' : 'st-warn'}">${esc(a.status || '')}</span></td><td>${L.map(d => `<a href="#" class="sbchip" data-sd="${esc(d.id)}" title="${esc(d.title)}">${chip(d.sub.status)}<small>${esc((kinds()[d.sub.kind] || ['', 'Document'])[1])} · ${esc(dt(d.sub.at))}</small></a>`).join('') || '<span class="muted small">Nothing yet</span>'}</td><td class="sbbtns">${wr ? `<button class="btn2 sm" data-sub="${esc(a.id)}">⬆ Submit</button>` : ''}${can.edit() ? `<button class="btn2 sm" data-lnk="${esc(a.id)}" title="Link a document already in the library">🔗 Link</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">Nothing matches. Change the filter to see more.</div>'}`;
   $('svQ').oninput = e => { VF.q = e.target.value; X.render(); const i = $('svQ'); if (i) { i.focus(); i.setSelectionRange(VF.q.length, VF.q.length); } };
   if ($('svZip')) $('svZip').onclick = filingPack;
   $('svS').onchange = e => { VF.sys = e.target.value; X.render(); }; $('svT').onchange = e => { VF.st = e.target.value; X.render(); };
