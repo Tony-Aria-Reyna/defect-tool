@@ -401,7 +401,7 @@ async function renderInto(el, d, token) {
   try { const pdf = await DV.loadPdf(d); if (el.dataset.tok !== token) return; el.innerHTML = `<p class="muted small">${pdf.numPages} page${pdf.numPages === 1 ? '' : 's'}</p>`;
     for (let p = 1; p <= Math.min(pdf.numPages, 12); p++) { const pg = await pdf.getPage(p), base = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(2, 900 / base.width) }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; c.className = 'cmpg';
       await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; if (el.dataset.tok !== token) return; const blank = isBlank(c);
-      el.insertAdjacentHTML('beforeend', `<div class="cmppg">Page ${p} of ${pdf.numPages}${blank ? ' <b class="cmpbl">blank page</b>' : ''}${can.edit() && pdf.numPages > 1 ? ` <button class="mini" data-rmpg="${p}">🗑 Remove this page</button>` : ''}</div>`);
+      el.insertAdjacentHTML('beforeend', `<div class="cmppg">Page ${p} of ${pdf.numPages}${blank ? ' <b class="cmpbl">blank page</b>' : ''}${can.edit() && pdf.numPages > 1 ? ` <button class="mini" data-rmpg="${p}">🗑 Remove this page</button>` : ''}${can.edit() && pdf.numPages > 1 ? ` <button class="mini" data-split="${p}" title="Make these pages a separate document">✂ Split from here</button>` : ''}</div>`);
       const wrap = document.createElement('div'), ov = document.createElement('canvas'); wrap.className = 'cmpgw'; ov.className = 'cmpo'; ov.width = c.width; ov.height = c.height; wrap.append(c, ov); el.appendChild(wrap);
       try { const tc = await pg.getTextContent(), U = (await DV.pdfLib()).Util;
         tc.items.forEach(it => { const str = it.str || ''; if (!str.trim()) return; const t = U.transform(vp.transform, it.transform), fh = Math.hypot(t[2], t[3]) || 10, wd = (it.width || 0) * vp.scale, n = str.length || 1;
@@ -410,6 +410,7 @@ async function renderInto(el, d, token) {
       } catch (e) {} }
     el._words = words.filter(x => x.k);
     el.querySelectorAll('[data-rmpg]').forEach(b => b.onclick = () => removePage(d, +b.dataset.rmpg, pdf.numPages, el));
+    el.querySelectorAll('[data-split]').forEach(b => b.onclick = () => splitDoc(d, +b.dataset.split, pdf.numPages, el));
     if (pdf.numPages > 12) el.insertAdjacentHTML('beforeend', '<p class="muted small">First 12 pages shown. Open it to see the rest.</p>'); pdf.destroy();
   } catch (e) { const gone = /40[34]|not.?found|unauthori/i.test(e.message || '');
     el.innerHTML = gone ? `<div class="cmpempty"><b>The file for this entry is missing from storage.</b><p>The library entry is here but its file could not be fetched (${esc(e.message)}). Choose the same file again from your folders to restore it; the entry, its links and history are kept.</p>${can.edit() ? '<p><label class="btn2 sm">⬆ Choose the file again<input type="file" accept=".pdf,application/pdf" hidden></label></p>' : ''}</div>` : `<p class="note">Could not show this document: ${esc(e.message)}</p>`;
@@ -450,6 +451,41 @@ function markDiffs(A, B, on) {
   [...A, ...B].forEach(x => { if (!x.ov._clr) { x.ov.getContext('2d').clearRect(0, 0, x.ov.width, x.ov.height); x.ov._clr = 1; } }); [...A, ...B].forEach(x => delete x.ov._clr);
   if (on) [[dA, 'rgba(255,196,0,.42)'], [dB, 'rgba(0,170,255,.32)']].forEach(([L, col]) => L.forEach(x => { const g = x.ov.getContext('2d'); g.fillStyle = col; g.fillRect(x.x - 1, x.y, x.wd + 2, x.h); }));
   return { dA, dB };
+}
+// Split a PDF that holds two documents: chosen pages become a new library entry (same system, company and links),
+// and are taken out of this one unless you choose to keep them. The file as it was is kept with this entry.
+async function splitDoc(d, from, total, el) {
+  const back = el._redraw, keep = { L: ($('cmpL') || {}).scrollTop || 0, R: ($('cmpR') || {}).scrollTop || 0 }, reopen = () => { if (back) { CMP_SCROLL = keep; back(); } };
+  const base = String(d.title || '').replace(/\s*\([^)]*\)\s*$/, '');
+  modal(`<h2>✂ Split into a new document</h2><p class="note">"${esc(d.title)}" has ${total} pages. The pages you choose become a new document in the library, filed under the same system and company and linked to the same elements.</p>
+    <div class="grid"><label class="f">From page<input id="spA" type="number" min="1" max="${total}" value="${from}"></label><label class="f">To page<input id="spB" type="number" min="1" max="${total}" value="${total}"></label>
+    <label class="f full">Name of the new document<input id="spT" value="${esc(base)} - "></label>
+    <label class="f full">Type<select id="spY">${(X.DOC_TYPES || []).map(t => `<option ${t === d.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    <div class="opt full"><input type="checkbox" id="spK" checked><label for="spK">Take these pages out of "${esc(d.title)}" (the file as it was is kept with it, so this can be put back)</label></div></div>
+    <div class="act"><button id="spX">Cancel</button><button class="go" id="spGo">Split</button></div>`);
+  $('spX').onclick = () => { closeModal(); reopen(); };
+  $('spGo').onclick = async () => {
+    const a = Math.max(1, +$('spA').value || 1), z = Math.min(total, +$('spB').value || total), title = $('spT').value.trim().replace(/\s*-\s*$/, ''), cut = $('spK').checked;
+    if (a > z) return toast('The first page has to come before the last');
+    if (cut && a === 1 && z === total) return toast('That is every page: untick "Take these pages out", or choose fewer pages');
+    if (!title || title === base) return toast('Give the new document its own name, for example what the warranty covers and its length');
+    closeModal(); const b = busy('Splitting…');
+    try { if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js');
+      const P = window.PDFLib, src = await P.PDFDocument.load(await X.getBytes(d.url), { ignoreEncryption: true }), idx = Array.from({ length: z - a + 1 }, (_, i) => a - 1 + i);
+      const nd = await P.PDFDocument.create(); (await nd.copyPages(src, idx)).forEach(pg => nd.addPage(pg)); const nb = new Blob([await nd.save()], { type: 'application/pdf' });
+      const id = uid(), fileName = safeName(title) + '.pdf', folder = d.restricted ? 'restricted' : 'docs', path = `projects/${S.project.id}/${folder}/${id}/${fileName}`, url = await S.store.putFile(path, nb);
+      const o = { id, title, fileName, url, path, size: nb.size, mime: 'application/pdf', type: $('spY') ? $('spY').value : d.type, system: d.system || '', party: d.party || '', issued: d.issued || '', audience: d.audience || 'FM', assetIds: (d.assetIds || []).slice(),
+        marks: (d.marks || []).filter(m => m.page >= a && m.page <= z).map(m => ({ ...m, page: m.page - a + 1 })), splitFrom: { id: d.id, title: d.title, pages: `${a}-${z}` }, created: new Date().toISOString(), createdBy: S.user.email };
+      if (!$('spY')) o.type = d.type || 'Other';
+      if (d.restricted) await S.store.bulkSave(S.project.id, 'rdocs', [o]); else await S.store.saveItem(S.project.id, 'docs', o);
+      if (cut) { idx.slice().reverse().forEach(i => src.removePage(i)); const ob = new Blob([await src.save()], { type: 'application/pdf' });
+        const dir = String(d.path || `projects/${S.project.id}/docs/${d.id}/x`).split('/').slice(0, -1).join('/'), op = `${dir}/${Date.now().toString(36)}-${safeName(d.fileName || 'document.pdf')}`, ou = await S.store.putFile(op, ob);
+        const prev = [...(d.prevFiles || []), { url: d.url, path: d.path || '', size: d.size || 0, at: new Date().toISOString(), by: S.user.email, why: `Before pages ${a} to ${z} were split out into "${title}"`, marks: d.marks || [] }];
+        const marks = (d.marks || []).filter(m => m.page < a || m.page > z).map(m => m.page > z ? { ...m, page: m.page - (z - a + 1) } : m);
+        const patch = { url: ou, path: op, size: ob.size, prevFiles: prev, marks, textIdx: null }; await S.store.patchItem(S.project.id, 'docs', d.id, patch); Object.assign(d, patch); }
+      b.done(); toast(`"${title}" is now its own document${(d.assetIds || []).length ? ', linked to the same elements' : ''}.`, 6000); reopen();
+    } catch (e) { b.done(); toast('Could not split it: ' + e.message, 8000); reopen(); }
+  };
 }
 function compare(G, a, k) {
   clearPeeks();
