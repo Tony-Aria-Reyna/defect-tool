@@ -15,9 +15,12 @@ export function initDrop(ctx) {
     if (!hasFiles(e)) return; e.preventDefault(); depth = 0; ov.classList.remove('show');
     // a single dropped file can also hand over a live link to itself (Chrome and Edge); it has to be asked for before anything else happens
     let hp = null; try { const its = [...(e.dataTransfer.items || [])].filter(i => i.kind === 'file'); if (its.length === 1 && its[0].getAsFileSystemHandle) hp = its[0].getAsFileSystemHandle(); } catch (x) {}
-    const files = await collect(e.dataTransfer);
+    let files = [], skipped = [];
+    try { const r = await collect(e.dataTransfer); files = r.files; skipped = r.skipped; }
+    catch (err) { console.error('drop', err); return dropFailed('The dropped files could not be read (' + (err.message || err.name) + ').'); }
+    if (skipped.length) toast(`${skipped.length} file${skipped.length === 1 ? '' : 's'} could not be read and ${skipped.length === 1 ? 'was' : 'were'} left out (usually OneDrive online-only files or very long paths): ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}`, 12000);
+    if (!files.length) return dropFailed(skipped.length ? 'None of the dropped files could be read.' : 'Nothing came through with the drop.');
     if (hp && files.length === 1) { try { const h = await hp; if (h && h.kind === 'file') files[0]._handle = h; } catch (x) {} }
-    if (!files.length) return;
     if (!S.project) { if (files.length === 1 && ext(files[0]) === 'json' && S.sup) return X.Admin.importJson(files[0]).catch(err => toast(err.message, 6000)); toast(S.sup ? 'Drop a project pack (.json) here, or open a project first' : 'Open a project first, then drop the files'); return; }
     if (!can.write()) { toast('Your role on this project cannot upload files'); return; }
     route(files).catch(err => { console.error(err); toast('Could not process the dropped files: ' + err.message, 6000); });
@@ -32,18 +35,29 @@ function where() {
 function hint() {
   return { defect: 'Photos and PDFs will be added to this defect', asset: 'Files will be uploaded and linked to this asset', plans: 'PDFs and images will be added as plans', defects: 'Import files (.json, Excel, CSV) or plan PDFs', fm: 'Files and folders will be filed in Documents by system and type' }[where()];
 }
+// When a drop cannot be read (Windows or OneDrive refuses it), offer the folder picker instead of failing silently.
+function dropFailed(why) {
+  if (!S.project) return toast(why, 8000);
+  modal(`<h2>The drop did not work</h2><p>${why}</p><p class="note">Windows sometimes refuses to hand dropped folders to the browser, for example OneDrive online-only files or very long file paths. Choosing the folder instead reads the same files.</p><div class="act"><button id="dfX">Cancel</button><button class="go" id="dfGo">🗂 Choose the folder</button></div>`);
+  $('dfX').onclick = closeModal; $('dfGo').onclick = () => { closeModal(); X.FM.setModule('docs'); $('fFolder').click(); };
+}
 // Read dropped files, including everything inside dropped folders (keeps each file's folder path).
+// The entries are taken from the drop straight away: the browser empties the list once the drop handler awaits anything.
+// A file that cannot be read is skipped and reported, so one bad file does not stop the rest.
 async function collect(dt) {
-  const items = [...(dt.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
-  if (!items.length) return [...dt.files];
-  const out = [];
-  const readAll = r => new Promise((res, rej) => { const acc = []; const step = () => r.readEntries(b => { if (!b.length) res(acc); else { acc.push(...b); step(); } }, rej); step(); });
+  const items = [...(dt.items || [])].filter(i => i.kind === 'file').map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  const plain = [...(dt.files || [])];
+  if (!items.length) return { files: plain, skipped: [] };
+  const out = [], skipped = [];
+  const readAll = r => new Promise(res => { const acc = []; const step = () => r.readEntries(b => { if (!b.length) res(acc); else { acc.push(...b); step(); } }, () => res(acc)); step(); });
   const walk = async (entry, path) => {
-    if (entry.isFile) { const f = await new Promise((res, rej) => entry.file(res, rej)); try { Object.defineProperty(f, 'relPath', { value: path + f.name }); } catch (e) {} out.push(f); }
-    else if (entry.isDirectory) { for (const c of await readAll(entry.createReader())) await walk(c, path + entry.name + '/'); }
+    if (entry.isFile) { try { const f = await new Promise((res, rej) => entry.file(res, rej)); try { Object.defineProperty(f, 'relPath', { value: path + f.name }); } catch (e) {} out.push(f); } catch (e) { skipped.push(path + entry.name); } }
+    else if (entry.isDirectory) { const kids = await readAll(entry.createReader()); if (!kids.length) return; for (const c of kids) await walk(c, path + entry.name + '/'); }
   };
   for (const it of items) await walk(it, '');
-  return out;
+  // a drop of plain files with no entries readable: fall back to the file list
+  if (!out.length && plain.length && !items.some(i => i.isDirectory)) return { files: plain, skipped: [] };
+  return { files: out, skipped };
 }
 const ext = f => (/\.([a-z0-9]+)$/i.exec(f.name) || [])[1]?.toLowerCase() || '';
 const isImg = f => /^image\//.test(f.type) || ['jpg', 'jpeg', 'png', 'heic', 'webp'].includes(ext(f));
