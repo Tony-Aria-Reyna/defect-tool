@@ -1070,15 +1070,18 @@ async function sendItem() {
   modal(`<h2>📤 Send ${esc(d.id)}</h2><p class="note">The first page always has the item's details, description and latest update. Choose what else goes in the PDF.</p>
   <p class="small muted" style="margin:10px 0 4px">ON THE FIRST PAGE</p><div class="tgl">${row('sumPh', '📷', 'Latest photos', 'Up to 4 of the most recent', nPh)}${row('sumPl', '📍', 'Plan cut-out', 'A close-up of where it is pinned', nPl)}</div>
   <p class="small muted" style="margin:14px 0 4px">EXTRA PAGES</p><div class="tgl">${row('photos', '🖼', 'All photos', nPh + ' photo' + (nPh === 1 ? '' : 's') + ', four to a page, with date and who took them', nPh)}${row('history', '🕘', 'Full history', nH + ' entries: every comment, status change and edit, oldest first', nH)}${row('plans', '🗺', 'Full plan location', nPl ? 'The whole plan sheet' + (nPl > 1 ? 's' : '') + ' with the pin circled' : 'Not pinned yet', nPl)}${row('docs', '📎', 'Attached documents', nF ? nF + ' file' + (nF === 1 ? '' : 's') + ': PDFs and images are added in full, other files are listed' : 'No documents attached', nF)}</div>
+  ${nF ? `<div id="spFl" class="spfl" ${K.docs ? '' : 'hidden'}>${d.files.map((f, i) => `<label><input type="checkbox" data-fi="${i}" checked> ${esc(f.name || 'Document ' + (i + 1))}</label>`).join('')}</div>` : ''}
   <div class="act"><button id="spAll">Everything</button><button id="spX">Cancel</button><button class="go" id="spGo">Build PDF</button></div>`);
   wireTg(); const ids = Object.keys(K); $('spX').onclick = closeModal;
-  $('spAll').onclick = () => ids.forEach(k => { const c = $('sp_' + k); if (!c.disabled) { c.checked = true; c.closest('.tg').classList.remove('off'); } });
+  if ($('spFl')) $('sp_docs').addEventListener('change', e => $('spFl').hidden = !e.target.checked);
+  $('spAll').onclick = () => ids.forEach(k => { const c = $('sp_' + k); if (!c.disabled) { c.checked = true; c.closest('.tg').classList.remove('off'); } }); if ($('spFl')) $('spFl').hidden = false;
   $('spGo').onclick = async () => {
-    ids.forEach(k => K[k] = $('sp_' + k).checked); try { localStorage.setItem('sendPack', JSON.stringify(K)); } catch (e) {} closeModal();
+    ids.forEach(k => K[k] = $('sp_' + k).checked); try { localStorage.setItem('sendPack', JSON.stringify(K)); } catch (e) {}
+    const fi = [...document.querySelectorAll('[data-fi]:checked')].map(x => +x.dataset.fi); if (K.docs && nF && !fi.length) return toast('Tick at least one document, or switch Attached documents off'); closeModal();
     const p = S.project, bz = busy('Building the PDF for ' + d.id + '…');
     try {
       const where = [d.unit ? 'Unit ' + d.unit : '', d.room].filter(Boolean).join(', '), full = K.photos || K.history || K.plans || K.docs;
-      const b = await buildPdf([d], { single: true, team: true, comments: true, photos: true, plans: false, sig: false, noPh: !K.sumPh, noSnip: !K.sumPl, pack: K, title: 'Defect ' + d.id, sub: where || 'Single item', intro: 'This sheet covers one item. Please complete it and let us know when it is ready for inspection.' }, { project: p, plans: S.plans, getBytes, logoResero: 'img/resero-navy.png', me: S.user.name }, t => bz.set(t || 'Building the PDF for ' + d.id + '…'));
+      const b = await buildPdf([d], { single: true, team: true, comments: true, photos: true, plans: false, sig: false, noPh: !K.sumPh, noSnip: !K.sumPl, pack: { ...K, files: fi }, title: 'Defect ' + d.id, sub: where || 'Single item', intro: 'This sheet covers one item. Please complete it and let us know when it is ready for inspection.' }, { project: p, plans: S.plans, getBytes, logoResero: 'img/resero-navy.png', me: S.user.name }, t => bz.set(t || 'Building the PDF for ' + d.id + '…'));
       bz.done(); deliver(b, `${safeName(p.name)} - ${safeName(d.id)}${d.unit ? ' - Unit ' + safeName(String(d.unit)) : ''}${full ? ' - full record' : ''} - ${stamp()}.pdf`, 'PDF');
     } catch (e) { console.error(e); bz.done(); toast(/fetch|CORS/i.test(e.message) ? 'Photos or plans could not be read. Check your connection and try again.' : 'Could not build the PDF: ' + e.message, 6000); }
   };

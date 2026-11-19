@@ -657,3 +657,4 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .mpop .ml{max-height:240px;overflow:auto;padding:4px 0}.mpop .ml label{display:flex;gap:8px;align-items:center;padding:7px 12px;cursor:pointer}.mpop .ml label:hover{background:#f2f5f8}
 .mpop .mf{display:flex;justify-content:space-between;padding:8px 10px;border-top:1px solid #eee}
 .pfst{font-size:12px}.pfst i{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 3px 0 8px}.pfst i:first-child{margin-left:0}
+.spfl{margin:6px 0 0 44px;display:flex;flex-direction:column;gap:2px}.spfl label{display:flex;gap:8px;align-items:center;padding:5px 2px;font-size:14px;cursor:pointer}

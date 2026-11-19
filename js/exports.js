@@ -228,9 +228,10 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
           txt(lp, d.id + '  ' + (locText(d) || ''), M, TOPY + 4, 9, fb, NAVY); } catch (e) { console.warn('plan page', e); }
       }
     }
-    if (K.docs && (d.files || []).length) {
+    const chosen = (d.files || []).filter((x, i) => !K.files || K.files.includes(i));
+    if (K.docs && chosen.length) {
       const list = [], ix = newPage('Attached documents');
-      for (const fl of d.files) {
+      for (const fl of chosen) {
         const u = fl.url || fl.data; if (!u) { list.push([fl.name, 'not uploaded yet']); continue; } st('Adding ' + (fl.name || 'document') + '…');
         try { const b = new Uint8Array(await ctx.getBytes(u));
           if (b[0] === 0x25 && b[1] === 0x50) { const src = await P.PDFDocument.load(b, { ignoreEncryption: true }), cp = await doc.copyPages(src, src.getPageIndices()); cp.forEach(q => doc.addPage(q)); list.push([fl.name, 'included, ' + cp.length + ' page' + (cp.length === 1 ? '' : 's')]); }
