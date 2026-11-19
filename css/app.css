@@ -690,3 +690,4 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .cmpw{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cmps{display:flex;flex-direction:column;min-width:0}.cmph select{width:100%;font-weight:600}.cmpa{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 .cmpb{height:62vh;overflow:auto;background:#e9edf1;border:1px solid var(--line);border-radius:8px;padding:8px}.cmpg{display:block;width:100%;height:auto;margin:0 0 8px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 @media(max-width:800px){.cmpw{grid-template-columns:1fr}.cmpb{height:45vh}}
+.cmpempty{background:#fff4f4;border:1px solid #f0c4c4;border-radius:8px;padding:14px;color:#5b2a2a}.cmpempty p{margin:6px 0 0}

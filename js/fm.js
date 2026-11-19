@@ -562,18 +562,21 @@ export async function uploadFolder(files) {
 async function removeDuplicates() {
   const g = {}; fm().docs.filter(d => d.size && d.fileName && !d.link && !d.submitted).forEach(d => (g[d.fileName.toLowerCase() + '|' + d.size] = g[d.fileName.toLowerCase() + '|' + d.size] || []).push(d));
   const score = d => (d.marks || []).length * 100 + (d.aiRead ? 50 : 0) + (d.assetIds || []).length * 10 + (d.taskId ? 5 : 0), sets = Object.values(g).filter(L => L.length > 1).map(L => L.slice().sort((a, b) => score(b) - score(a) || String(b.created || '').localeCompare(String(a.created || ''))));
-  if (!sets.length) return toast('No duplicates found: every document is in the library once.');
+  const empt = fm().docs.filter(d => d.url && !d.size && !d.link && !d.submitted);
+  if (!sets.length && !empt.length) return toast('No duplicates or empty entries found.');
   const n = sets.reduce((a, L) => a + L.length - 1, 0), mb = sets.reduce((a, L) => a + L.slice(1).reduce((x, d) => x + d.size, 0), 0) / 1e6;
-  modal(`<h2>🧹 Remove duplicates</h2><p>${sets.length} document${sets.length === 1 ? ' is' : 's are'} in the library more than once. Removing the ${n} extra cop${n === 1 ? 'y' : 'ies'} frees ${mb.toFixed(0)} MB.</p>
+  modal(`<h2>🧹 Remove duplicates</h2><p>${!sets.length ? 'No document is in the library more than once.' : ''}${sets.length} document${sets.length === 1 ? ' is' : 's are'} in the library more than once. Removing the ${n} extra cop${n === 1 ? 'y' : 'ies'} frees ${mb.toFixed(0)} MB.</p>
   <p class="note">A duplicate is the same file name and the same size. The copy with boxes, AI reading or asset links is kept (otherwise the newest), and any asset links on the removed copies are moved to it. Warranty submissions are never touched.</p>
   <div style="max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px">${sets.map(L => `<div class="small" style="padding:3px 0"><b>${esc(L[0].fileName)}</b> <span class="muted">× ${L.length} · keeping the copy in ${esc((L[0].srcPath || L[0].system || 'the library').split('/').slice(-3, -1).join(' / ') || L[0].system || 'the library')}</span></div>`).join('')}</div>
-  <div class="act"><button id="ddX">Cancel</button><button class="go" id="ddGo">Remove ${n} cop${n === 1 ? 'y' : 'ies'}</button></div>`, true);
+  ${empt.length ? `<label class="dvall" style="margin-top:10px"><input type="checkbox" id="ddE" checked> Also delete ${empt.length} empty entr${empt.length === 1 ? 'y' : 'ies'}: documents whose file never uploaded (OneDrive online-only at the time), so nothing is lost</label><div class="small muted" style="max-height:120px;overflow:auto">${empt.map(d => esc(d.title)).join('<br>')}</div>` : ''}
+  <div class="act"><button id="ddX">Cancel</button><button class="go" id="ddGo">Clean up</button></div>`, true);
   $('ddX').onclick = closeModal;
-  $('ddGo').onclick = async () => { closeModal(); const b = busy('Removing duplicates…'), pid = S.project.id; let k = 0;
+  $('ddGo').onclick = async () => { const delE = $('ddE') && $('ddE').checked; closeModal(); const b = busy('Removing duplicates…'), pid = S.project.id; let k = 0;
+    if (delE) { try { for (const d of empt) { b.set('Removing empty entries…'); await S.store.deleteItem(pid, 'docs', d.id); } } catch (e) { b.done(); return toast('Could not remove the empty entries: ' + e.message, 7000); } }
     try { for (const L of sets) { const keep = L[0], ids = [...new Set(L.flatMap(d => d.assetIds || []))];
         if (ids.length > (keep.assetIds || []).length) await S.store.patchItem(pid, 'docs', keep.id, { assetIds: ids });
         for (const d of L.slice(1)) { b.set(`Removing ${++k} of ${n}…`); await S.store.deleteItem(pid, 'docs', d.id); if (d.path && d.path !== keep.path) { try { await S.store.deleteFile(d.path); } catch (e) { console.warn('file', e); } } } }
-      b.done(); toast(`${k} duplicate${k === 1 ? '' : 's'} removed, ${mb.toFixed(0)} MB freed`, 6000); }
+      b.done(); toast(`${k} duplicate${k === 1 ? '' : 's'} removed${delE ? ', ' + empt.length + ' empty entries removed' : ''}`, 6000); }
     catch (e) { b.done(); toast(`Stopped after ${k}: ${e.message}. Run it again to carry on.`, 8000); } };
 }
 // Link warranty and O&M documents to assets when the company and system match (best guess; check in Documents).
