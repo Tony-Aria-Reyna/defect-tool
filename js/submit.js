@@ -163,6 +163,27 @@ async function upload(f, a, k, note, replaces, type) {
 }
 const typeOf = (k, t) => k === 'deed' ? 'Warranty (Schedule 13 deed)' : k === 'product' ? 'Warranty (product)' : t;
 
+/* ================================================================ smart element picker: type any part of the ref, element, company, product or system */
+const ALIAS = { hwc: 'hot water cylinder', ps3: 'producer statement', om: 'o&m', sch: 'schedule', ac: 'air conditioning heat pump', hvac: 'heat pump ventilation', ff: 'fire', bwof: 'compliance', tank: 'rainwater tank', gutter: 'gutter spouting membrane', roof: 'roof roofing', door: 'door doors', window: 'window joinery glazing', wall: 'wall cladding plaster' };
+const pickText = a => [a.ref, a.element, a.installer, a.product, a.system].join(' ').toLowerCase();
+function rank(q, A) {
+  const W = q.toLowerCase().split(/[^a-z0-9&]+/).filter(Boolean).flatMap(w => [w, ...(ALIAS[w] ? ALIAS[w].split(' ') : [])]); if (!W.length) return A;
+  return A.map(a => { const t = pickText(a), el = String(a.element || '').toLowerCase(); let sc = 0; for (const w of W) { if (el.startsWith(w)) sc += 5; else if (new RegExp('\\b' + w.replace(/[^a-z0-9]/g, '')).test(el)) sc += 4; else if (t.includes(w)) sc += 2; else if (w.length > 4 && t.includes(w.slice(0, -1))) sc += 1; } return { a, sc }; }).filter(x => x.sc > 0).sort((x, y) => y.sc - x.sc || natural(x.a.ref || '', y.a.ref || '')).map(x => x.a);
+}
+const label = a => a ? `${a.ref || ''} ${a.element}${a.installer ? ' (' + a.installer + ')' : ''}` : '';
+export const pickHtml = (key, a, ph) => `<div class="apk" data-apk="${esc(key)}" data-id="${esc(a ? a.id : '')}"><input type="search" placeholder="${esc(ph || 'Type to find the element…')}" value="${esc(label(a))}" autocomplete="off"><div class="apkl" hidden></div></div>`;
+export const pickVal = key => { const el = document.querySelector(`[data-apk="${key}"]`); return el ? el.dataset.id : ''; };
+export function wirePicks(A, onPick) {
+  document.querySelectorAll('[data-apk]').forEach(box => { if (box.dataset.w) return; box.dataset.w = 1; const inp = box.querySelector('input'), list = box.querySelector('.apkl'); let hits = [], hi = 0;
+    const draw = () => { hits = rank(inp.value === label(A.find(a => a.id === box.dataset.id)) ? '' : inp.value, A).slice(0, 40); hi = 0; list.innerHTML = hits.map((a, i) => `<div data-i="${i}" class="${i === hi ? 'on' : ''}"><b>${esc(a.ref || '')}</b> ${esc(a.element)}<small>${esc([a.installer, a.product].filter(Boolean).join(' · '))}</small></div>`).join('') || '<p class="muted small">No element matches. Try another word.</p>'; list.hidden = false; };
+    const choose = a => { box.dataset.id = a ? a.id : ''; inp.value = label(a); list.hidden = true; onPick && onPick(box.dataset.apk, a); };
+    inp.onfocus = () => { inp.select(); draw(); }; inp.oninput = draw;
+    inp.onkeydown = e => { if (list.hidden) return; if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(0, Math.min(hits.length - 1, hi + (e.key === 'ArrowDown' ? 1 : -1))); list.querySelectorAll('[data-i]').forEach(d => d.classList.toggle('on', +d.dataset.i === hi)); list.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); } else if (e.key === 'Enter') { e.preventDefault(); if (hits[hi]) choose(hits[hi]); } else if (e.key === 'Escape') { list.hidden = true; inp.value = label(A.find(a => a.id === box.dataset.id)); } };
+    list.onmousedown = e => { const d = e.target.closest('[data-i]'); if (d) { e.preventDefault(); choose(hits[+d.dataset.i]); } };
+    inp.onblur = () => setTimeout(() => { list.hidden = true; if (!inp.value.trim()) choose(null); else inp.value = label(A.find(a => a.id === box.dataset.id)); }, 150);
+  });
+}
+
 /* ================================================================ drop many at once: each file is matched to its element, you confirm, they upload and check in the background */
 const words = t => String(t || '').toLowerCase().replace(/\.pdf$/, '').split(/[^a-z0-9]+/).filter(w => w.length > 2 && !['the', 'and', 'ltd', 'limited', 'schedule', 'warranty', 'deed', 'signed', 'pdf', 'godley', 'road', 'for'].includes(w));
 function guess(name) {
@@ -186,13 +207,13 @@ export function bulk(files) {
   const opt = id => `<option value="">Choose the element…</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element + (a.installer ? ' (' + a.installer + ')' : ''))}</option>`).join('');
   const rows = L.map(f => ({ f, ...guess(f.name) }));
   modal(`<h2>⬆ Submit ${L.length} document${L.length === 1 ? '' : 's'}</h2><p class="note">Each file has been matched to the element it most likely covers${skipped ? ` (${skipped} non-PDF file${skipped === 1 ? '' : 's'} left out)` : ''}. Check the matches, then submit. They upload and are checked in the background, so you can carry on working.</p>
-  <table class="ftable bkt"><tr><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small">${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by name' : 'matching…'}</span></td><td><select id="bkA${i}">${opt(r.a && r.a.id)}</select></td><td><select id="bkK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
+  <table class="ftable bkt"><tr><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small">${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by name' : 'matching…'}</span></td><td>${pickHtml('bkA' + i, r.a)}</td><td><select id="bkK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
   <div class="act"><button id="bkX">Cancel</button><button class="go" id="bkGo">Submit and check</button></div>`, true);
-  $('bkX').onclick = closeModal;
-  rows.forEach(async (r, i) => { if (r.sure) return; const g = await aiGuess(r.f); const sel = $('bkA' + i); if (!sel) return; if (g && g.a && !sel.dataset.touched) { sel.value = g.a.id; $('bkS' + i).textContent = 'matched by reading page 1'; } else $('bkS' + i).textContent = g && g.a ? '' : 'no match found: choose it'; if (g && g.k && !$('bkK' + i).dataset.touched) $('bkK' + i).value = g.k; });
-  L.forEach((_, i) => { $('bkA' + i).onchange = e => e.target.dataset.touched = 1; $('bkK' + i).onchange = e => e.target.dataset.touched = 1; });
+  $('bkX').onclick = closeModal; const touched = new Set(); wirePicks(A, k => touched.add(k));
+  rows.forEach(async (r, i) => { if (r.sure) return; const g = await aiGuess(r.f); const box = document.querySelector(`[data-apk="bkA${i}"]`); if (!box) return; if (g && g.a && !touched.has('bkA' + i)) { box.dataset.id = g.a.id; box.querySelector('input').value = label(g.a); $('bkS' + i).textContent = 'matched by reading page 1'; } else $('bkS' + i).textContent = g && g.a ? '' : 'no match found: choose it'; if (g && g.k && !$('bkK' + i).dataset.touched) $('bkK' + i).value = g.k; });
+  L.forEach((_, i) => { $('bkK' + i).onchange = e => e.target.dataset.touched = 1; });
   $('bkGo').onclick = async () => {
-    const go = L.map((f, i) => ({ f, a: fm().assets.find(a => a.id === $('bkA' + i).value), k: $('bkK' + i).value }));
+    const go = L.map((f, i) => ({ f, a: fm().assets.find(a => a.id === pickVal('bkA' + i)), k: $('bkK' + i).value }));
     const miss = go.filter(x => !x.a).length; if (miss) return toast(`Choose the element for ${miss} file${miss === 1 ? '' : 's'}`);
     closeModal(); const b = busy('Uploading…'); let n = 0;
     try { for (const x of go) { b.set(`Uploading ${++n} of ${go.length}: ${x.f.name}`); enqueue(await upload(x.f, x.a, x.k, '', null, typeOf(x.k, 'Other'))); } b.done(); toast(`${go.length} uploaded. Checking in the background: the results appear in the list as they finish.`, 6000); }
@@ -226,11 +247,11 @@ export function matchLibrary() {
   const A = fm().assets.filter(a => a.status !== 'Not applicable').sort((a, b) => natural(a.system, b.system) || natural(a.ref || '', b.ref || ''));
   const rows = L.map(d => { const lk = (d.assetIds || []).map(id => A.find(a => a.id === id)).filter(Boolean); const g = guess([d.title, d.party, d.fileName].join(' ')); return { d, a: lk[0] || g.a, sure: !!lk[0] || g.sure, k: kindOf(d) }; }).sort((x, y) => natural(x.d.system || '', y.d.system || '') || natural(x.d.title, y.d.title));
   const opt = id => `<option value="">Skip</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element)}</option>`).join('');
-  modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. Set any wrong match, or "Skip" to leave it out, then link them. They are checked in the background, a few at a time.</p>
-  <table class="ftable bkt"><tr><th>Document</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')}${r.sure ? '' : ' · <i>check this match</i>'}</span></td><td><select id="mlA${i}">${opt(r.a && r.a.id)}</select></td><td><select id="mlK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
+  modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. To change one, click it and type any word: element, company, product or ref. Clear it to leave that document out. They are checked in the background, a few at a time.</p>
+  <table class="ftable bkt"><tr><th>Document</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')}${r.sure ? '' : ' · <i>check this match</i>'}</span></td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to skip')}</td><td><select id="mlK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
   <div class="act"><button id="mlX">Cancel</button><button class="go" id="mlGo">Link and check</button></div>`, true);
-  $('mlX').onclick = closeModal;
-  $('mlGo').onclick = async () => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === $('mlA' + i).value), k: $('mlK' + i).value })).filter(x => x.a);
+  $('mlX').onclick = closeModal; wirePicks(A);
+  $('mlGo').onclick = async () => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === pickVal('mlA' + i)), k: $('mlK' + i).value })).filter(x => x.a);
     if (!go.length) return toast('Nothing chosen'); closeModal(); const b = busy('Linking…'); let n = 0;
     try { for (const x of go) { b.set(`Linking ${++n} of ${go.length}…`); await convert(x.d, x.a, x.k); } b.done(); toast(`${go.length} linked. Checking in the background: results appear as they finish.`, 6000); } catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
     refresh(); };
