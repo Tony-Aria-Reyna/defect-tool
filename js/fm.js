@@ -537,7 +537,7 @@ export async function uploadFolder(files) {
   const list = files.filter(f => !skip.test(f.relPath || f.webkitRelativePath || f.name)).map(f => ({ f, path: f.relPath || f.webkitRelativePath || f.name }));
   // check what is actually stored: a document whose stored file is empty or missing is uploaded again, in place
   const chk = busy('Checking the documents already stored…'), withPath = fm().docs.filter(d => d.srcPath && d.path), bad = new Set();
-  for (let i = 0; i < withPath.length; i += 20) { chk.set(`Checking stored documents ${Math.min(i + 20, withPath.length)} of ${withPath.length}…`); await Promise.all(withPath.slice(i, i + 20).map(async d => { const z = S.store.fileSize ? await S.store.fileSize(d.path) : 1; if (z === 0 || z === -1) bad.add(d.id); })); }
+  for (let i = 0; i < withPath.length; i += 20) { chk.set(`Checking stored documents ${Math.min(i + 20, withPath.length)} of ${withPath.length}…`); await Promise.all(withPath.slice(i, i + 20).map(async d => { const z = S.store.fileSize ? await S.store.fileSize(d.path) : 1; if (z === 0) bad.add(d.id); })); }
   chk.done();
   const have = new Set(fm().docs.filter(d => !bad.has(d.id)).map(d => d.srcPath + '|' + d.size));
   // OneDrive online-only files show as 0 bytes when picked. Reading one asks Windows to download it, so try that before giving up.
@@ -549,7 +549,8 @@ export async function uploadFolder(files) {
   const broken = {}; fm().docs.forEach(d => { if ((!d.size || bad.has(d.id)) && d.srcPath) broken[d.srcPath] = d; });   // stored earlier as empty files: replaced in place this time
   const big = todo.filter(x => x.f.size > 150e6), mb = todo.reduce((a, x) => a + x.f.size, 0) / 1e6;
   if (!todo.length && emptyNow) return toast(`${emptyNow} files could not be read from this computer: they show as 0 bytes. In File Explorer right-click the folder, choose "Always keep on this device", wait for green ticks, then try again.`, 15000);
-  if (!(await confirmBox(`Upload ${todo.length} documents (${mb.toFixed(0)} MB)? ${list.length - todo.length ? (list.length - todo.length) + ' already in the library will be skipped. ' : ''}${big.length ? big.length + ' over 150 MB will be skipped. ' : ''}They will be filed by building system and type from the folder names. Keep this page open until it finishes.`, 'Upload'))) return;
+  const nRep = todo.filter(x => broken[x.path]).length;
+  if (!(await confirmBox(`Upload ${todo.length} documents (${mb.toFixed(0)} MB)?${nRep ? ' ' + (todo.length - nRep) + ' are new and ' + nRep + ' replace copies in the library whose stored file is empty (these are replaced in place, not added twice).' : ''} ${list.length - todo.length ? (list.length - todo.length) + ' already in the library will be skipped. ' : ''}${big.length ? big.length + ' over 150 MB will be skipped. ' : ''}They will be filed by building system and type from the folder names. Keep this page open until it finishes.`, 'Upload'))) return;
   const b = busy('Uploading…'); let n = 0;
   try {
     for (const x of todo) { if (x.f.size > 150e6) continue; const c = classify(x.path); c.srcPath = x.path; await uploadFiles([x.f], { classified: c, replaceId: broken[x.path] && broken[x.path].id, keep: broken[x.path], onProgress: () => b.set(`Uploading ${++n} of ${todo.length}: ${x.f.name}`) }); }
