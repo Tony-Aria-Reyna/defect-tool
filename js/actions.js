@@ -61,13 +61,24 @@ export async function importActions(file) {
 const ST_MAP = { 'received, execution incomplete': 'Partial' }, ST_OK = ['Received', 'Partial', 'Revision required', 'Query', 'Confirm', 'Not received', 'Not applicable'];
 export async function importRegister(file) {
   const t = await sheetRows(file, ['ref', 'building system', 'element']); if (!t) return toast('That does not look like the Warranty Requirements Register (no Ref, Building System and Element columns found).', 7000);
-  const col = re => t.head.findIndex(h => re.test(h)), c = { el: col(/^element/), prod: col(/^product/), inst: col(/^installer/), doc: col(/^received document/), per: col(/^received period/), st: col(/^status/), vr: col(/^variance/) };
+  const col = re => t.head.findIndex(h => re.test(h)), c = { ref: col(/^ref/), sys: col(/^building system/), loc: col(/^location/), ri: col(/required: installer/), rm: col(/required: manufacturer/), el: col(/^element/), prod: col(/^product/), inst: col(/^installer/), doc: col(/^received document/), per: col(/^received period/), st: col(/^status/), vr: col(/^variance/) };
   const g = (r, i) => i >= 0 ? String(r[i] == null ? '' : r[i]).trim() : '', key = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''), A = Object.fromEntries(((S.fm && S.fm.assets) || []).map(a => [key(a.element), a]));
-  const ch = []; let miss = 0;
-  for (const r of t.rows) { const el = g(r, c.el); if (!el || !g(r, c.st)) continue; const a = A[key(el)]; if (!a) { miss++; continue; }
+  const ch = [], add = []; let miss = 0;
+  for (const r of t.rows) { const el = g(r, c.el); if (!el || !g(r, c.st)) continue; const a = A[key(el)]; if (!a) { miss++; add.push(r); continue; }
     const raw = g(r, c.st), st = ST_MAP[raw.toLowerCase()] || (ST_OK.includes(raw) ? raw : a.status), notes = [g(r, c.doc) ? 'Received: ' + g(r, c.doc) + (g(r, c.per) ? ' (' + g(r, c.per) + ')' : '') : '', /execution incomplete/i.test(raw) ? 'Deed not yet fully executed.' : '', g(r, c.vr)].filter(Boolean).join(' ');
     const p = { status: st, installer: g(r, c.inst) || a.installer || '', product: g(r, c.prod) || a.product || '', notes }; if (Object.keys(p).some(k => (a[k] || '') !== p[k])) ch.push({ id: a.id, p }); }
-  if (!ch.length) return toast(`The assets already match the register${miss ? ' (' + miss + ' register rows have no matching asset)' : ''}.`, 6000);
-  if (!(await confirmBox(`Update ${ch.length} assets to match the Warranty Requirements Register? Status, installer, product and notes are replaced with the register's.${miss ? ' ' + miss + ' register rows have no matching asset and are skipped.' : ''}`, 'Update'))) return;
-  const b = busy('Updating the assets…'); try { for (const [i, x] of ch.entries()) { b.set(`Updating ${i + 1} of ${ch.length}…`); await S.store.patchItem(S.project.id, 'assets', x.id, x.p); } b.done(); toast(`${ch.length} assets updated from the register`, 5000); } catch (e) { b.done(); toast('Stopped: ' + e.message, 7000); }
+  // rows the app does not have yet become new elements, after you confirm them
+  const AS = (S.fm && S.fm.assets) || [], sysOf = v => { const pre = String(v || '').slice(0, 2), hit = AS.find(a => String(a.system || '').startsWith(pre)); return hit ? hit.system : v; };
+  let n = 0; AS.forEach(a => { const m = /^A-(\d+)$/.exec(a.ref || ''); if (m) n = Math.max(n, +m[1]); });
+  const fresh = add.map(r => { const raw = g(r, c.st); return { id: 'as-' + Math.random().toString(36).slice(2, 10), ref: 'A-' + String(++n).padStart(3, '0'), regRef: g(r, c.ref), system: sysOf(g(r, c.sys)), element: g(r, c.el), product: g(r, c.prod), installer: g(r, c.inst), location: g(r, c.loc), instWarranty: g(r, c.ri), mfrWarranty: g(r, c.rm), status: ST_MAP[raw.toLowerCase()] || (ST_OK.includes(raw) ? raw : 'Not received'), notes: [g(r, c.doc) ? 'Received: ' + g(r, c.doc) + (g(r, c.per) ? ' (' + g(r, c.per) + ')' : '') : '', g(r, c.vr)].filter(Boolean).join(' '), warranties: [], om: true, maint: false, audience: 'FM', created: new Date().toISOString() }; });
+  if (!ch.length && !fresh.length) return toast('The assets already match the register.', 6000);
+  modal(`<h2>Update from the Warranty Requirements Register</h2>
+  ${ch.length ? `<p><b>${ch.length}</b> existing element${ch.length === 1 ? '' : 's'} will be updated: status, installer, product and notes are replaced with the register's.</p>` : ''}
+  ${fresh.length ? `<p><b>${fresh.length}</b> element${fresh.length === 1 ? ' is' : 's are'} in the register but not in the app. Tick the ones to add:</p><div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px">${fresh.map((a, i) => `<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" data-nw="${i}" checked><span><b>${esc(a.element)}</b> <span class="muted small">${esc([a.regRef, a.system, a.installer].filter(Boolean).join(' · '))}</span></span></label>`).join('')}</div>` : ''}
+  <div class="act"><button id="ruX">Cancel</button><button class="go" id="ruGo">Update</button></div>`, true);
+  $('ruX').onclick = closeModal;
+  $('ruGo').onclick = async () => { const pick = fresh.filter((_, i) => document.querySelector(`[data-nw="${i}"]`).checked); closeModal(); const b = busy('Updating the register…'), tot = ch.length + pick.length; let k = 0;
+    try { for (const x of ch) { b.set(`Updating ${++k} of ${tot}…`); await S.store.patchItem(S.project.id, 'assets', x.id, x.p); }
+      for (const a of pick) { b.set(`Adding ${++k} of ${tot}: ${a.element}`); await S.store.saveItem(S.project.id, 'assets', a); }
+      b.done(); toast(`${ch.length} updated, ${pick.length} added from the register`, 6000); } catch (e) { b.done(); toast('Stopped: ' + e.message, 7000); } };
 }
