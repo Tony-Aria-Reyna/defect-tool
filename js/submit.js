@@ -4,12 +4,13 @@
 import { S, can } from './state.js';
 import { aiCall } from './ai.js';
 import * as DV from './docview.js';
+import * as Deed from './deed.js';
 import { pageRuns, locate, pageImage, parse } from './docai.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, nzDate, natural, safeName, deliver, loadScript, stamp } from './util.js';
 
 let X = {};
 const VF = { q: '', sys: '', st: '' };
-export function init(ctx) { X = ctx; }
+export function init(ctx) { X = ctx; Deed.init(ctx); }
 export function setShowSubs(f) { X.showSubs = f; }
 const fm = () => S.fm || { assets: [], docs: [] };
 const now = () => new Date().toISOString();
@@ -571,7 +572,7 @@ export function view(tabs) {
   const rows = A.map(a => ({ a, ...state(a) })).filter(({ a, L, review, fix, acc }) => a.status !== 'Not applicable' && (!VF.sys || a.system === VF.sys) && (!q || [a.ref, a.element, a.product, a.installer].join(' ').toLowerCase().includes(q))
     && (!VF.st || (VF.st === 'out' ? !['Received'].includes(a.status) && !review : VF.st === 'review' ? review : VF.st === 'fix' ? fix : VF.st === 'acc' ? acc : true)));
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select>${can.edit() ? `<button class="btn2" id="svLib">🔗 Match library warranties (${libCands().filter(isWarr).length})</button>` : ''}<button class="btn2 go" id="svRev">${can.edit() ? '▶ Review next (' + C.review + ')' : '▶ Fix next (' + C.fix + ')'}</button>${can.edit() ? `<button class="btn2" id="svZip" title="Accepted documents, named to the convention, in the handover folder structure">📦 Accepted, ready to file${toFile(false).length ? ' (' + toFile(false).length + ' new)' : ''}</button>` : ''}</div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select>${can.edit() ? '<button class="btn2" id="svDeed" title="Fillable Schedule 13 deeds, filled in from Project settings and Contacts, for the warrantor to sign">📝 Prepare deeds for signing</button>' : ''}${can.edit() ? `<button class="btn2" id="svLib">🔗 Match library warranties (${libCands().filter(isWarr).length})</button>` : ''}<button class="btn2 go" id="svRev">${can.edit() ? '▶ Review next (' + C.review + ')' : '▶ Fix next (' + C.fix + ')'}</button>${can.edit() ? `<button class="btn2" id="svZip" title="Accepted documents, named to the convention, in the handover folder structure">📦 Accepted, ready to file${toFile(false).length ? ' (' + toFile(false).length + ' new)' : ''}</button>` : ''}</div>
   ${tabs}
   <div class="sbdrop">⬇ Drop warranty PDFs anywhere on this page. Each one is matched to its element and checked in the background. You can drop many at once.</div>
   <p class="muted small">${can.edit() ? `${C.review} awaiting your review · ${C.fix} with the contractor to fix · ${C.accepted} accepted.` : `Submit each warranty against the element it covers. It is checked straight away so you can fix anything before it is reviewed. ${C.fix} need fixing · ${C.review} with the reviewer · ${C.accepted} accepted.`}</p>
@@ -585,6 +586,7 @@ export function view(tabs) {
   document.querySelectorAll('[data-sd]').forEach(l => l.onclick = e => { e.preventDefault(); const d = fm().docs.find(x => x.id === l.dataset.sd); if (!d) return; DV.isPdf(d) ? DV.open(d) : detail(d); });
   document.querySelectorAll('[data-lnk]').forEach(b => b.onclick = () => linkExisting(fm().assets.find(a => a.id === b.dataset.lnk)));
   if ($('svLib')) $('svLib').onclick = matchLibrary;
+  if ($('svDeed')) $('svDeed').onclick = () => Deed.prepareDialog();
   if ($('svRev')) $('svRev').onclick = () => { const L = queueFor(); if (!L.length) return toast(can.edit() ? 'Nothing is waiting for review' : 'Nothing needs fixing'); DV.open(L[0]); };
   resume();
 }

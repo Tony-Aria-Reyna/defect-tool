@@ -464,7 +464,9 @@ function editContact(c) {
   const isNew = !c; c = c || { key: '', company: '', docs: [], assets: [], emailList: [], phoneList: [], work: '', saved: null };
   const sv = c.saved || {}, ro = !can.edit();
   sheet(isNew ? 'New contact' : c.company, `<div class="grid">
-    ${field('Company', 'kC', sv.company || c.company, '', true)}
+    ${field('Company (as you know it)', 'kC', sv.company || c.company)}${sel('Role', 'kR', opts(['Subcontractor', 'Supplier', 'Consultant', 'Contractor', 'Client', 'Other'], sv.role || 'Subcontractor'))}
+    ${field('Full registered name (used on deeds)', 'kL', sv.legal || '', 'placeholder="e.g. Triden Construction Limited"', true)}
+    ${field('Company number or NZBN', 'kZ', sv.nzbn || '')}${field('Address', 'kAd', sv.address || '')}
     ${field('Trade or what they did', 'kT', sv.trade || c.work, 'placeholder="e.g. Plumbing; hot water cylinders"', true)}
     ${field('Contact person', 'kN', sv.name || (c.emailOwn ? nameFromEmail(c.emailList[0]) : ''))}${field('Phone', 'kP', sv.phone || c.phoneList[0] || '', 'list="kPl"')}
     ${field('Email', 'kE', sv.email || c.emailList[0] || '', 'list="kEl"', true)}
@@ -474,7 +476,7 @@ function editContact(c) {
   ${!c.saved && (c.emailList.length || c.phoneList.length) ? '<p class="note">The phone and email were read from this company\'s documents. Other numbers and addresses found are offered when you click in the box. Check them, then Save to confirm.</p>' : ''}
   ${c.assets.length ? `<h3 class="sec">Assets</h3>${c.assets.map(a => `<div class="prow"><div class="g">${esc(a.element)}<small>${esc(sysShort(a.system))} · ${esc(a.status || '')}</small></div></div>`).join('')}` : ''}
   ${c.docs.length ? `<h3 class="sec">Documents (${c.docs.length})</h3>${c.docs.slice(0, 40).map(d => `<div class="prow"><div class="g"><a href="#" data-open="${esc(d.id)}">${esc(d.title)}</a><small>${esc(d.type || '')}</small></div></div>`).join('')}` : ''}`,
-  { ro, onSave: async () => { const o = { id: sv.id || uid(), company: val('kC'), trade: val('kT'), name: val('kN'), phone: val('kP'), email: val('kE'), audience: val('kA'), afterHours: val('kH'), notes: val('kO'), updated: nowISO() }; if (!o.company) { toast('Enter the company'); return false; }
+  { ro, onSave: async () => { const o = { ...sv, id: sv.id || uid(), company: val('kC'), role: val('kR'), legal: val('kL'), nzbn: val('kZ'), address: val('kAd'), trade: val('kT'), name: val('kN'), phone: val('kP'), email: val('kE'), audience: val('kA'), afterHours: val('kH'), notes: val('kO'), updated: nowISO() }; if (!o.company) { toast('Enter the company'); return false; }
       const dir = (S.project.directory || []).filter(x => x.id !== o.id && coKey(x.company) !== coKey(o.company)).concat(o); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); },
     onDelete: c.saved ? async () => { const dir = (S.project.directory || []).filter(x => x.id !== sv.id); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); } : null });
   document.querySelectorAll('#s2Body [data-open]').forEach(l => l.onclick = e => { e.preventDefault(); openDoc(fm().docs.find(d => d.id === l.dataset.open)); });
