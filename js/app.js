@@ -1352,8 +1352,9 @@ function wire() {
   addFilesRef = addFilesImpl;
   $('fCam').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await addPhotos([f]); };
   $('bExport').onclick = openExport; $('bMenu').onclick = openMenu; $('bHelp').onclick = helpDialog;
-  $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); S.local.noList = h; saveLocal(); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
-  if (S.local.noList) $('main').classList.add('nolist');
+  $('listToggle').onclick = () => { const h = $('main').classList.toggle('nolist'); $('listToggle').title = h ? 'Show the defects list' : 'Hide the defects list'; requestAnimationFrame(() => PV.fit()); };
+  // the list always comes back when the app is opened: a hidden list was easy to miss and looked like the defects had gone
+  if (S.local.noList) { S.local.noList = false; saveLocal(); }
   $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); $('zfull').textContent = '⛶'; requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); $('zfull').textContent = on ? '✕' : '⛶'; $('zfull').title = on ? 'Exit full screen' : 'Full screen'; requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
   $('edClose').onclick = $('edCancel').onclick = () => tryCloseEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edSend').onclick = sendItem; $('edBody').addEventListener('input', e => { const t = e.target; if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; } });
