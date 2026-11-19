@@ -428,7 +428,10 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   if (pcOpen.length) R.push(['Other close-out items', `${pcOpen.length} item${pcOpen.length === 1 ? '' : 's'} still open (producer statements, guarantees, as-builts, O&M manuals and similar).`, '', appC]);
   if (o.by) table([['Item', 110], ['Outstanding', 300], ['Complete by', 60], ['Listed in', 60]], R.map(r => [r[0], r[1], r[1].startsWith('All ') ? '' : byTxt, r[3]]));
   else table([['Item', 110], ['Outstanding', 340], ['Listed in', 60]], R.map(r => [r[0], r[1], r[3]]));
-  if (o.link) { y -= 2; para('The full defect register, photos, warranties and handover documents are kept in Resero Site: ' + o.link, GREY, 8.5); }
+  // the app as a link, not a printed address
+  if (o.link) { y -= 2; need(14); const lead = 'The full defect register, photos, warranties and handover documents are kept in ', lab = 'Resero Site', sz = 8.5, x0 = M + f.widthOfTextAtSize(lead, sz), w = f.widthOfTextAtSize(lab, sz), BLUE = hex('#1f5fa8');
+    T(lead, M, y, sz, f, GREY); T(lab, x0, y, sz, f, BLUE); T('.', x0 + w, y, sz, f, GREY); pg.drawLine({ start: { x: x0, y: y - 1.5 }, end: { x: x0 + w, y: y - 1.5 }, thickness: 0.5, color: BLUE });
+    const an = doc.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [x0, y - 3, x0 + w, y + sz], Border: [0, 0, 0], A: { Type: 'Action', S: 'URI', URI: P.PDFString.of(o.link) } }); pg.node.addAnnot(doc.context.register(an)); y -= 14; }
 
   // ===== optional summaries
   if (on('units')) { h1('Open defects by unit'); const g = {}; open.forEach(d => { const k = d.unit ? 'Unit ' + d.unit : 'Common areas' + (d.block ? ', ' + (/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block) : ''); (g[k] = g[k] || []).push(d); });
