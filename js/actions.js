@@ -1,7 +1,11 @@
 // Actions: practical completion conditions, Council CCC RFI items and other close-out actions, kept in the app so the
 // PC status report can show them. Also the two "bring the pack registers in" imports (Action Register, Warranty Requirements Register).
 import { S, can } from './state.js';
-import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, todayISO, nzDate, natural, loadScript } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, todayISO, nzDate, natural, loadScript, safeName } from './util.js';
+import { aiCall } from './ai.js';
+import * as DV from './docview.js';
+import * as FT from './filetext.js';
+import { SYSTEMS, DOC_TYPES, classifyName, uploadAs, docBytes } from './fm.js';
 
 export const STATUS = ['Open', 'Evidence held', 'Submitted to Council', 'Closed'], PRI = ['High', 'Medium', 'Low'];
 const acts = () => (S.fm && S.fm.actions) || [];
@@ -27,12 +31,87 @@ export function view() {
   if ($('acNew')) { $('acNew').onclick = () => edit(null); $('acImp').onclick = () => $('acFile').click(); $('acReg').onclick = () => $('acFile2').click();
     $('acFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importActions(f); }; $('acFile2').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importRegister(f); }; }
 }
+// ---------------------------------------------------------------- documents and emails on an action
+const docsAll = () => (S.fm && S.fm.docs) || [];
+function wireDocs(a, isNew, ro) {
+  a.docIds = (a.docIds || []).slice(); let pending = [];
+  const keep = async () => { if (!isNew) try { await S.store.patchItem(S.project.id, 'actions', a.id, { docIds: a.docIds }); } catch (e) { toast('Could not link it: ' + e.message, 6000); } };
+  const list = () => { const L = a.docIds.map(id => docsAll().find(d => d.id === id)).filter(Boolean);
+    $('aeDocs').innerHTML = (L.length ? L.map(d => `<div class="aedoc"><a href="#" data-op="${esc(d.id)}">${FT.isEmail(d.fileName) ? '✉' : '📄'} ${esc(d.title || d.fileName)}</a> <span class="muted small">${esc(d.type || '')}${d.system ? ' · ' + esc(d.system.slice(0, 3)) : ''}</span>${ro ? '' : ` <button class="mini" data-un="${esc(d.id)}" title="Unlink (the document stays in the library)">✕</button>`}</div>`).join('') : '<p class="muted small">No documents linked yet.</p>')
+      + (L.length ? `<div class="aesum"><button class="btn2 sm" id="aeSum">✨ Summarise into the notes</button> <span id="aeSumSt" class="muted small"></span></div>` : '');
+    $('aeDocs').querySelectorAll('[data-op]').forEach(x => x.onclick = e => { e.preventDefault(); const d = docsAll().find(y => y.id === x.dataset.op); if (d) DV.open ? DV.open(d) : window.open(d.url); });
+    $('aeDocs').querySelectorAll('[data-un]').forEach(x => x.onclick = async () => { a.docIds = a.docIds.filter(i => i !== x.dataset.un); await keep(); list(); });
+    if ($('aeSum')) $('aeSum').onclick = () => summarise(a, L); };
+  list();
+  if (ro) return;
+  // link one already in the library
+  $('aeLinkQ').oninput = () => { const q = $('aeLinkQ').value.trim().toLowerCase(); if (q.length < 2) { $('aeLinkL').innerHTML = ''; return; }
+    const hits = docsAll().filter(d => !a.docIds.includes(d.id) && [d.title, d.fileName, d.party].join(' ').toLowerCase().includes(q)).slice(0, 8);
+    $('aeLinkL').innerHTML = hits.map(d => `<div class="aehit" data-ln="${esc(d.id)}">${esc(d.title || d.fileName)} <span class="muted small">${esc(d.type || '')}</span></div>`).join('') || '<p class="muted small">Nothing in the library matches.</p>';
+    $('aeLinkL').querySelectorAll('[data-ln]').forEach(x => x.onclick = async () => { a.docIds.push(x.dataset.ln); $('aeLinkQ').value = ''; $('aeLinkL').innerHTML = ''; await keep(); list(); }); };
+  // drop or choose new files: confirm where each is filed, with the AI's suggestion, then upload and link
+  const filing = () => {
+    $('aeFiling').innerHTML = pending.length ? `<div class="aefile"><p><b>File ${pending.length === 1 ? 'this' : 'these ' + pending.length} in Documents</b> <span class="muted small">Check the name, building system and type, so it sits in the right place in the library and the handover pack. Name it "Company - Document type - What it covers".</span></p>
+      ${pending.map((p, i) => `<div class="aefrow"><div class="small muted">${esc(p.f.name)} ${p.st ? '· ' + esc(p.st) : ''}</div><div class="grid">
+        <label class="f full">Name<input data-k="title" data-i="${i}" value="${esc(p.m.title)}"></label>
+        <label class="f">Building system<select data-k="system" data-i="${i}"><option value="">Choose…</option>${SYSTEMS.map(x => `<option ${x === p.m.system ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+        <label class="f">Type<select data-k="type" data-i="${i}">${DOC_TYPES.map(x => `<option ${x === p.m.type ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label></div></div>`).join('')}
+      <div class="act"><button id="aeFX">Don't file</button><button class="go" id="aeFGo">File and link ${pending.length === 1 ? 'it' : 'them'}</button></div></div>` : '';
+    if (!pending.length) return;
+    $('aeFiling').querySelectorAll('[data-k]').forEach(x => x.onchange = x.oninput = () => { pending[+x.dataset.i].m[x.dataset.k] = x.value; pending[+x.dataset.i].touched = true; });
+    $('aeFX').onclick = () => { pending = []; filing(); };
+    $('aeFGo').onclick = async () => { if (pending.some(p => !p.m.system)) return toast('Choose the building system for each one (use 00 Contract & Consent for Council and contract correspondence)');
+      const b = busy('Filing…'); try { for (const [i, p] of pending.entries()) { b.set(`Filing ${i + 1} of ${pending.length}: ${p.m.title}`); const id = await uploadAs(p.f, { ...p.m, party: (p.m.title.split(' - ')[0] || '').trim() }); if (id) a.docIds.push(id); }
+        b.done(); toast(`${pending.length} filed in Documents and linked`); pending = []; filing(); await keep(); setTimeout(list, 800); } catch (e) { b.done(); toast('Could not file it: ' + e.message, 7000); } };
+  };
+  const take = async files => {
+    const add = files.filter(f => f.size).map(f => ({ f, m: { ...classifyName(f.name), title: f.name.replace(/\.[^.]+$/, '') }, st: 'reading…' }));
+    if (!add.length) return toast('Those files are empty (online-only OneDrive files: open them once so they download)', 7000);
+    pending.push(...add); filing();
+    for (const p of add) { try { const txt = FT.isImage(p.f.name) ? '' : await FT.textOf(await p.f.arrayBuffer(), p.f.name, 6000), img = FT.isImage(p.f.name) ? await FT.imageData(p.f) : '';
+      const ans = await aiCall(`You file construction handover and close-out documents for the ${S.project.name} project. Suggest where this file belongs.
+Building systems (use one exactly): ${SYSTEMS.join(' | ')}
+Document types (use one exactly): ${DOC_TYPES.join(' | ')}
+It is being linked to action ${a.ref || ''}: ${a.action || ''}.
+File name: ${p.f.name}
+${txt ? 'Text:\n' + txt : 'It is a photo; describe what it shows in the name.'}
+Reply as JSON only: {"title": "Company - Document type - What it covers (for example: Auckland Council - Email - Stage 2 CCC RFI response 19-11-2026)", "system": "...", "type": "..."}`, img || undefined);
+      const j = JSON.parse(String(ans).replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+      if (!p.touched) { if (j.title) p.m.title = String(j.title).slice(0, 140); if (SYSTEMS.includes(j.system)) p.m.system = j.system; if (DOC_TYPES.includes(j.type)) p.m.type = j.type; }
+      p.st = '✨ suggested by the AI, check it'; } catch (e) { p.st = ''; } filing(); }
+  };
+  window.rdActionDrop = files => take(files);
+  $('aePick').onclick = e => { e.preventDefault(); $('aeFile').click(); }; $('aeFile').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) take(fs); };
+}
+// The AI reads the linked documents and writes a dated line for the notes, and suggests the status
+async function summarise(a, L) {
+  const st = t => { if ($('aeSumSt')) $('aeSumSt').textContent = t; }; st('Reading the documents…'); $('aeSum').disabled = true;
+  try { let txt = '', img = '';
+    for (const d of L.slice(0, 8)) { const by = await docBytes(d); if (FT.isImage(d.fileName)) { if (!img) img = await FT.imageData(new Blob([by])); txt += `\n--- ${d.title} (photo)\n`; } else txt += `\n--- ${d.title} (${d.type || ''})\n` + await FT.textOf(by, d.fileName, 5000); }
+    st('Asking the AI…');
+    const ans = await aiCall(`You keep the close-out action register for the ${S.project.name} construction project. Today is ${nzDate(todayISO())}.
+Action ${$('aeR').value}: ${$('aeA').value}
+Detail: ${$('aeD').value}
+Status now: ${$('aeS').value}. Statuses allowed: ${STATUS.join(', ')}.
+Notes so far: ${$('aeN').value.slice(-1500)}
+Documents and emails linked to it:${txt.slice(0, 30000)}
+Write one short note (one to three sentences, plain NZ English, no dashes as punctuation) saying what these documents show about this action: what has been received or agreed, who said it, the date, and what is still outstanding. Then suggest the status.
+Reply as JSON only: {"note": "...", "status": "one of the allowed statuses", "why": "a few words"}`, img || undefined);
+    const j = JSON.parse(String(ans).replace(/^[^{]*/, '').replace(/[^}]*$/, '')), dd = todayISO().split('-').reverse().join('-');
+    if (j.note) $('aeN').value = ($('aeN').value.trim() ? $('aeN').value.trim() + ' | ' : '') + `${dd} (documents): ${j.note}`;
+    st(''); if (j.status && STATUS.includes(j.status) && j.status !== $('aeS').value) { $('aeSumSt').innerHTML = `AI suggests <b>${esc(j.status)}</b>${j.why ? ' (' + esc(j.why) + ')' : ''} <button class="mini" id="aeSugOk">Use it</button>`; $('aeSugOk').onclick = () => { $('aeS').value = j.status; st('Status set. Press Save to keep it.'); }; }
+    else st('Note added. Press Save to keep it.');
+  } catch (e) { st(''); toast('The AI could not summarise them: ' + e.message, 7000); } finally { if ($('aeSum')) $('aeSum').disabled = false; }
+}
 function edit(a) {
   const isNew = !a, ro = !can.edit(); a = a ? { ...a } : { id: uid(), ref: '', category: '', action: '', detail: '', responsible: '', priority: 'Medium', status: 'Open', due: '', closed: '', notes: '' };
   const f = (l, id, v, full) => `<label class="f${full ? ' full' : ''}">${l}<input id="${id}" value="${esc(v || '')}" ${ro ? 'disabled' : ''}></label>`, ta = (l, id, v) => `<label class="f full">${l}<textarea id="${id}" rows="3" ${ro ? 'disabled' : ''}>${esc(v || '')}</textarea></label>`, se = (l, id, L, v) => `<label class="f">${l}<select id="${id}" ${ro ? 'disabled' : ''}>${L.map(x => `<option ${x === v ? 'selected' : ''}>${x}</option>`).join('')}</select></label>`;
   modal(`<h2>${isNew ? 'New action' : esc(a.ref || 'Action')}</h2><div class="grid">${f('Ref', 'aeR', a.ref)}${f('Category', 'aeC', a.category)}${ta('Action required', 'aeA', a.action)}${ta('Detail (Council RFI comment, clause, what is wrong)', 'aeD', a.detail)}${f('Responsible', 'aeW', a.responsible)}${se('Priority', 'aeP', PRI, a.priority)}${se('Status', 'aeS', STATUS, a.status)}<label class="f">Due date<input type="date" id="aeDue" value="${esc(a.due || '')}" ${ro ? 'disabled' : ''}></label>${ta('Notes', 'aeN', a.notes)}</div>
+    <h3 class="sec">Documents and emails</h3><div id="aeDocs"></div>
+    ${ro ? '' : `<div id="aeDrop" class="aedrop">Drop emails, PDFs or photos here, or <a href="#" id="aePick">choose files</a>. They are filed in Documents and linked to this action.<input type="file" id="aeFile" multiple hidden></div>
+    <div class="aelink"><input id="aeLinkQ" placeholder="…or link a document already in the library: type part of its name"><div id="aeLinkL"></div></div><div id="aeFiling"></div>`}
     <div class="act">${!isNew && !ro ? '<button id="aeDel" class="warn">Delete</button>' : ''}<button id="aeX">${ro ? 'Close' : 'Cancel'}</button>${ro ? '' : '<button id="aeOk" class="go">Save</button>'}</div>`, true);
-  $('aeX').onclick = closeModal;
+  $('aeX').onclick = closeModal; wireDocs(a, isNew, ro);
   if ($('aeOk')) $('aeOk').onclick = async () => { const v = id => $(id).value.trim(), o = { ...a, ref: v('aeR'), category: v('aeC'), action: v('aeA'), detail: v('aeD'), responsible: v('aeW'), priority: v('aeP'), status: v('aeS'), due: v('aeDue'), notes: v('aeN'), updated: new Date().toISOString(), updatedBy: S.user.email };
     if (!o.action) return toast('Say what the action is'); if (!o.ref) { let k = 0; acts().forEach(x => { const m = /^AI-(\d+)$/.exec(x.ref || ''); if (m) k = Math.max(k, +m[1]); }); o.ref = 'AI-' + String(k + 1).padStart(2, '0'); }
     if (o.status === 'Closed' && !o.closed) o.closed = todayISO(); if (o.status !== 'Closed') o.closed = '';

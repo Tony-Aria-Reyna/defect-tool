@@ -22,11 +22,12 @@ export function initDrop(ctx) {
     if (!files.length) return dropFailed(skipped.length ? 'None of the dropped files could be read.' : 'Nothing came through with the drop.');
     if (hp && files.length === 1) { try { const h = await hp; if (h && h.kind === 'file') files[0]._handle = h; } catch (x) {} }
     if (!S.project) { if (files.length === 1 && ext(files[0]) === 'json' && S.sup) return X.Admin.importJson(files[0]).catch(err => toast(err.message, 6000)); toast(S.sup ? 'Drop a project pack (.json) here, or open a project first' : 'Open a project first, then drop the files'); return; }
-    if (!can.write()) { toast('Your role on this project cannot upload files'); return; }
+    if (!can.write() && !(where() === 'action' && can.edit())) { toast('Your role on this project cannot upload files'); return; }
     route(files).catch(err => { console.error(err); toast('Could not process the dropped files: ' + err.message, 6000); });
   });
 }
 function where() {
+  if ($('modal').classList.contains('show') && $('aeDrop')) return 'action';
   if ($('sheet').classList.contains('show') && X.editorOpen()) return 'defect';
   if (X.FM.assetDropTarget()) return 'asset';
   if ($('modal').classList.contains('show') && $('plUp')) return 'plans';
@@ -37,7 +38,7 @@ function where() {
   return 'none';
 }
 function hint() {
-  return { defect: 'Photos and PDFs will be added to this defect', asset: 'Files will be uploaded and linked to this asset', plans: 'PDFs and images will be added as plans', defects: 'Import files (.json, Excel, CSV) or plan PDFs', fm: 'Files and folders will be filed in Documents by system and type', subs: 'Warranties: each one is matched to its element, then checked', none: 'Files cannot be dropped here. Open Defects, Assets & warranties or Documents first.' }[where()];
+  return { action: 'Emails, PDFs and photos will be added to this action', defect: 'Photos and PDFs will be added to this defect', asset: 'Files will be uploaded and linked to this asset', plans: 'PDFs and images will be added as plans', defects: 'Import files (.json, Excel, CSV) or plan PDFs', fm: 'Files and folders will be filed in Documents by system and type', subs: 'Warranties: each one is matched to its element, then checked', none: 'Files cannot be dropped here. Open Defects, Assets & warranties or Documents first.' }[where()];
 }
 // When a drop cannot be read (Windows or OneDrive refuses it), offer the folder picker instead of failing silently.
 function dropFailed(why) {
@@ -68,6 +69,7 @@ const isImg = f => /^image\//.test(f.type) || ['jpg', 'jpeg', 'png', 'heic', 'we
 async function route(files) {
   const w = where(), folder = files.some(f => f.relPath && f.relPath.includes('/'));
   if (X.noteDropOpen && X.noteDropOpen()) return X.noteDrop(files);   // a comment or response is being written: the files become its appendix
+  if (w === 'action' && window.rdActionDrop) return window.rdActionDrop(files);
   if (w === 'defect') { const im = files.filter(isImg), docs = files.filter(f => !isImg(f)); if (im.length) await X.addPhotos(im); if (docs.length) await X.addFiles(docs); return; }
   if (w === 'asset') return X.FM.dropDocs(files, X.FM.assetDropTarget());
   if (w === 'none') return toast('Nothing was uploaded. Drop files on the tab they belong to: Defects (photos, plans, imports), Assets & warranties (warranties to check) or Documents (anything for the library).', 9000);

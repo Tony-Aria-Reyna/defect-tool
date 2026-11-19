@@ -13,7 +13,7 @@ import * as Sub from './submit.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
-export const DOC_TYPES = ['Warranty (Schedule 13 deed)', 'Template / blank form', 'Warranty (product)', 'O&M manual', 'Care and maintenance guide', 'Producer statement / certificate', 'Commissioning / test record', 'As-built drawing', 'Product data sheet', 'Design PS1 / report', 'Consent / authority document', 'Inspection / QA record', 'Specification / drawing', 'Contract document', 'Compliance (Form 12A / BWoF)', 'Maintenance record', 'Other'];
+export const DOC_TYPES = ['Warranty (Schedule 13 deed)', 'Template / blank form', 'Warranty (product)', 'O&M manual', 'Care and maintenance guide', 'Producer statement / certificate', 'Commissioning / test record', 'As-built drawing', 'Product data sheet', 'Design PS1 / report', 'Consent / authority document', 'Inspection / QA record', 'Specification / drawing', 'Contract document', 'Compliance (Form 12A / BWoF)', 'Maintenance record', 'Correspondence (email / letter)', 'Other'];
 const ASSET_STATUS = ['Received', 'Partial', 'Revision required', 'Query', 'Confirm', 'Not received', 'Not applicable'];
 const TASK_CATS = ['Planned maintenance', 'Compliance (BWoF)', 'Warranty condition', 'Inspection', 'Cleaning', 'Other'];
 const UNITS = { weeks: 'week', months: 'month', years: 'year' };
@@ -691,6 +691,10 @@ async function uploadFiles(files, ctx) {
   }
   return ids;
 }
+// For other parts of the app (Actions): file one document in the library with the details the user confirmed
+export function classifyName(name) { const c = classify('x/' + name); if (/\.(msg|eml)$/i.test(name)) c.type = 'Correspondence (email / letter)'; return c; }
+export async function uploadAs(file, meta) { const ids = await uploadFiles([file], { classified: meta, assetIds: meta.assetIds || [] }); return ids[0]; }
+export const docBytes = d => X.getBytes(d.url);
 const guessType = n => { const m = TYPE_BY_FOLDER.find(([re]) => re.test(n)); return m ? m[1] : 'Other'; };
 export async function uploadFolder(files) {
   // skipped: working folders (_...), superseded versions, Office lock files, and the pack's own registers and guide

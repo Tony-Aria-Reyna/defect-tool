@@ -726,3 +726,6 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .cmpbl{color:#a35a00;background:#fff3dd;padding:1px 6px;border-radius:6px;font-weight:600}.cmppg .mini{margin-left:6px}
 .cmpgw{position:relative;margin:0 0 8px}.cmpgw .cmpg{margin:0}.cmpo{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
 .cmpk{display:inline-block;width:12px;height:10px;border-radius:2px;vertical-align:0;margin:0 3px 0 6px}.cmpk.l{background:rgba(255,196,0,.6)}.cmpk.r{background:rgba(0,170,255,.5)}
+.aedrop{border:2px dashed #b9c6d4;border-radius:10px;padding:14px;text-align:center;color:#556;background:#f8fafc;margin:6px 0}
+.aelink input{width:100%;margin-top:4px}.aehit{padding:6px 8px;border-bottom:1px solid var(--line);cursor:pointer}.aehit:hover{background:#f2f6fa}
+.aedoc{padding:4px 0}.aesum{margin:6px 0}.aefile{border:1px solid #cfe0f3;border-radius:10px;padding:10px;margin-top:8px;background:#f7fbff}.aefrow{border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
