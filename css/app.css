@@ -694,3 +694,5 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .mlrb{display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle}.mlrb .mini{padding:2px 7px;font-size:11.5px}.mlrb .warn{color:#a32222}
 .mlact{white-space:nowrap;text-align:right}.mlact .mini,.mlph{display:inline-block;width:92px;margin:2px 0 2px 4px;text-align:center;padding:4px 0;font-size:12px}.mlact .warn{color:#a32222}
 .bkt td{vertical-align:middle}.bkt select{max-width:150px}
+.bkt{table-layout:fixed}.bkt select{width:100%;min-width:0;max-width:none}.bkt .apk{min-width:0}
+.mlact .mini,.mlact .mlph{width:36px;height:32px;padding:0;margin:0 0 0 6px;font-size:16px;line-height:30px;display:inline-block;text-align:center;vertical-align:middle}
