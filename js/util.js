@@ -6,6 +6,8 @@ export const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset
 export const nzDate = s => { if (!s) return ''; const d = new Date(s.length <= 10 ? s + 'T00:00' : s); return isNaN(d) ? s : d.toLocaleDateString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric' }); };
 export const nzDT = s => { const d = new Date(s); return isNaN(d) ? s : d.toLocaleString('en-NZ', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); };
 export const stamp = () => { const d = new Date(); return String(d.getDate()).padStart(2, '0') + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + d.getFullYear(); };
+// n working days after a date (weekends skipped; public holidays are not), as YYYY-MM-DD in local time
+export function addWorkDays(iso, n) { const d = new Date((iso || todayISO()) + 'T00:00'); let k = 0; while (k < (+n || 0)) { d.setDate(d.getDate() + 1); const w = d.getDay(); if (w !== 0 && w !== 6) k++; } return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 export const isMobile = () => matchMedia('(max-width:820px)').matches;
 export const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
 export const safeName = s => String(s || '').replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim();

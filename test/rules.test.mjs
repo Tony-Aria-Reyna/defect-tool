@@ -51,6 +51,10 @@ await t('contractor cannot wipe the history', () => no(updateDoc(D('con', pp('de
 await t('editor cannot rewrite an earlier history entry', () => no(updateDoc(D('ed', pp('defects/D-1')), { history: [{ t: '1', who: 'a', txt: 'Changed' }, { t: '2', who: 'c', txt: 'In progress' }] })));
 await t('editor adds a comment', () => ok(updateDoc(D('ed', pp('defects/D-1')), { history: arrayUnion({ t: '3', who: 'e', txt: 'Comment' }), updatedBy: 'ed@resero.co.nz' })));
 await t('editor cannot sign a change in someone else\'s name', () => no(updateDoc(D('ed', pp('defects/D-1')), { desc: 'x', updatedBy: 'adm@resero.co.nz' })));
+await t('contractor disputes an item with a reason', () => ok(updateDoc(D('con', pp('defects/D-1')), { status: 'Disputed', history: arrayUnion({ t: '5', who: 'c', txt: 'Disputed: built to drawing' }), updatedBy: 'con@gmail.com' })));
+await t('an editor records a transmittal', () => ok(setDoc(D('ed', pp('sent/s1')), { what: 'Missing documents', to: ['a@b.co'], by: 'ed@resero.co.nz' })));
+await t('a transmittal cannot be changed', () => no(updateDoc(D('adm', pp('sent/s1')), { what: 'x' })));
+await t('a contractor cannot record a transmittal', () => no(setDoc(D('con', pp('sent/s2')), { what: 'x', by: 'con@gmail.com' })));
 await t('contractor cannot close an item that is not on its own list', () => no(updateDoc(D('con', pp('defects/D-1')), { status: 'Closed' })));
 // shared library
 await t('a signed-in user adds one typical defect', () => ok(updateDoc(D('rnd', 'library/typicals'), { items: arrayUnion({ t: 'C' }) })));

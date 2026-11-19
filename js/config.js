@@ -10,7 +10,7 @@ export const firebaseConfig = {
 
 export const APP = {
   name: 'Resero Site',
-  version: '2.96.0',
+  version: '2.97.0',
   company: 'Resero Property',
 };
 
@@ -30,6 +30,6 @@ export const ROLES = { admin: 'Admin', editor: 'Editor', contractor: 'Contractor
 export const ROLE_HELP = {
   admin: 'Sets up the project, plans, rooms and users. Can do everything.',
   editor: 'Raises, edits and closes defects.',
-  contractor: 'Sees the register, adds photos and comments, marks items In progress or Ready for review. Cannot close or delete.',
+  contractor: 'Sees the register, adds photos and comments, marks items In progress or Ready for review, disputes items with a reason, and uploads warranties and handover documents. Cannot close or delete.',
   viewer: 'Read only, can export.',
 };

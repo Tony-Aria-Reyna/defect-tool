@@ -182,10 +182,11 @@ export async function usersDialog() {
   $('uInv').onclick = async () => {
     const e = $('uEmail').value.trim().toLowerCase(), r = $('uRole').value; if (!/^\S+@\S+\.\S+$/.test(e)) return toast('Enter a valid email address');
     try { await S.store.invite(p.id, e, r, p.name); } catch (x) { return toast('Could not invite: ' + x.message, 5000); }
-    const msg = `Hi,\n\nYou have been given ${ROLES[r]} access to the ${p.name} defects register.\n\nOpen ${appUrl()} and sign in with Google, or choose "Email me a sign-in link", using this email address (${e}). On a phone you can add it to your home screen.\n\nRegards,\n${S.user.name}\n${APP.company}`;
+    const msg = `Hi,\n\nYou have been given ${ROLES[r]} access to ${p.name} on ${APP.name}. ${ROLE_HELP[r] || ''}\n\nOpen ${appUrl()} and sign in with Google, or choose "Email me a sign-in link", using this email address (${e}). On a phone you can add it to your home screen.\n\nRegards,\n${S.user.name}\n${APP.company}`;
     modal(`<h2>Invitation saved</h2><p>${esc(e)} is invited as <b>${esc(ROLES[r])}</b>. Send them this message (Outlook or text):</p><textarea class="codebox" style="width:100%;min-height:180px">${esc(msg)}</textarea>
-      <div class="act"><button id="cpy">Copy message</button><a class="btn go" href="mailto:${encodeURIComponent(e)}?subject=${encodeURIComponent('Access to the ' + p.name + ' defects register')}&body=${encodeURIComponent(msg)}">Open in email</a><button id="bk">Back to users</button></div>`);
+      <div class="act"><button id="cpy">Copy message</button><a class="btn" href="mailto:${encodeURIComponent(e)}?subject=${encodeURIComponent('Your access to ' + p.name + ' on ' + APP.name)}&body=${encodeURIComponent(msg)}">Open in email</a><button class="go" id="ivSend">Send it from ${esc(APP.name)}</button><button id="bk">Back to users</button></div>`);
     $('cpy').onclick = () => { navigator.clipboard.writeText(msg).then(() => toast('Copied')); }; $('bk').onclick = usersDialog;
+    $('ivSend').onclick = async () => { const bb = busy('Sending…'); try { await (await import('./digest.js')).sendInvite(e, r, p.name); bb.done(); toast('Invitation sent to ' + e, 5000); usersDialog(); } catch (x) { bb.done(); toast(/needs updating/.test(x.message) ? 'The helper needs its update before it can send email. Use Open in email for now.' : x.message, 8000); } };
   };
 }
 

@@ -3,7 +3,7 @@ import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
 import { S, can, myScope, domainOf, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
-import { autoFitAll, $, esc, toast, modal, closeModal, busy, confirmBox, compressImage, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
+import { addWorkDays, autoFitAll, $, esc, toast, modal, closeModal, busy, confirmBox, compressImage, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
 import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, initMarkup, outboxCount } from './photos.js';
@@ -180,6 +180,7 @@ export async function openProject(pid, quiet) {
     if (!S.role) { b && b.done(); return false; }
     S.local.lastProject = pid; saveLocal();
     ActiveTime.start(pid);
+    S.prevSeen = ((p.memberInfo || {})[S.user.uid] || {}).lastSeen || ''; S.actHidden = false;
     try { const ls = ((p.memberInfo || {})[S.user.uid] || {}).lastSeen; if (S.store.touch && navigator.onLine && (!ls || Date.now() - Date.parse(ls) > 30 * 60000)) S.store.touch(pid); } catch (e) {}
     S.plans = await S.store.listPlans(pid);
     S.ai = can.write() ? await S.store.getPrivate(pid) : {}; S.aiAdmin = can.realAdmin() ? await S.store.getPrivate(pid, 'admin') : {};
@@ -200,7 +201,7 @@ function applyDeepLink() {
   const sub = h.get('sub'), unit = h.get('unit'), id = h.get('id'); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   if (h.has('tryit')) { setTimeout(() => { if (S.project && !S.testMode) Try.start(); }, 1500); return; }
   const go = () => { if (id) { const d = S.defects.find(q => q.id === id); if (d) openEditor(d); return; }
-    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']);
+    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false, overdue: false, back: false, fresh: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']);
     if (sub) { const m = [...new Set(S.defects.map(d => d.subcontractor).filter(Boolean))].find(n => n.toLowerCase() === sub.toLowerCase()); if (m) S.F.sub = m; else S.F.q = sub; }
     if (unit) S.F.unit = unit; filtersDirty = true; if (S.F.q) $('q').value = S.F.q; setTab('list'); render(); toast(sub ? 'Showing open items for ' + sub : 'Showing open items for Unit ' + unit, 5000); };
   setTimeout(go, 2500);   // after the defects have loaded
@@ -247,10 +248,31 @@ let filtersDirty = true;
 const FREE_MAIL = /^(gmail|googlemail|hotmail|outlook|live|yahoo|icloud|xtra|me)$/;
 const squash = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 export function ownsRegister(src) { const sc = myScope(); if (sc && sc.includes(src)) return true; const dom = domainOf(S.user && S.user.email).split('.')[0]; return dom.length >= 4 && !FREE_MAIL.test(dom) && squash(src).includes(dom); }
+// Items whose latest movement sent them back to the contractor, and items raised since this person last opened the project
+const lastMove = d => (d.history || []).filter(h => (h.st && h.st[1]) || WF_TO.some(x => x[0].test(String(h.txt || '')))).sort((a, b) => String(b.t || '').localeCompare(String(a.t || '')))[0];
+export const sentBack = d => d.status === 'Open' && /^Reopened/i.test(String((lastMove(d) || {}).txt || ''));
+export const isNew = d => !!S.prevSeen && String(d.created || '') > S.prevSeen && d.createdBy !== S.user.email;
+// "Your actions": what this person should do next, at the top of the list each time they open the project
+function myActions() {
+  const D = S.defects, A = [], ins = D.filter(mineToInspect).length, od = D.filter(overdue).length, back = D.filter(sentBack).length, fresh = D.filter(isNew).length, disp = D.filter(d => d.status === 'Disputed').length;
+  if (can.contractor()) { if (back) A.push(['↩', back, 'sent back to you', { back: true }]); if (od) A.push(['⏰', od, 'past their due date', { overdue: true }]); if (fresh) A.push(['🆕', fresh, 'new since your last visit', { fresh: true }]); }
+  else { if (ins) A.push(['🔎', ins, 'waiting for you to inspect', { toReview: true }]); if (disp && can.edit()) A.push(['⚑', disp, 'disputed by the contractor', { status: new Set(['Disputed']) }]); if (od) A.push(['⏰', od, 'overdue with the contractor', { overdue: true }]); if (fresh) A.push(['🆕', fresh, 'new since your last visit', { fresh: true }]); }
+  const subs = S.fm && Sub.counts ? Sub.counts() : null; if (subs && can.edit() && subs.review) A.push(['📄', subs.review, 'warranty submissions to review', 'subs']); if (subs && can.contractor() && subs.fix) A.push(['📄', subs.fix, 'warranty submissions to fix', 'subs']);
+  return A;
+}
+function renderActions() {
+  let el = $('myAct'); if (!el) { el = document.createElement('div'); el.id = 'myAct'; $('list').parentNode.insertBefore(el, $('list')); }
+  const A = S.actHidden ? [] : myActions(); el.hidden = !A.length; if (!A.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="myact"><b>Your actions</b>${S.prevSeen ? `<span class="muted small"> · last visit ${esc(nzDT(S.prevSeen))}</span>` : ''}<button class="x" id="maX" title="Hide until next time">✕</button><div class="mabtns">${A.map((a, i) => `<button data-ma="${i}"><span>${a[0]}</span><b>${a[1]}</b> ${esc(a[2])}</button>`).join('')}</div></div>`;
+  $('maX').onclick = () => { S.actHidden = true; renderActions(); };
+  el.querySelectorAll('[data-ma]').forEach(b => b.onclick = () => { const f = A[+b.dataset.ma][3]; if (f === 'subs') { FM.showSubs(); return; }
+    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false, overdue: false, back: false, fresh: false }, f); if (!f.status) S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; setTab('list'); render(); });
+}
+export const overdue = d => !!d.targetDate && !['Closed', 'Ready for review'].includes(d.status) && d.targetDate < todayISO();
 export const mineToInspect = d => d.status === 'Ready for review' && !can.contractor() && (can.admin() || d.createdBy === S.user.email || ownsRegister(d.source));
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => (F.toReview ? mineToInspect(d) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && mHas(F.block, d.block) && mHas(F.level, d.level) && (!F.unit || mv(F.unit).some(u => u === '-' ? !d.unit : String(d.unit) === u)) && mHas(F.sev, d.severity) && mHas(F.trade, d.trade) && mHas(F.resp, d.responsible) && mHas(F.sub, d.subcontractor) && mHas(F.by, d.source || '') && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
+  const r = S.defects.filter(d => (F.toReview ? mineToInspect(d) : F.overdue ? overdue(d) : F.back ? sentBack(d) : F.fresh ? isNew(d) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && mHas(F.block, d.block) && mHas(F.level, d.level) && (!F.unit || mv(F.unit).some(u => u === '-' ? !d.unit : String(d.unit) === u)) && mHas(F.sev, d.severity) && mHas(F.trade, d.trade) && mHas(F.resp, d.responsible) && mHas(F.sub, d.subcontractor) && mHas(F.by, d.source || '') && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -264,12 +286,12 @@ export async function render() {
   const D = S.defects, c = {}; S.project.statuses.forEach(s => c[s] = 0); D.forEach(d => c[d.status] = (c[d.status] || 0) + 1);
   const maj = D.filter(d => d.status !== 'Closed' && isMajor(d)).length, codes = S.project.severities.map(sevCode), coded = codes.every(Boolean), byCat = coded ? S.project.severities.map((s, i) => [codes[i], D.filter(d => d.status !== 'Closed' && d.severity === s).length, s]) : null, tri = D.filter(d => d.status !== 'Closed' && d.severity === 'To triage').length;
   const pend = D.filter(d => d.aiPending).length, rev = D.filter(d => d.aiReview).length, toRev = D.filter(mineToInspect).length;
-  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt cats" title="Open items by ${esc(sevLabel(S.project).toLowerCase())}. Tap a letter to show only those."><em>${esc(sevLabel(S.project))}</em>${byCat ? byCat.map(c => `<button class="catb ${S.F.sev === c[2] ? 'on' : ''}" data-sev="${esc(c[2])}" title="${esc(c[2])}">${esc(c[0])} <b>${c[1]}</b></button>`).join('') : `Major <b>${maj}</b>`}${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '') + (toRev || S.F.toReview ? `<button class="cnt chk ${S.F.toReview ? 'on' : ''}" data-tr="1">🔎 For me to inspect <b>${toRev}</b></button>` : '');
-  $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.sev) { S.F.sev = S.F.sev === b.dataset.sev ? '' : b.dataset.sev; render(); return; } if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } if (b.dataset.tr) { S.F.toReview = !S.F.toReview; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
+  $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt cats" title="Open items by ${esc(sevLabel(S.project).toLowerCase())}. Tap a letter to show only those."><em>${esc(sevLabel(S.project))}</em>${byCat ? byCat.map(c => `<button class="catb ${S.F.sev === c[2] ? 'on' : ''}" data-sev="${esc(c[2])}" title="${esc(c[2])}">${esc(c[0])} <b>${c[1]}</b></button>`).join('') : `Major <b>${maj}</b>`}${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '') + (toRev || S.F.toReview ? `<button class="cnt chk ${S.F.toReview ? 'on' : ''}" data-tr="1">🔎 For me to inspect <b>${toRev}</b></button>` : '') + (D.some(overdue) || S.F.overdue ? `<button class="cnt chk over ${S.F.overdue ? 'on' : ''}" data-ov="1" title="Past their due date and still with the contractor">⏰ Overdue <b>${D.filter(overdue).length}</b></button>` : '');
+  $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.sev) { S.F.sev = S.F.sev === b.dataset.sev ? '' : b.dataset.sev; render(); return; } if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } if (b.dataset.tr) { S.F.toReview = !S.F.toReview; render(); return; } if (b.dataset.ov) { S.F.overdue = !S.F.overdue; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
   const L = filtered();
-  $('lmeta').textContent = L.length + ' of ' + D.length + ' shown'; filterChips();
+  $('lmeta').textContent = L.length + ' of ' + D.length + ' shown'; filterChips(); try { renderActions(); } catch (e) { console.warn('actions', e); }
   $('list').innerHTML = L.length ? L.map(d => { const sev = isMajor(d) ? 'sev-maj' : d.severity === 'To triage' ? 'sev-tri' : ''; const ph = (d.photos || [])[0];
-    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}<div class="thc"${ph || d.plan ? '' : ' hidden'}>${ph ? `<div class="thw"><img class="th" data-ph="${esc(d.id)}" alt="" draggable="false"><button class="phn" data-gal="${esc(d.id)}" title="Open the photos">📷 ${d.photos.length}</button></div>` : ''}${d.plan && d.x != null ? `<img class="snip" data-sn="${esc(d.id)}" alt="Location on the plan" title="Tap to see where it is. Press and hold for a quick look." draggable="false">` : ''}</div><div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.subcontractor ? `<span class="tag">${esc(d.subcontractor)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.general && !d.plan ? '<span class="tag">General</span>' : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
+    return `<div class="card ${S.sel === d.id ? 'sel' : ''} ${S.bulk && S.bulk.has(d.id) ? 'picked' : ''}" style="--c:${SCOL[d.status] || '#999'}" data-id="${esc(d.id)}">${S.bulk ? `<label class="pick"><input type="checkbox" data-pick="${esc(d.id)}" ${S.bulk.has(d.id) ? 'checked' : ''}></label>` : ''}<div class="thc"${ph || d.plan ? '' : ' hidden'}>${ph ? `<div class="thw"><img class="th" data-ph="${esc(d.id)}" alt="" draggable="false"><button class="phn" data-gal="${esc(d.id)}" title="Open the photos">📷 ${d.photos.length}</button></div>` : ''}${d.plan && d.x != null ? `<img class="snip" data-sn="${esc(d.id)}" alt="Location on the plan" title="Tap to see where it is. Press and hold for a quick look." draggable="false">` : ''}</div><div class="b"><div class="t">${esc(d.id)} · ${esc(d.title || d.element || '(untitled)')}</div><div class="d">${esc(d.desc)}</div><div class="m"><span class="pill" style="background:${SCOL[d.status] || '#999'}">${esc(d.status)}</span>${overdue(d) ? `<span class="tag over" title="Due ${esc(nzDate(d.targetDate))}">Overdue</span>` : d.targetDate && !['Closed', 'Ready for review'].includes(d.status) ? `<span class="tag">Due ${esc(nzDate(d.targetDate))}</span>` : ''}${d.severity ? `<span class="tag ${sev}">${esc(d.severity)}</span>` : ''}${locText(d) ? `<span class="tag">${esc(locText(d))}</span>` : ''}${d.trade ? `<span class="tag">${esc(d.trade)}</span>` : ''}${d.subcontractor ? `<span class="tag">${esc(d.subcontractor)}</span>` : ''}${d.aiPending ? '<span class="tag chk">📵 Waiting for coverage</span>' : ''}${d.aiReview ? '<span class="tag chk">✨ To check</span>' : ''}${d.general && !d.plan ? '<span class="tag">General</span>' : ''}</div></div></div>`; }).join('') : `<div class="empty">${D.length ? 'No defects match these filters.' : 'No defects yet.' + (can.edit() ? ' Tap the microphone or + New to raise one, or import a register from the ☰ menu.' : '')}</div>`;
   $('list').querySelectorAll('[data-gal]').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.gal); if (d) gallery(d.photos, 0, d.id + ' · ' + (d.title || '')); });
   snipWatch($('list'));
   $('list').querySelectorAll('.loc[data-loc]').forEach(t => t.onclick = e => { e.stopPropagation(); const d = S.defects.find(x => x.id === t.dataset.loc); if (d) showLocation(d); });
@@ -283,11 +305,11 @@ export async function render() {
 const F_NAMES = { block: 'Block', level: 'Level', unit: 'Unit', sev: null, trade: 'Trade', resp: 'Responsible', sub: 'Subcontractor', by: 'Raised by' };
 function filterChips() {
   const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => [k, (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + mTxt(F[k])]);
-  if (F.q) on.unshift(['q', 'Search "' + F.q + '"']); if (F.review) on.push(['review', 'To check']); if (F.toReview) on.push(['toReview', 'For me to inspect']);
+  if (F.q) on.unshift(['q', 'Search "' + F.q + '"']); if (F.review) on.push(['review', 'To check']); if (F.toReview) on.push(['toReview', 'For me to inspect']); if (F.overdue) on.push(['overdue', 'Overdue']); if (F.back) on.push(['back', 'Sent back to you']); if (F.fresh) on.push(['fresh', 'New since your last visit']);
   const n = on.filter(o => o[0] !== 'q').length, tg = $('fTog'), open = S.fOpen == null ? !isMobile() : S.fOpen;
   $('fMore').classList.toggle('open', open); tg.classList.toggle('on', open); tg.classList.toggle('has', n > 0); tg.innerHTML = (open ? '▴' : '▾') + ' Filters' + (n ? ` <b>${n}</b>` : '');
   $('fChips').innerHTML = on.length ? `<span class="fcl">Showing only:</span>` + on.map(o => `<button data-fx="${o[0]}">${esc(o[1])} ✕</button>`).join('') + (on.length > 1 ? '<button class="all" data-fx="*">Clear all</button>' : '') : '';
-  $('fChips').querySelectorAll('button').forEach(b => b.onclick = () => { const k = b.dataset.fx; if (k === '*') { $('clr').click(); return; } S.F[k] = (k === 'review' || k === 'toReview') ? false : ''; if (k === 'q') $('q').value = ''; filtersDirty = true; render(); });
+  $('fChips').querySelectorAll('button').forEach(b => b.onclick = () => { const k = b.dataset.fx; if (k === '*') { $('clr').click(); return; } S.F[k] = ['review', 'toReview', 'overdue', 'back', 'fresh'].includes(k) ? false : ''; if (k === 'q') $('q').value = ''; filtersDirty = true; render(); });
 }
 // A square cut-out of the plan centred on an item's pin. Plan images are decoded once and cut-outs are remembered.
 const planImgs = new Map(), snips = new Map();
@@ -314,7 +336,7 @@ function snipWatch(root) {
   snipObs = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { snipObs.unobserve(e.target); fill(e.target); } }), { rootMargin: '300px' }); L.forEach(im => snipObs.observe(im));
 }
 // The words a person wrote on an item (a comment, or the note given with a status change), newest first.
-const WF_LABELS = /^(Ready for inspection|Reopened and sent back|Accepted and closed|In progress|Completed and closed by the contractor): ([\s\S]+)$/;
+const WF_LABELS = /^(Ready for inspection|Reopened and sent back|Accepted and closed|In progress|Completed and closed by the contractor|Disputed|Dispute agreed and closed): ([\s\S]+)$/;
 const SYS_TXT = /^(Changed |Raised|Imported|Added from|Pin placed|Unit |Filled in|Site note|Status |Ticked|Marked|Handwritten|Resolution note|Category set|Ready for inspection\.|Reopened and sent back\.|Accepted and closed\.|In progress\.|Completed and closed)/i;
 function humanNotes(d) {
   return (d.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(h => { const t = String(h.txt || ''), m = WF_LABELS.exec(t); if (m) return { h, label: m[1], text: m[2] }; if (!t.trim() || SYS_TXT.test(t)) return null; return { h, label: '', text: t }; }).filter(Boolean);
@@ -418,7 +440,23 @@ export async function gallery(photos, i, title) {
   show();
 }
 // History: every entry shows who and when; a change of status shows the old and new status in their own colours.
-const WF_TO = [[/^Ready for inspection/i, 'Ready for review'], [/^(Accepted and closed|Completed and closed)/i, 'Closed'], [/^Reopened/i, 'Open'], [/^In progress/i, 'In progress'], [/^Ticked on the site sheet|^Marked "/i, null]];
+const WF_TO = [[/^Ready for inspection/i, 'Ready for review'], [/^(Accepted and closed|Completed and closed|Dispute agreed)/i, 'Closed'], [/^Disputed/i, 'Disputed'], [/^Reopened/i, 'Open'], [/^In progress/i, 'In progress'], [/^Ticked on the site sheet|^Marked "/i, null]];
+// Due dates: new items get the project's default (working days); open items without one can be given it in one go.
+function dueDialog() {
+  const p = S.project, open = S.defects.filter(d => ['Open', 'In progress', 'Disputed'].includes(d.status)), none = open.filter(d => !d.targetDate);
+  modal(`<h2>📅 Due dates</h2><p>New items are due a set number of working days after they are raised (weekends are skipped; public holidays are not). Items past their due date show as Overdue, in the list and in the contractor's daily email.</p>
+  <label class="f">Working days to complete an item<input type="number" id="ddN" min="1" max="60" value="${esc(p.dueDays || 7)}"></label>
+  <div class="opt"><input type="radio" name="ddW" id="ddW0" value="none" checked><label for="ddW0">Give the ${none.length} open items with no due date one, counted from today (due <b id="ddD"></b>)</label></div>
+  <div class="opt"><input type="radio" name="ddW" id="ddW1" value="all"><label for="ddW1">Reset all ${open.length} open items to that date</label></div>
+  <div class="opt"><input type="radio" name="ddW" id="ddW2" value="keep"><label for="ddW2">Only change the default for new items</label></div>
+  <p class="note" id="ddSt"></p><div class="act"><button id="ddX">Cancel</button><button class="go" id="ddGo">Apply</button></div>`);
+  const upd = () => { $('ddD').textContent = nzDate(addWorkDays(todayISO(), +$('ddN').value || 7)); }; upd(); $('ddN').oninput = upd; $('ddX').onclick = closeModal;
+  $('ddGo').onclick = async () => { const n = Math.max(1, Math.min(60, +$('ddN').value || 7)), w = document.querySelector('[name=ddW]:checked').value, due = addWorkDays(todayISO(), n), L = w === 'all' ? open : w === 'none' ? none : [], t = new Date().toISOString();
+    $('ddGo').disabled = true; let k = 0;
+    try { if (n !== (p.dueDays || 7)) { await S.store.updateProject(p.id, { dueDays: n }); p.dueDays = n; }
+      for (const d of L) { $('ddSt').textContent = `Updating ${++k} of ${L.length}…`; await S.store.updateDefect(p.id, d.id, { targetDate: due, updated: t, updatedBy: S.user.email }, [{ t, who: S.user.name, txt: `Changed target date ${nzDate(due)}.` }]); d.targetDate = due; }
+      closeModal(); render(); toast(L.length ? `${L.length} items now due ${nzDate(due)}` : 'Saved', 5000); } catch (e) { $('ddGo').disabled = false; toast('Stopped after ' + k + ': ' + e.message, 7000); } };
+}
 // The server-stamped change log for one item (admins): when, who, what. Entries cannot be edited or removed.
 async function serverLog(id) {
   const b = busy('Reading the server log…'); let L = [];
@@ -702,7 +740,7 @@ let ED = null;
 const FIELDS = ['subcontractor', 'source', 'dateRaised', 'block', 'level', 'unit', 'room', 'surface', 'item', 'element', 'title', 'desc', 'type', 'severity', 'trade', 'responsible', 'action', 'targetDate', 'status'];
 async function newDefect() {
   const p = S.project;
-  return { id: '', isNew: true, source: S.local.source || p.sources[0], dateRaised: todayISO(), raisedBy: S.user.name, block: '', level: '', unit: '', room: '', element: '', title: '', desc: '', type: p.types[0], severity: sevDefault(p), trade: p.trades[0], responsible: p.responsible[0], action: '', targetDate: '', status: 'Open', plan: '', x: null, y: null, photos: [], history: [], transcript: '' };
+  return { id: '', isNew: true, source: S.local.source || p.sources[0], dateRaised: todayISO(), raisedBy: S.user.name, block: '', level: '', unit: '', room: '', element: '', title: '', desc: '', type: p.types[0], severity: sevDefault(p), trade: p.trades[0], responsible: p.responsible[0], action: '', targetDate: addWorkDays(todayISO(), p.dueDays || 7), status: 'Open', plan: '', x: null, y: null, photos: [], history: [], transcript: '' };
 }
 export function openEditor(d, isNew, isDraft) {
   const w = isDraft ? d : JSON.parse(JSON.stringify(d)); const p = S.project;
@@ -869,6 +907,8 @@ async function renderPhotos() {
   if ($('wfAccept')) $('wfAccept').onclick = () => noteDialog({ title: 'Accept and close', ask: 'Closing note', ph: 'e.g. Inspected on site, work accepted', btn: 'Accept and close', go: wf('Closed', 'Accepted and closed', false) });
   if ($('wfSelf')) $('wfSelf').onclick = () => readyDialog(wf('Closed', 'Completed and closed by the contractor', true), true);
   if ($('wfReopen')) $('wfReopen').onclick = () => noteDialog({ title: 'Reopen and send back', ask: 'What still needs doing', ph: 'Say exactly what is still wrong so it is fixed first time', btn: 'Reopen and send back', warn: true, required: true, need: 'Say what still needs doing so the contractor knows.', go: wf('Open', 'Reopened and sent back', true) });
+  if ($('wfDisp')) $('wfDisp').onclick = () => noteDialog({ title: 'Dispute this item', ask: 'Why it is disputed', ph: 'e.g. Built to the approved drawing A-201 Rev C, so not a defect. Or: damage by others after handover.', btn: 'Send the dispute', warn: true, required: true, need: 'Give the reason so the project team can decide.', go: wf('Disputed', 'Disputed', true) });
+  if ($('wfDAgree')) $('wfDAgree').onclick = () => noteDialog({ title: 'Agree with the dispute and close', ask: 'Decision', ph: 'e.g. Agreed: built to the approved drawing. No further work.', btn: 'Agree and close', required: true, need: 'Record the decision.', go: wf('Closed', 'Dispute agreed and closed', true) });
   if ($('wfProg')) $('wfProg').onclick = () => noteDialog({ title: 'Mark in progress', ask: 'Note', ph: 'e.g. Painter booked for Tuesday', btn: 'Mark in progress', go: wf('In progress', 'In progress', false) });
   if ($('wfCmt')) $('wfCmt').onclick = () => noteDialog({ title: limited(ED.d) ? 'Add a response' : 'Add a comment', ask: limited(ED.d) ? 'Your response' : 'Comment', ph: 'Saved with your name and the time', btn: 'Save comment', required: true, go: saveEditor });
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
@@ -1189,6 +1229,8 @@ function openMenu() {
     <button id="mFind">🔍 Search everything<small>Tools, defects, units, products. Spelling does not need to be exact</small></button>
     ${a ? `<button id="mCk">🚀 Set-up checklist (${Setup.progress().join(' of ')})<small>What this project still needs, with a button to each step</small></button>` : ''}
     ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
+    ${a ? '<button id="mDig">✉ Email digests<small>Daily, weekly or monthly emails with what each person needs to do</small></button>' : ''}
+    ${a ? `<button id="mDue">📅 Due dates<small>${S.defects.filter(d => ['Open', 'In progress', 'Disputed'].includes(d.status) && !d.targetDate).length} open items have no due date. New items get ${S.project.dueDays || 7} working days</small></button>` : ''}
     ${can.edit() && unpinned().length ? `<button id="mPinQ">📍 Items to pin (${unpinned().length})<small>Go through open items that have no pin, one at a time</small></button>` : ''}
     ${can.write() ? '<button id="mTick">📄 Scan a site tick sheet<small>Photograph a printed sheet: ticks and handwriting are read by Gemini</small></button>' : ''}
     ${can.write() && Sync.available() ? '<button id="mSync">🔄 Update the contractor\'s spreadsheet<small>Two-way: completed rows close items here, closed items are ticked off in the Excel register</small></button>' : ''}
@@ -1210,7 +1252,7 @@ function openMenu() {
   const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
   on('mTry', Try.start); on('mFb', () => Try.feedback(false)); on('mFbR', Try.results);
   on('mFind', () => Search.open()); on('mCk', () => Setup.checklist()); on('mTpl', Setup.saveTemplate);
-  on('mPinQ', pinQueue); on('mTick', Tick.start); on('mSync', Sync.start); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
+  on('mPinQ', pinQueue); on('mDue', dueDialog); on('mDig', async () => (await import('./digest.js')).digestDialog()); on('mTick', Tick.start); on('mSync', Sync.start); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
   on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp); on('mKeep', () => keepPlansOnPhone(true));
   on('mViewAs', () => { modal(`<h2>Test mode</h2><p>Try the app as another role on a <b>throwaway copy</b> of this project. Press every button you like: nothing is saved to the cloud, and leaving test mode throws the copy away.</p><div class="btnlist">${['admin', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${S.viewAs === r ? 'go' : ''}">${esc(ROLES[r] || r)}</button>`).join('')}${S.testMode ? '<button data-va="">Leave test mode</button>' : ''}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { closeModal(); b.dataset.va ? enterTestMode(b.dataset.va) : leaveTestMode(); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
@@ -1254,7 +1296,7 @@ function toolList() {
   t(true, '⎋', 'Sign out', 'log out logout sign off account', [M, '⎋ Sign out'], () => S.store.signOut());
   return T;
 }
-function filterBy(o) { FM.setModule('defects'); Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false }, o); $('q').value = S.F.q || ''; filtersDirty = true; setTab('list'); render(); }
+function filterBy(o) { FM.setModule('defects'); Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false, overdue: false, back: false, fresh: false }, o); $('q').value = S.F.q || ''; filtersDirty = true; setTab('list'); render(); }
 
 /* ================================================================ wiring */
 function wire() {
@@ -1264,7 +1306,7 @@ function wire() {
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['fBy', 'by', 'change'], ['sort', 'sort', 'change']].forEach(([id, k]) => { if (id[0] === 'f') multiPick($(id), k); });
   [['q', 'q', 'input'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
-  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
+  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false, overdue: false, back: false, fresh: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   Search.init({ tools: toolList, units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
   Try.init({ enterTestMode, leaveTestMode, saveLocal, bar: viewAsBar });
@@ -1299,7 +1341,11 @@ function workflowBar(w, con) {
   const mine = w.createdBy === S.user.email, reviewer = !con && (mine || can.edit());
   const b = [], cm = `<button id="wfCmt" class="cmt">💬 ${con ? 'Respond' : 'Comment'}</button>`, wrap = x => '<div class="wf">' + x.join('') + cm + '</div>';
   if (con && selfClose(w)) { if (w.status !== 'Closed') b.push('<button class="go" id="wfSelf">✔ Complete and close</button>'); if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>'); return wrap(b); }
+  // a disputed item goes to the reviewer: agree and close, or send it back with the reason
+  if (w.status === 'Disputed' && reviewer) return wrap(['<button class="go" id="wfDAgree">✔ Agree and close</button><button class="warn" id="wfReopen">↩ Not agreed: send back</button>']);
+  if (w.status === 'Disputed' && con) return '<p class="note">Disputed: waiting for the project team to decide.</p>' + wrap([]);
   if (w.status !== 'Closed' && w.status !== 'Ready for review') b.push('<button class="go" id="wfReady">✅ Ready for inspection</button>');
+  if (con && ['Open', 'In progress'].includes(w.status)) b.push('<button class="warn" id="wfDisp" title="Not a defect, not in the contract, or damage by others: say why">⚑ Dispute</button>');
   if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>');
   if (w.status !== 'Closed' && w.status !== 'Ready for review' && reviewer) b.push('<button id="wfAccept">✔ Close now</button>');   // the reviewer can close without waiting for it to be marked ready
   if (w.status === 'Ready for review' && reviewer) b.push('<button class="go" id="wfAccept">✔ Accept and close</button><button class="warn" id="wfReopen">↩ Reopen and send back</button>');

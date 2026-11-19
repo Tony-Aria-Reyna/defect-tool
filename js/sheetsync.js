@@ -135,6 +135,9 @@ export async function compare(file) {
   return { file, buf, ...matchRows(rowsFrom(cell)(rng.s.r, rng.e.r)) };
 }
 /* ---- the register as a Google Sheet, read and written through the project's Google helper script: works from any device ---- */
+// The helper's version (ping): 3 and above can send email and digests. 0 when it cannot be reached or is not set up.
+let HV = null;
+export async function helperVersion() { if (HV != null) return HV; try { const j = await gsCall('ping'); HV = j.version || 2; } catch (e) { HV = 0; } return HV; }
 export async function gsCall(action, extra) {
   const h = S.ai || {}; if (!h.helperUrl) throw new Error('The Google helper is not set up for this project (menu, Gemini).');
   let t; try { const r = await fetch(h.helperUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: h.helperKey || '', adminKey: (S.aiAdmin || {}).adminKey || '', action, ...(extra || {}) }), redirect: 'follow' }); t = await r.text(); } catch (e) { throw new Error('Could not reach the Google helper. Check the internet and try again.'); }

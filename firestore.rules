@@ -109,7 +109,7 @@ service cloud.firestore {
           // on anyone else's items a contractor responds, adds photos and moves the status only
           || (isContractor(pid)
               && changed().hasOnly(['status', 'subcontractor', 'photos', 'files', 'history', 'updated', 'updatedBy'])
-              && (request.resource.data.status in ['Open', 'In progress', 'Ready for review']
+              && (request.resource.data.status in ['Open', 'In progress', 'Ready for review', 'Disputed']
                   // items from the contractor's own registers can be closed by the contractor
                   || (request.resource.data.status == 'Closed'
                       && resource.data.get('source', '') in get(/databases/$(db)/documents/projects/$(pid)).data.get('selfCloseSources', [])))
@@ -149,6 +149,12 @@ service cloud.firestore {
         allow create: if isMember(pid) && request.resource.data.uid == request.auth.uid
           && request.resource.data.email == myEmail() && request.resource.data.at == request.time;
         allow read: if isAdmin(pid);
+        allow update, delete: if false;
+      }
+      // what was sent to whom and when (transmittals), kept as a record
+      match /sent/{id} {
+        allow read: if canEdit(pid);
+        allow create: if canEdit(pid) && request.resource.data.by == myEmail();
         allow update, delete: if false;
       }
       match /actions/{id} {                     // PC conditions, Council RFI items, close-out actions
