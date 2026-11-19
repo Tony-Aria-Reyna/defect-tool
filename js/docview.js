@@ -235,7 +235,7 @@ function drawResults() {
   el.querySelectorAll('[data-h]').forEach(r => r.onclick = async () => { const h = R.hits[+r.dataset.h]; if (h.d.id !== V.d.id) { const keep = { q: V.q, res: V.res, all: V.all }; await open(h.d, { page: h.p }); if (!V) return; Object.assign(V, keep); V.hl = h.words; await show(h.p); home(); } else { V.hl = h.words; await show(h.p); overlay(); drawResults(); } });
   if ($('dvAi')) $('dvAi').onclick = async () => { const btn = $('dvAi'); btn.disabled = true; btn.textContent = 'Asking…';
     try { const t = await aiCall(`Someone is searching a New Zealand construction contract and specification for: "${R.q}". List other words or short phrases those documents might use for the same thing (trade terms, formal contract wording, product names, abbreviations). Return JSON {"terms":["...", up to 12]}.`); let terms = []; try { terms = JSON.parse(String(t).replace(/^```(?:json)?\s*|\s*```$/g, '')).terms || []; } catch (e) {} if (!terms.length) throw new Error('AI gave no suggestions'); await runSearch(terms.slice(0, 12).map(String)); }
-    catch (e) { toast(e.message === 'nokey' ? 'Set up the AI helper first (☰ > Gemini)' : e.message, 5000); btn.disabled = false; btn.textContent = '✨ Ask AI for other words'; } };
+    catch (e) { toast(e.message === 'nokey' ? 'Set up the AI helper first (☰ > AI)' : e.message, 5000); btn.disabled = false; btn.textContent = '✨ Ask AI for other words'; } };
 }
 
 /* ---------- one marked clause: view, edit, save ---------- */

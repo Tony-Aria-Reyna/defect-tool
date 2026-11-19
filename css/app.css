@@ -716,3 +716,9 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .srcard{margin:8px 12px;padding:10px 14px;border:1px solid #cfe0f3;border-left:4px solid #2e9b5f;border-radius:10px;background:#f4fbf6;cursor:pointer;font-size:14px}.srcard div{color:#334;margin-top:2px;font-size:13px}
 .srans{margin:8px 12px;padding:10px 14px;border:1px solid #e6d9a8;border-left:4px solid #e39b1b;border-radius:10px;background:#fffaf0;font-size:14px}.srans b{font-weight:600;display:block;margin-bottom:4px}.srans a{color:#1f5fa8}
 .srrow.ask{background:#fffaf0}
+/* What's due: one list across maintenance, compliance, warranties, the defects period, actions and defects */
+.duep{margin:0 0 12px;border-left:4px solid var(--navy)}
+.dueg{margin-top:6px}.dueh{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:8px;margin:4px 0 2px}
+.duer{cursor:pointer}.duer:hover{background:#f6f9fc}
+.dk{display:inline-block;font-size:11px;padding:1px 6px;border-radius:6px;background:var(--grey);color:#334;margin-right:4px;vertical-align:1px}
+#dpL{max-height:55vh;overflow:auto}

@@ -14,7 +14,7 @@ function defaults() {
   return Object.entries(p.members || {}).map(([u, role]) => { const i = info[u] || {}, email = String(i.email || '').toLowerCase(), dom = domainOf(email); if (!email) return null;
     const own = src.filter(x => x.toLowerCase().replace(/[^a-z0-9]/g, '').includes(dom.split('.')[0]) && dom.split('.')[0].length >= 4);
     const client = (p.restrictedTo || []).includes(dom) && role !== 'admin';
-    const kind = role === 'admin' ? 'admin' : role === 'contractor' ? 'contractor' : client ? 'client' : 'inspector';
+    const kind = role === 'admin' ? 'admin' : role === 'contractor' ? 'contractor' : role === 'client' || client ? 'client' : 'inspector';
     return { email, name: i.name || '', kind, freq: kind === 'admin' ? 'weekly' : kind === 'client' ? 'monthly' : 'daily', registers: kind === 'inspector' ? own : [] }; }).filter(Boolean);
 }
 export async function digestDialog() {

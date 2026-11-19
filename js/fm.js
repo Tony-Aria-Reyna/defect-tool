@@ -31,10 +31,12 @@ export function start(pid) {
   document.querySelectorAll('#modbar button').forEach(b => b.hidden = !mayUse(b.dataset.m === 'actions' ? 'comp' : b.dataset.m));
   const parts = { docs: [], rdocs: [] }; RIDS = new Set(); route.fn = (c, id) => c === 'docs' && RIDS.has(id) ? 'rdocs' : c;
   const mergeDocs = () => { fm().docs = [...parts.docs.filter(d => !RIDS.has(d.id)), ...parts.rdocs.map(d => ({ ...d, restricted: true }))]; };
-  ['assets', 'docs', 'tasks', 'systems', 'guide', 'actions'].filter(c => NEED[c].some(mayUse)).forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { if (c === 'docs') { parts.docs = l; mergeDocs(); } else fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
+  const watched = ['assets', 'docs', 'tasks', 'systems', 'guide', 'actions'].filter(c => NEED[c].some(mayUse)); loaded = new Set();
+  const arrived = c => { if (loaded.has(c)) return; loaded.add(c); if (['assets', 'tasks', 'systems', 'actions'].filter(x => watched.includes(x)).every(x => loaded.has(x))) setTimeout(() => { if (S.project && S.project.id === pid) maybeDuePrompt(); }, 1500); };
+  watched.forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { if (c === 'docs') { parts.docs = l; mergeDocs(); } else fm()[c] = l; arrived(c); if (cur !== 'defects') render(); }, e => { console.warn(c, e); arrived(c); })));
   if (canRestricted() && NEED.docs.some(mayUse)) unsubs.push(S.store.watchColl(pid, 'rdocs', l => { parts.rdocs = l; RIDS = new Set(l.map(d => d.id)); mergeDocs(); if (cur !== 'defects') render(); }, e => console.warn('rdocs', e)));
   const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
-  setModule(mayUse('defects') || !first ? 'defects' : first.dataset.m);
+  setModule(can.client() && mayUse('dash') ? 'dash' : mayUse('defects') || !first ? 'defects' : first.dataset.m);
 }
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
 export function goTo(m, q) { Object.assign(F, { q: q || '', sys: '', st: '', type: '', cat: '' }); if (m === 'maint') F.win = 'all'; setModule(m); }
@@ -52,7 +54,7 @@ const dISO = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '
 export function addFreq(iso, n, unit) { const d = new Date((iso || todayISO()) + 'T00:00'); if (unit === 'weeks') d.setDate(d.getDate() + 7 * n); else if (unit === 'years') d.setFullYear(d.getFullYear() + +n); else d.setMonth(d.getMonth() + +n); return dISO(d); }
 const days = iso => iso ? Math.round((new Date(iso + 'T00:00') - new Date(todayISO() + 'T00:00')) / 864e5) : null;
 export const freqText = t => t.freqN ? (t.freqN == 1 ? 'Every ' + UNITS[t.freqUnit] : `Every ${t.freqN} ${t.freqUnit}`) : 'One-off';
-const dueBadge = iso => { const d = days(iso); if (d == null) return '<span class="st st-grey">No date</span>'; if (d < 0) return `<span class="st st-bad">${-d} days overdue</span>`; if (d <= 30) return `<span class="st st-warn">Due in ${d} days</span>`; return `<span class="st st-info">${nzDate(iso)}</span>`; };
+const dueBadge = iso => { const d = days(iso); if (d == null) return '<span class="st st-grey">No date</span>'; if (d < 0) return `<span class="st st-bad">${-d} day${d === -1 ? '' : 's'} overdue</span>`; if (d === 0) return '<span class="st st-warn">Due today</span>'; if (d <= 30) return `<span class="st st-warn">Due in ${d} day${d === 1 ? '' : 's'}</span>`; return `<span class="st st-info">${nzDate(iso)}</span>`; };
 const stBadge = s => `<span class="st ${s === 'Received' ? 'st-ok' : s === 'Not received' ? 'st-bad' : s === 'Not applicable' ? 'st-grey' : 'st-warn'}">${esc(s || '')}</span>`;
 const pcDate = () => S.project.pcDate || '';
 export function warrantyExpiry(w) { const st = w.start || pcDate(); if (!st || !w.months) return ''; return addFreq(st, +w.months, 'months'); }
@@ -101,11 +103,12 @@ function dash() {
   const exp90 = exp.filter(x => { const d = days(x.e); return d != null && d >= 0 && d <= 90; }), expired = exp.filter(x => days(x.e) < 0);
   const missing = A.filter(a => !['Received', 'Not applicable'].includes(a.status));
   const bw = p.bwofDue ? days(p.bwofDue) : null, yr = bwofYear(), cert = SY.filter(s => (s.cert12A || {})[yr]);
-  const dnpEnd = p.pcDate ? addFreq(p.pcDate, +(p.dnpMonths || 12), 'months') : '';
+  const dnpEnd = p.pcDate ? addFreq(p.pcDate, +(p.dnpMonths || 12), 'months') : '', DL = dueList();
   const k = (c, n, l, m) => `<div class="kpi" style="--c:${c}" data-go="${m}"><b>${n}</b><span>${l}</span></div>`;
   $('fmView').innerHTML = `<div class="fbar"><h2>${esc(p.name)}: facility dashboard</h2><span class="sp"></span>${can.admin() ? '<button class="btn2" id="dSet">Key dates</button><button class="btn2" id="dCon">Contacts</button>' : ''}<button class="btn2" id="dIcs">📅 Calendar (.ics)</button><button class="btn2" id="dPack">⬇ FM register (Excel)</button><button class="btn2 go" id="dHand">📦 Handover pack</button></div>
   ${can.admin() && !p.pcDate ? '<div class="fmwarn"><b>Practical completion date not set.</b> Warranty expiry dates and the end of the defects notification period cannot be worked out until it is. <button class="btn2 go sm" id="dPcSet">Set it</button></div>' : ''}
   ${can.edit() && T.some(t => !t.nextDue) ? `<div class="fmwarn"><b>${T.filter(t => !t.nextDue).length} maintenance tasks have no due date</b>, so nothing will come up as due or overdue. <button class="btn2 go sm" id="dSch">Start the schedule</button></div>` : ''}
+  <div id="dueBox">${dueHtml(DL, false)}</div>
   <div class="kpis">
     ${k('#d64545', open.length, `Open defects${maj.length ? ` (${maj.length} major)` : ''}`, 'defects')}
     ${k(overdue.length ? '#d64545' : '#2e9b5f', overdue.length, 'Maintenance tasks overdue', 'maint')}
@@ -118,7 +121,6 @@ function dash() {
     ${k('#3bafbe', Dd.length, 'Documents in the library', 'docs')}
   </div>
   <div class="dgrid">
-    <div class="panel"><h3>Maintenance: overdue and next 30 days</h3>${[...overdue, ...due30].sort((a, b) => (a.nextDue || '').localeCompare(b.nextDue || '')).slice(0, 12).map(t => `<div class="prow"><div class="g">${esc(t.title)}<small>${esc(sysShort(t.system))} · ${esc(freqText(t))} · ${esc(t.responsible || '')}</small></div>${dueBadge(t.nextDue)}${can.write() ? `<button class="btn2 sm" data-done="${esc(t.id)}">Done</button>` : ''}</div>`).join('') || '<p class="muted">Nothing due.</p>'}</div>
     <div class="panel"><h3>Key dates</h3>
       ${[['Practical completion', p.pcDate], ['Defects notification period ends', dnpEnd], ['Code Compliance Certificate', p.cccDate], ['Building warrant of fitness due', p.bwofDue], ['Weathertightness guarantee ends (10 years)', p.pcDate ? addFreq(p.pcDate, 10, 'years') : '']].map(([l, d]) => `<div class="prow"><div class="g">${l}</div>${d ? dueBadge(d) : '<span class="st st-grey">Not set</span>'}</div>`).join('')}
     </div>
@@ -128,8 +130,62 @@ function dash() {
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { if (b.dataset.go === 'subs') { F.atab = 'subs'; return setModule('assets'); } setModule(b.dataset.go); });
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeTask(T.find(t => t.id === b.dataset.done)));
   document.querySelectorAll('[data-asset]').forEach(b => b.onclick = () => editAsset(A.find(a => a.id === b.dataset.asset)));
+  const redrawDue = open => { $('dueBox').innerHTML = dueHtml(DL, open); wireDue($('dueBox'), DL, redrawDue); }; wireDue($('dueBox'), DL, redrawDue);
   if ($('dSet')) $('dSet').onclick = keyDates; if ($('dPcSet')) $('dPcSet').onclick = keyDates; if ($('dSch')) $('dSch').onclick = startSchedule; if ($('dCon')) $('dCon').onclick = contactsDialog; $('dHand').onclick = Pack.packDialog;
   $('dIcs').onclick = exportIcs; $('dPack').onclick = exportFmRegister;
+}
+/* ---------------------------------------------------------------- what is due: one list for everyone who looks after the building */
+// Everything with a date that someone has to act on: maintenance, the BWoF and its Form 12As, warranties running out, the final
+// walk-through and the end of the defects period, close-out actions, and defects past their target date.
+export function dueList() {
+  const p = S.project, out = [], add = (date, kind, title, sub, go, extra) => { if (date) out.push({ date, kind, title, sub: sub || '', go, ...(extra || {}) }); };
+  const T = fm().tasks, SY = fm().systems, A = fm().assets, AC = fm().actions || [], seeFm = m => mayUse(m) || mayUse('dash');
+  if (seeFm('maint')) T.forEach(t => add(t.nextDue, t.ss ? 'Compliance' : 'Maintenance', t.title, [sysShort(t.system), freqText(t), t.responsible].filter(Boolean).join(' · '), { task: t.id }, { task: t.id }));
+  if (seeFm('comp') && p.bwofDue) {
+    add(p.bwofDue, 'Compliance', 'Building warrant of fitness due', 'Sign it and display it in a public place' + (p.csNumber ? ' · compliance schedule ' + p.csNumber : ''), { mod: 'comp' });
+    const yr = bwofYear(), miss = SY.filter(s => !(s.cert12A || {})[yr]);
+    if (miss.length) add(addFreq(p.bwofDue, -1, 'months'), 'Compliance', `Form 12A certificates for ${yr}: ${miss.length} of ${SY.length} still to come`, 'Ask the IQP' + (p.iqp ? ' (' + p.iqp + ')' : '') + ' for them a month before the BWoF is due', { mod: 'comp' });
+  }
+  const ahead = iso => iso && days(iso) >= 0 ? iso : '';   // a warranty that has already ended is history, not overdue
+  if (seeFm('assets')) A.forEach(a => (a.warranties || []).forEach(w => add(ahead(warrantyExpiry(w)), 'Warranty ends', `${a.element}: ${w.label || 'warranty'}`, [w.party || a.installer, a.ref].filter(Boolean).join(' · '), { asset: a.id })));
+  if (p.pcDate && ahead(addFreq(p.pcDate, +(p.dnpMonths || 12), 'months'))) { const end = addFreq(p.pcDate, +(p.dnpMonths || 12), 'months');
+    add(addFreq(end, -1, 'months'), 'Defects period', 'Final walk-through before the defects period ends', 'List anything still wrong so it is fixed under the contract', { mod: 'defects' });
+    add(end, 'Defects period', 'Defects notification period ends', 'After this, warranties and guarantees still apply, but new defects are no longer covered by the defects period', { mod: 'defects' }); }
+  if (seeFm('comp')) AC.filter(x => x.due && x.status !== 'Closed').forEach(x => add(x.due, 'Action', [x.ref, x.action].filter(Boolean).join(' '), [x.responsible, x.status].filter(Boolean).join(' · '), { mod: 'actions' }));
+  if (mayUse('defects')) { const today = todayISO(), live = (S.defects || []).filter(d => d.targetDate && !['Closed', 'Ready for review'].includes(d.status));
+    const od = live.filter(d => d.targetDate < today).sort((a, b) => a.targetDate.localeCompare(b.targetDate)), soon = live.filter(d => d.targetDate >= today && days(d.targetDate) <= 30).sort((a, b) => a.targetDate.localeCompare(b.targetDate));
+    if (od.length) add(od[0].targetDate, 'Defects', `${od.length} defect${od.length === 1 ? ' is' : 's are'} past the target date`, 'With the contractor to fix. Open the list to see each one', { filter: { overdue: true } });
+    if (soon.length) add(soon[0].targetDate, 'Defects', `${soon.length} defect${soon.length === 1 ? ' is' : 's are'} due in the next 30 days`, 'Target dates for the contractor', { filter: {} }); }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+const DUE_GROUPS = [['Overdue', x => days(x.date) < 0, 'bad'], ['In the next 30 days', x => days(x.date) >= 0 && days(x.date) <= 30, 'warn'], ['In 1 to 3 months', x => days(x.date) > 30 && days(x.date) <= 92, 'info']];
+const dueRow = (x, i) => `<div class="prow duer" data-due="${i}"><div class="g"><span class="dk">${esc(x.kind)}</span> ${esc(x.title)}<small>${esc(x.sub)}</small></div>${dueBadge(x.date)}${x.task && can.fmDone() ? `<button class="btn2 sm" data-ddone="${esc(x.task)}">Done</button>` : ''}</div>`;
+function dueHtml(L, open) {
+  const G = DUE_GROUPS.map(([g, fn, c]) => [g, L.filter(fn), c]), n = G.reduce((a, g) => a + g[1].length, 0);
+  if (!n) return `<div class="panel duep"><h3>What's due</h3><p class="muted">Nothing is overdue or due in the next three months.${!S.project.pcDate ? ' Set the practical completion date (Key dates) so the warranty and defects period dates can be worked out.' : ''}</p></div>`;
+  return `<div class="panel duep"><h3>What's due <span class="muted small" style="font-weight:400">${G.map(g => g[1].length ? `${g[1].length} ${g[0].toLowerCase()}` : '').filter(Boolean).join(' · ')}</span></h3>
+    ${G.filter(g => g[1].length).map(([g, l, c]) => `<div class="dueg"><div class="dueh st-${c}">${g} (${l.length})</div>${l.slice(0, open ? 1e9 : 8).map(x => dueRow(x, L.indexOf(x))).join('')}${l.length > 8 && !open ? `<a href="#" class="small" data-dmore="1">Show all ${l.length}</a>` : ''}</div>`).join('')}</div>`;
+}
+function wireDue(root, L, redraw) {
+  root.querySelectorAll('[data-dmore]').forEach(a => a.onclick = e => { e.preventDefault(); redraw(true); });
+  root.querySelectorAll('[data-ddone]').forEach(b => b.onclick = e => { e.stopPropagation(); closeModal(); completeTask(fm().tasks.find(t => t.id === b.dataset.ddone)); });
+  root.querySelectorAll('[data-due]').forEach(r => r.onclick = e => { if (e.target.closest('[data-ddone]')) return; const g = L[+r.dataset.due].go || {}; closeModal();
+    if (g.task) return editTask(fm().tasks.find(t => t.id === g.task)); if (g.asset) { setModule('assets'); return editAsset(fm().assets.find(a => a.id === g.asset)); }
+    if (g.filter) return X.filterBy ? X.filterBy(g.filter) : setModule('defects'); if (g.mod) setModule(g.mod); });
+}
+// When the owner's team opens the project, anything overdue or due within a week comes up first (once a day)
+let duePrompted = '', loaded = new Set();
+function maybeDuePrompt(tries = 0) {
+  if (!S.project || !can.client() || duePrompted === S.project.id) return;
+  if ($('modal').classList.contains('show')) { if (tries < 6) setTimeout(() => maybeDuePrompt(tries + 1), 5000); return; }
+  duePrompted = S.project.id; const key = 'rd-due-' + S.project.id, today = todayISO();
+  try { if (localStorage.getItem(key) === today) return; } catch (e) {}
+  const L = dueList(), hot = L.filter(x => days(x.date) <= 7); if (!hot.length) return;
+  try { localStorage.setItem(key, today); } catch (e) {}
+  const od = hot.filter(x => days(x.date) < 0).length;
+  modal(`<h2>What needs attention</h2><p class="note">${od ? `<b>${od} overdue</b>` : ''}${od && hot.length > od ? ' and ' : ''}${hot.length > od ? `<b>${hot.length - od} due this week</b>` : ''}. Tap one to open it.</p><div id="dpL">${hot.slice(0, 10).map(x => dueRow(x, L.indexOf(x))).join('')}</div>${hot.length > 10 ? `<p class="muted small">and ${hot.length - 10} more on the dashboard.</p>` : ''}
+    <div class="act"><button id="dpX">Later</button><button class="go" id="dpGo">See everything that is due</button></div>`);
+  wireDue($('dpL'), L, () => {}); $('dpX').onclick = closeModal; $('dpGo').onclick = () => { closeModal(); setModule('dash'); };
 }
 function keyDates() {
   const p = S.project;
@@ -233,7 +289,7 @@ function editAsset(a) {
     ${sel('Document status', 'aSt2', opts(ASSET_STATUS, a.status))}${sel('Audience', 'aAu', opts(['FM', 'Home user', 'Both'], a.audience))}
     <div class="opt"><input type="checkbox" id="aOm" ${a.om ? 'checked' : ''}><label for="aOm">O&amp;M manual required</label></div>
     <div class="opt"><input type="checkbox" id="aMt" ${a.maint ? 'checked' : ''}><label for="aMt">Warranty depends on maintenance</label></div>
-    <div class="full" id="aCareW" style="${a.audience === 'FM' ? 'display:none' : ''}"><label class="f">Care note for residents (Home User Guide, plain English)<textarea id="aCare">${esc(a.careNote || '')}</textarea></label>${ro ? '' : '<button class="mini" id="aCareAi" style="margin-top:4px">✨ Draft with Gemini</button>'}</div>
+    <div class="full" id="aCareW" style="${a.audience === 'FM' ? 'display:none' : ''}"><label class="f">Care note for residents (Home User Guide, plain English)<textarea id="aCare">${esc(a.careNote || '')}</textarea></label>${ro ? '' : '<button class="mini" id="aCareAi" style="margin-top:4px">✨ Draft with AI</button>'}</div>
     ${area('Received / variance / action', 'aN', a.notes)}${field('Source (spec / consent reference)', 'aSrc', a.source, '', true)}
   </div>
   <h3 class="sec">Where this is required <span class="sp"></span>${can.edit() && !isNew ? '<button class="mini" id="aReq">▭ Mark in the contract or specification</button>' : ''}</h3>
@@ -251,9 +307,9 @@ function editAsset(a) {
   const redrawW = () => { $('aW').innerHTML = a.warranties.map(wr).join('') || '<p class="muted small">No warranty periods recorded.</p>'; document.querySelectorAll('[data-wx]').forEach(b => b.onclick = () => { collectW(); a.warranties.splice(+b.dataset.wx, 1); redrawW(); }); };
   redrawW();
   $('aAu').onchange = e => $('aCareW').style.display = e.target.value === 'FM' ? 'none' : '';
-  if ($('aCareAi')) $('aCareAi').onclick = async () => { const btn = $('aCareAi'); btn.disabled = true; btn.textContent = 'Asking Gemini…';
+  if ($('aCareAi')) $('aCareAi').onclick = async () => { const btn = $('aCareAi'); btn.disabled = true; btn.textContent = 'Asking the AI…';
     try { const t = await aiCall(`Write a short care note (2 to 4 sentences, plain New Zealand English, no em dashes, warm and respectful) for an older resident living in a new social housing unit, about this item in their home: ${val('aE')} (${val('aP')}). Explain simply how to use and look after it, and to report faults to their landlord rather than fixing it themselves. Return JSON {"note":"..."}.`); let n = ''; try { n = JSON.parse(String(t).replace(/^```(?:json)?\s*|\s*```$/g, '')).note; } catch (e) { n = String(t); } $('aCare').value = String(n || '').replace(/\u2014/g, ', '); }
-    catch (e) { toast(e.message === 'nokey' ? 'Set up Gemini first (☰ > Gemini)' : e.message, 5000); } finally { btn.disabled = false; btn.textContent = '✨ Draft with Gemini'; } };
+    catch (e) { toast(e.message === 'nokey' ? 'Set up the AI first (☰ > AI)' : e.message, 5000); } finally { btn.disabled = false; btn.textContent = '✨ Draft with AI'; } };
   if ($('aWadd')) $('aWadd').onclick = () => { collectW(); a.warranties.push({ label: '', party: val('aI') || val('aP'), months: '', start: '' }); redrawW(); };
   const reA = () => { const x = fm().assets.find(q => q.id === a.id); if (x) editAsset(x); };
   wireReq(reA);
@@ -293,7 +349,7 @@ function maint() {
   $('fmView').innerHTML = `<div class="fbar"><h2>Maintenance</h2><input type="search" id="mQ" placeholder="Search tasks…" value="${esc(F.q)}"><select id="mW">${[['30', 'Due in 30 days'], ['90', 'Due in 90 days'], ['365', 'Due in 12 months'], ['all', 'All tasks']].map(([v, l]) => `<option value="${v}" ${F.win === v ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="mC"><option value="">All categories</option>${TASK_CATS.map(c => `<option ${c === F.cat ? 'selected' : ''}>${c}</option>`).join('')}</select><select id="mS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="mR"><option value="">Anyone responsible</option>${resp.map(r => `<option ${r === F.resp ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>${can.edit() ? '<button class="btn2 go" id="mNew">+ Task</button>' : ''}${can.edit() && T.some(t => !t.nextDue) ? `<button class="btn2" id="mSch">Schedule ${T.filter(t => !t.nextDue).length} undated</button>` : ''}<button class="btn2" id="mReg" title="Every task by building system, to read or print">▤ Register</button><button class="btn2" id="mIcs">📅 .ics</button><button class="btn2" id="mX">⬇ Excel</button></div>
   ${can.edit() && T.some(t => !t.nextDue) ? `<div class="fmwarn"><b>${T.filter(t => !t.nextDue).length} of ${T.length} tasks have no due date</b>, so nothing will come up as due or overdue. <button class="btn2 go sm" id="mSch2">Start the schedule</button></div>` : ''}
   ${T.length ? `<table class="ftable"><tr><th>Task</th><th class="hm">Building system</th><th>Frequency</th><th class="hm">Responsible</th><th class="hm">Last done</th><th>Next due</th><th></th></tr>
-  ${groups.map(([g, fn]) => { const r = L.filter(fn); return r.length ? `<tr class="grp"><td colspan="7">${g} (${r.length})</td></tr>` + r.map(t => `<tr class="click" data-id="${esc(t.id)}"><td><b>${esc(t.title)}</b>${t.ss ? ` <span class="st st-info">${esc(t.ss)}</span>` : ''}<br><span class="muted small">${esc(t.category || '')}</span></td><td class="hm">${esc(sysShort(t.system))}</td><td>${esc(freqText(t))}</td><td class="hm">${esc(t.responsible || '')}</td><td class="hm">${t.lastDone ? nzDate(t.lastDone) : '-'}</td><td>${dueBadge(t.nextDue)}</td><td>${can.write() ? `<button class="btn2 sm teal" data-done="${esc(t.id)}">Done</button>` : ''}</td></tr>`).join('') : ''; }).join('')}</table>
+  ${groups.map(([g, fn]) => { const r = L.filter(fn); return r.length ? `<tr class="grp"><td colspan="7">${g} (${r.length})</td></tr>` + r.map(t => `<tr class="click" data-id="${esc(t.id)}"><td><b>${esc(t.title)}</b>${t.ss ? ` <span class="st st-info">${esc(t.ss)}</span>` : ''}<br><span class="muted small">${esc(t.category || '')}</span></td><td class="hm">${esc(sysShort(t.system))}</td><td>${esc(freqText(t))}</td><td class="hm">${esc(t.responsible || '')}</td><td class="hm">${t.lastDone ? nzDate(t.lastDone) : '-'}</td><td>${dueBadge(t.nextDue)}</td><td>${can.fmDone() ? `<button class="btn2 sm teal" data-done="${esc(t.id)}">Done</button>` : ''}</td></tr>`).join('') : ''; }).join('')}</table>
   ${!L.length ? '<div class="empty2">Nothing due in this window. Choose "All tasks" to see everything.</div>' : ''}` : '<div class="empty2">No maintenance tasks yet. Add them here, or import the starter maintenance plan from ☰ > Import register.</div>'}`;
   $('mQ').oninput = e => { F.q = e.target.value; maint(); $('mQ').focus(); $('mQ').setSelectionRange(F.q.length, F.q.length); };
   $('mW').onchange = e => { F.win = e.target.value; maint(); }; $('mC').onchange = e => { F.cat = e.target.value; maint(); }; $('mS').onchange = e => { F.sys = e.target.value; maint(); }; $('mR').onchange = e => { F.resp = e.target.value; maint(); };
@@ -383,7 +439,7 @@ function comp() {
   <p class="note">Each year the owner signs the BWoF, supported by a Form 12A from the IQP for every specified system, and displays it in a public place. Record each 12A here when received.</p>
   ${SY.length ? `<table class="ftable"><tr><th>System</th><th>Description</th><th class="hm">Performance standard / inspections</th><th>Next inspection</th><th>Form 12A ${yr}</th></tr>
   ${SY.map(s => { const ts = T.filter(t => t.ss === s.ss).sort((a, b) => (a.nextDue || '9').localeCompare(b.nextDue || '9')); const c = (s.cert12A || {})[yr];
-    return `<tr class="click" data-id="${esc(s.id)}"><td><b>${esc(s.ss)}</b></td><td>${esc(s.name)}<br><span class="muted small">${esc(s.location || '')}</span></td><td class="hm small">${esc(s.standard || '')}<br><span class="muted">${esc(s.inspections || '')}</span></td><td>${ts[0] ? dueBadge(ts[0].nextDue) + `<br><span class="muted small">${esc(ts[0].title)}</span>` : '<span class="muted small">No task</span>'}</td><td>${c ? `<span class="st st-ok">Received ${esc(nzDate(c.date))}</span>` : `<span class="st st-warn">Outstanding</span>`}${can.write() ? ` <button class="btn2 sm" data-12a="${esc(s.id)}">${c ? 'Update' : 'Record'}</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">No specified systems yet. Add them from the compliance schedule (or the consent\'s AC1129 list), or import the starter list.</div>'}`;
+    return `<tr class="click" data-id="${esc(s.id)}"><td><b>${esc(s.ss)}</b></td><td>${esc(s.name)}<br><span class="muted small">${esc(s.location || '')}</span></td><td class="hm small">${esc(s.standard || '')}<br><span class="muted">${esc(s.inspections || '')}</span></td><td>${ts[0] ? dueBadge(ts[0].nextDue) + `<br><span class="muted small">${esc(ts[0].title)}</span>` : '<span class="muted small">No task</span>'}</td><td>${c ? `<span class="st st-ok">Received ${esc(nzDate(c.date))}</span>` : `<span class="st st-warn">Outstanding</span>`}${can.edit() || can.client() ? ` <button class="btn2 sm" data-12a="${esc(s.id)}">${c ? 'Update' : 'Record'}</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">No specified systems yet. Add them from the compliance schedule (or the consent\'s AC1129 list), or import the starter list.</div>'}`;
   if ($('cKey')) $('cKey').onclick = keyDates; if ($('cNew')) $('cNew').onclick = () => editSystem(null);
   $('cX').onclick = exportFmRegister;
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = e => { if (e.target.closest('[data-12a]')) return; editSystem(fm().systems.find(s => s.id === r.dataset.id)); });
@@ -413,7 +469,7 @@ let aiStop = false;
 window.addEventListener('rd-marked-pdf', e => { const d = fm().docs.find(x => x.id === e.detail); if (d) Sub.markedPdf(d); });
 window.addEventListener('rd-ai-read', async e => { const d = fm().docs.find(x => x.id === e.detail); if (!d) return; const b = busy('Reading with AI…');
   try { const r = await AI.readDoc(d, t => b.set('Reading with AI: ' + t)); b.done(); toast(`${r.marks.length} boxes drawn${r.problems.length ? ', ' + r.problems.length + ' problem' + (r.problems.length > 1 ? 's' : '') + ' found' : ''}. Check them.`, 6000); const nd = fm().docs.find(x => x.id === d.id) || d; DV.open({ ...nd }, {}); }
-  catch (x) { b.done(); toast(x.message === 'nokey' ? 'Set up the AI helper first (Menu > Gemini).' : 'Could not read it: ' + x.message, 7000); } });
+  catch (x) { b.done(); toast(x.message === 'nokey' ? 'Set up the AI helper first (Menu > AI).' : 'Could not read it: ' + x.message, 7000); } });
 function aiReadDialog() {
   const P = fm().docs.filter(d => DV.isPdf(d) && d.size), unread = P.filter(d => !d.aiRead), w = unread.filter(AI.isWarranty), shown = F.q || F.sys || F.type ? P.filter(d => (!F.sys || d.system === F.sys) && (!F.type || d.type === F.type) && (!F.q || [d.title, d.party, d.type].join(' ').toLowerCase().includes(F.q.toLowerCase()))) : [];
   modal(`<h2>✨ Read documents with AI</h2><p class="note">The AI reads each document, draws a box around the parties, period, dates, signatures and conditions, links them to the asset register, and flags anything that needs correcting. Every box is marked "to check" until you accept it. Boxes you drew or accepted yourself are never changed.</p>
@@ -444,7 +500,7 @@ function docs() {
   if (q) L = L.map(d => ({ d, k: rank(d) - (hitMarks(d).length ? 0.5 : 0) })).sort((a, b) => a.k - b.k || natural(a.d.title, b.d.title)).map(x => x.d);
   const nChk = Dd.filter(AI.needsCheck).length, nProb = Dd.filter(d => (d.aiProblems || []).length).length;
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dDup" title="Find documents that are in the library more than once and remove the extra copies">🧹 Remove duplicates</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}${can.admin() ? `<button class="btn2" id="dRs" title="Credentials, bonds, guarantees and insurances: only admins and the people you list can open them">🔒 Restricted (${fm().docs.filter(d => d.restricted).length})</button>` : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button>${can.edit() ? '<button class="btn2" id="dAi">✨ Read with AI</button>' : ''}</div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() || can.client() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dDup" title="Find documents that are in the library more than once and remove the extra copies">🧹 Remove duplicates</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}${can.admin() ? `<button class="btn2" id="dRs" title="Credentials, bonds, guarantees and insurances: only admins and the people you list can open them">🔒 Restricted (${fm().docs.filter(d => d.restricted).length})</button>` : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button>${can.edit() ? '<button class="btn2" id="dAi">✨ Read with AI</button>' : ''}</div>
   <div class="atab"><button id="dChk0" class="${F.chk || F.tpl || F.nl ? '' : 'on'}">All documents</button><button id="dNl" class="${F.nl ? 'on' : ''}" title="Warranties, O&M manuals, care guides, product data and as-builts not yet linked to an element. Everything else is filed by building system.">Needs linking (${Dd.filter(needLink).length})</button><button id="dChk1" class="${F.chk ? 'on' : ''}">To check (${nChk})${nProb ? ' · ' + nProb + ' with problems' : ''}</button><button id="dTpl" class="${F.tpl ? 'on' : ''}" title="Blank forms for the project team. Never included in the handover export.">📋 Templates and blank forms (${fm().docs.filter(d => d.template).length})</button></div>${F.tpl ? '<p class="note">Blank forms for the project team to send out. Open one and press <b>Mark</b> to box what has to be filled in, then <b>⬇ With markup</b> gives a copy with those boxes and instructions. Templates are never included in the handover export.</p>' : ''}
   <p class="muted small">${L.length} of ${Dd.length} documents${q ? ' · most important first; matching boxes are listed under each document' : ''}</p>
   ${L.length ? `<table class="ftable"><tr><th>Document</th><th>Type</th><th class="hm">From</th><th class="hm">Expiry</th><th class="hm">Linked to</th><th></th></tr>

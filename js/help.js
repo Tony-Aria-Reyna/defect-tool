@@ -6,18 +6,18 @@ import { aiCall } from './ai.js';
 import { outboxCount } from './photos.js';
 
 export const GUIDE = `
-RESERO DEFECTS: HOW TO USE IT ON SITE
+RESERO SITE: HOW TO USE IT ON SITE
 
 Raising a defect
-- Tap the round + button (bottom right). A new defect goes in three steps: 1 pin it on the plan (or tick General defect when it has no single place), 2 add a photo, 3 hold the microphone and say what is wrong. Gemini stays locked until the pin and a photo are in, so it is not guessing. The pin fills in the unit, room, block and level.
+- Tap the round + button (bottom right). A new defect goes in three steps: 1 pin it on the plan (or tick General defect when it has no single place), 2 add a photo, 3 hold the microphone and say what is wrong. The AI stays locked until the pin and a photo are in, so it is not guessing. The pin fills in the unit, room, block and level.
 - Search everything: the magnifying glass at the top (or Ctrl+K) finds tools, defects, units, plans, products and documents. Spelling does not need to be exact. Each result shows where it lives and takes you straight there.
 - Starting a new project: on the projects page choose + New project, answer four questions and pick a set-up to start from (standard, the same as an existing project, or a template file). The Set-up checklist (menu) then lists what is left, with a button to each step. Menu > Save set-up as a template makes a file that carries the categories, lists and rules to the next job.
 - The list: Filters fold away under the search box; anything narrowing the list shows as a yellow chip you can tap off. The number on the corner of a photo opens the photos. The small plan picture under it shows where the item is: tap it for a closer look, or press and hold.
 - A defect record: the latest comment is in bold at the top. Comments and responses are written in the box that opens when you tap Comment, Ready for inspection, Accept and close or Reopen. Swipe left or right, or use the arrows at the top, to move through the items in the current list. Add photo offers the camera or the gallery. Press and hold a photo to see it large; let go to close.
-- Dictate: press and hold the microphone, say the defect the way you would to a colleague (where it is, what is wrong, who fixes it, by when), then let go. Gemini fills in the form and clears the note; anything it changed flashes yellow. Check it, then Save.
+- Dictate: press and hold the microphone, say the defect the way you would to a colleague (where it is, what is wrong, who fixes it, by when), then let go. The AI fills in the form and clears the note; anything it changed flashes yellow. Check it, then Save.
 - Or tap + New (desktop) and type.
 - Several defects in one breath is fine: the first fills the form and the others appear under "more defects heard" with a button to add them.
-- No coverage on site: hold the mic as usual (or use the keyboard microphone). The note is saved on the phone with its pin and photos; when the phone finds service, Gemini fills in the form and the item shows under "To check" at the top of the list. Open each one, check it, Save.
+- No coverage on site: hold the mic as usual (or use the keyboard microphone). The note is saved on the phone with its pin and photos; when the phone finds service, the AI fills in the form and the item shows under "To check" at the top of the list. Open each one, check it, Save.
 - Signing in: use your email and a password (first time: tap "Create a password"). Google sign-in also works. Install the app on the phone (menu > Install on this phone) so it stays signed in.
 - Room boundaries (menu > Room boundaries): draw unit outlines, rooms, common areas and items (kitchen unit, WC, vanity, shower, supertub). Drawing snaps to existing corners, lines and the walls on the drawing. Tap an edge to add a corner, tap a corner then Delete to remove it. "Select several" lets you tap or box-select a whole unit, then Copy group, drag it into place (it snaps), and the app asks for the new unit number. Mirror east-west or north-south for handed units. Ctrl+Z undoes.
 - Surface and item: a pin records Block, Level, Unit, Room, Surface (floor, wall, ceiling, exterior…) and Item. Items drawn as boundaries are recognised automatically. Attach other sheets of the same extent to a plan (menu > Plans > Attach a view): ceiling plan, wall plan or internal elevations, cladding elevations, roof, services. A Floor / Ceiling / Walls switch then sits at the bottom left of the plan; pins dropped while a view shows are recorded with that surface (Ceiling, Wall, Exterior cladding…). Contractors always see the floor plan.
@@ -36,7 +36,7 @@ Raising a defect
 - Plans list (menu > Plans): sheets are grouped as Floor plans, Site and landscape, and Elevations. Drag ⠿ or use ▲ ▼ to reorder; Sort automatically puts floor plans by building then level. Each floor plan shows its layers (ceiling, framing, walls, services…): press + Add layer or drop the PDF onto the row, type in a layer's name to rename it, and press ↗ on a layer (or the sheet thumbnail) to open it on the plan and work in it. Each elevation shows the floor plans it is linked to. Change Type to move a sheet between groups.
 - Moving a pin: drag it (on a phone, hold it for half a second first, then drag). The unit and room follow the pin unless you typed them yourself.
 - Elevations: upload the elevation PDF with the floor plans (menu > Plans > Upload). The app reads each sheet's drawing titles ("Block A West Elevation"), the grid bubbles above each drawing and the level markers (34,600 / 37,600…), works out which floor plan and storey each band belongs to, and traces the stepped line of that face along the outside walls of the floor plan (decks, recesses and returns included). Plans > "Show faces" draws those lines so you can check them; "Link elevations automatically" re-runs it for every elevation sheet. A pin dropped on the elevation is recorded as Exterior cladding, lands on the floor plan on the face line at the same point along it, picks up the unit and room behind it, and the PDF report shows both snips. To adjust a face, press Adjust in Show faces: step 1 shows the band on the elevation (a blue box you drag by its corners), step 2 the line on the floor plan (drag corners, tap the line to add one, Delete to remove one). Change a face and every pin already on that elevation moves itself to the new line; a unit or room you typed by hand is kept. On a phone, tap ⛶ on the plan for full screen, and the sheet buttons sit behind one chip at the bottom left. If a sheet has no readable titles or grids, use "This is an elevation…" and either trace the face by tapping its corners on the floor plan, or tap the two ends of the face. Common areas such as stairs and lobbies follow the face more closely when they are drawn as boundaries (kind Area).
-- If the mic does not work (common on iPhone when the app is opened from the home screen): tap in the text box and use the microphone key on your keyboard, then tap "Interpret with Gemini".
+- If the mic does not work (common on iPhone when the app is opened from the home screen): tap in the text box and use the microphone key on your keyboard, then tap "Interpret with AI".
 
 Pins and rooms
 - Plans tab: tap "Add pin", then tap the plan where the defect is. If the spot is inside a drawn room, the unit, room, block and level fill in automatically.
@@ -70,7 +70,7 @@ Facility management (tabs under the header)
 - Drag and drop: drop files or folders anywhere. Photos onto an open defect; files onto an open asset; a .json import file anywhere; plan PDFs on the Defects tab; anything else goes to Documents.
 
 Menu (☰)
-- Project settings, Users and access (invite by email, set roles), Plans, Room boundaries (draw units, rooms, common areas; duplicate a unit with its rooms), Import register, Gemini settings, Site check, Help.
+- Project settings, Users and access (invite by email, set roles), Plans, Room boundaries (draw units, rooms, common areas; duplicate a unit with its rooms), Import register, AI settings, Site check, Help.
 - Roles: Admin (everything), Editor (raise, edit, close), Contractor (raise new items and edit the items they raised; on items raised by others, respond, add photos and update status to In progress or Ready for review), Viewer (read and export).
 
 Offline
@@ -79,7 +79,7 @@ Offline
 Problems
 - "Could not save": check the orange bar; if offline, it will sync later. If online, sign out and in again.
 - Photos not in the PDF: the storage CORS setting is missing (README step 6).
-- Gemini errors: ☰ > Gemini > Test.
+- AI errors: ☰ > AI > Test.
 `;
 
 export function helpDialog() {
@@ -92,12 +92,12 @@ export function helpDialog() {
   $('hX').onclick = closeModal;
   $('hAsk').onclick = async () => {
     const q = $('hq').value.trim(); if (!q) return;
-    $('hAsk').disabled = true; $('hSt').textContent = 'Asking Gemini…';
+    $('hAsk').disabled = true; $('hSt').textContent = 'Asking the AI…';
     try {
       const t = await aiCall(`You are the help assistant inside "${APP.name}", a construction defects and facility management web app. Answer the user's question in plain New Zealand English, no em dashes, in at most 6 short sentences or a short numbered list, using ONLY the guide below. If the guide does not cover it, say so and suggest the nearest thing that is covered. Return JSON {"answer":"..."}.\n\nGUIDE:\n${GUIDE}\n\nPROJECT: ${S.project ? S.project.name : 'none open'}. USER ROLE: ${S.role || 'none'}.\n\nQUESTION: ${q}`);
       let a; try { a = JSON.parse(String(t).replace(/^```(?:json)?\s*|\s*```$/g, '')).answer; } catch (e) { a = String(t); }
       $('hA').textContent = String(a || '').replace(/—/g, ', '); $('hA').classList.add('show'); $('hSt').textContent = '';
-    } catch (e) { $('hSt').textContent = ''; $('hA').textContent = e.message === 'nokey' ? 'Gemini is not set up yet (☰ > Gemini). The quick guide below still works.' : e.message; $('hA').classList.add('show'); }
+    } catch (e) { $('hSt').textContent = ''; $('hA').textContent = e.message === 'nokey' ? 'The AI is not set up yet (☰ > AI). The quick guide below still works.' : e.message; $('hA').classList.add('show'); }
     finally { $('hAsk').disabled = false; }
   };
 }
@@ -118,13 +118,13 @@ export async function siteCheck() {
   row('Installed as an app', matchMedia('(display-mode: standalone)').matches ? 'warn' : 'ok', matchMedia('(display-mode: standalone)').matches ? (/iPhone|iPad/.test(navigator.userAgent) ? 'On iPhone, live dictation is unreliable in the home-screen app. Use the Safari tab, or the keyboard microphone.' : 'OK on Android') : 'Running in a browser tab (fine)');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   row('Live dictation available', SR ? 'ok' : 'warn', SR ? '' : 'Not in this browser. Use the keyboard microphone in the text box instead.');
-  row('Dictation out of coverage', 'warn', 'Live dictation needs data. For sites with no signal: Android Settings > General management > Keyboard > Google voice typing (or Samsung voice input) > Offline speech recognition > download English (New Zealand). Then use the keyboard microphone in the note box. Notes are kept on the phone and Gemini fills them in when you are back in service.');
+  row('Dictation out of coverage', 'warn', 'Live dictation needs data. For sites with no signal: Android Settings > General management > Keyboard > Google voice typing (or Samsung voice input) > Offline speech recognition > download English (New Zealand). Then use the keyboard microphone in the note box. Notes are kept on the phone and the AI fills them in when you are back in service.');
   row('Microphone permission', 'wait', '');
   try { const st = await navigator.mediaDevices.getUserMedia({ audio: true }); st.getTracks().forEach(t => t.stop()); upd('Microphone permission', 'ok', 'Allowed'); } catch (e) { upd('Microphone permission', 'warn', 'Not allowed yet: tap the mic once and choose Allow'); }
   const ob = await outboxCount(); row('Photos waiting to upload', ob ? 'warn' : 'ok', ob ? ob + ' waiting; they upload when online' : 'None');
   if (!pid) return;
   row('AI interpreter', 'wait', '');
-  try { const t = await aiCall('Reply with JSON {"ok":true}'); upd('AI interpreter', /ok/.test(t) ? (aiCall.last && aiCall.last.fallback ? 'warn' : 'ok') : 'warn', /ok/.test(t) ? (S.ai.helperUrl ? 'Project helper, answered by ' : 'Personal key on this device, answered by ') + (aiCall.last && aiCall.last.via === 'claude' ? 'Claude (' + aiCall.last.model + ')' : 'Gemini' + (aiCall.last && aiCall.last.fallback ? ', because Claude said: ' + aiCall.last.fallback.slice(0, 80) : '')) : 'Unexpected reply'); } catch (e) { upd('AI interpreter', 'bad', e.message === 'nokey' ? 'No key on this device: ☰ > Gemini > paste key > Test' : e.message); }
+  try { const t = await aiCall('Reply with JSON {"ok":true}'); upd('AI interpreter', /ok/.test(t) ? (aiCall.last && aiCall.last.fallback ? 'warn' : 'ok') : 'warn', /ok/.test(t) ? (S.ai.helperUrl ? 'Project helper, answered by ' : 'Personal key on this device, answered by ') + (aiCall.last && aiCall.last.via === 'claude' ? 'Claude (' + aiCall.last.model + ')' : 'Gemini' + (aiCall.last && aiCall.last.fallback ? ', because Claude said: ' + aiCall.last.fallback.slice(0, 80) : '')) : 'Unexpected reply'); } catch (e) { upd('AI interpreter', 'bad', e.message === 'nokey' ? 'No key on this device: ☰ > AI > paste key > Test' : e.message); }
   if (S.store.mode === 'demo') { row('Database and photo storage', 'warn', 'Demo mode: data stays in this browser only'); return; }
   row('Save to the database', 'wait', '');
   try {

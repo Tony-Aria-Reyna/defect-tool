@@ -25,7 +25,7 @@ export function projectSettings(p) {
     <div class="full" id="psLogoPrev">${p.clientLogo ? `<img src="${esc(p.clientLogo)}" style="max-height:40px">` : ''}</div>
     <label class="f">Contractor logo (for the contractor's register)<input type="file" id="psCLogo" accept="image/*"></label>
     <div id="psCLogoPrev">${p.contractorLogo ? `<img src="${esc(p.contractorLogo)}" style="max-height:40px">` : ''}</div>
-    <label class="f full">Short description (helps Gemini)<input id="psDesc" value="${esc(p.description || '')}" placeholder="e.g. 42 one-bedroom units for older people in two blocks"></label>
+    <label class="f full">Short description (helps the AI)<input id="psDesc" value="${esc(p.description || '')}" placeholder="e.g. 42 one-bedroom units for older people in two blocks"></label>
     <label class="f">Contract<input id="psContract" value="${esc(p.contract || '')}" placeholder="e.g. NZS 3916:2013"></label>
     <label class="f">Warranty deed form (submitted warranties are checked against this)<input id="psDeed" value="${esc(p.deedForm || '')}" placeholder="NZS 3916:2013 Schedule 13"></label>
     <label class="f full">Extra warranty and guarantee types (one per line; Schedule 13, 18 and 19, bonds and product warranties are built in)<textarea id="psGT" rows="3" placeholder="e.g. Producer statement PS3 with warranty&#10;Insurance certificate">${esc(p.guaranteeTypes || '')}</textarea></label>
@@ -93,7 +93,7 @@ function accTag(p, email, role) {
   const l = per.length ? per : o.sections, bits = [];
   if (l.length) bits.push(l.map(k => SECTIONS[k]).join(', ') + (per.length ? ' (set for this person)' : ''));
   const perSrc = ((((p.access || {}).people) || {})[String(email).toLowerCase()] || {}).sources || [], src = perSrc.length ? perSrc : o.sources;
-  if (src.length && ['editor', 'viewer'].includes(role)) bits.push('items from ' + src.join(', ') + (perSrc.length ? ' (set for this person)' : ''));
+  if (src.length && ['editor', 'viewer', 'client', 'inspector'].includes(role)) bits.push('items from ' + src.join(', ') + (perSrc.length ? ' (set for this person)' : ''));
   return bits.length ? `<br><span class="small" style="color:var(--teal)">🔒 ${esc(bits.join('; '))}</span>` : '';
 }
 const SEC_IC = { dash: '◫', defects: '⚑', assets: '▤', maint: '⟳', comp: '✓', docs: '🗀', contacts: '☎', guide: '📖' };
@@ -114,7 +114,7 @@ async function accessDialog(p, inv) {
   doms.delete(''); doms.delete(domOf(S.user.email));
   const rows = [...doms].sort().map((d, i) => { const o = orgOf(p, d); return `<div class="card acc" data-dom="${esc(d)}"><h3>${esc(d)}</h3>
     <div class="cols"><div><p class="lbl">Sections they can use</p>${secBoxes(o.sections, 'as' + i)}</div>
-    ${(p.sources || []).length ? `<div><p class="lbl">Defect registers editors and viewers can see</p>${togList(p.sources.map(x => [x, x, '⚑']), o.sources, 'ar' + i)}</div>` : ''}</div></div>`; }).join('');
+    ${(p.sources || []).length ? `<div><p class="lbl">Defect registers editors, inspectors, clients and viewers can see</p>${togList(p.sources.map(x => [x, x, '⚑']), o.sources, 'ar' + i)}</div>` : ''}</div></div>`; }).join('');
   modal(`<h2>Access by organisation</h2><p class="note">Everything is on by default. Switch off what a company should not see. Each company is recognised by the end of its email address, so new people from that company get the same access automatically. Admins are never limited, and the contractor role always sees every defect register.</p>
   ${rows || '<p class="empty">No other organisations on this project yet. Invite someone first.</p>'}
   <div class="act"><button id="acX">Back</button>${rows ? '<button class="go" id="acGo">Save</button>' : ''}</div>`, true);
@@ -136,7 +136,7 @@ function personAccess(p, email) {
   <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="org" ${own0 ? '' : 'checked'}> Same as their organisation</label>
   <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="own" ${own0 ? 'checked' : ''}> Set for this person:</label>
   <div id="paL" class="${own0 ? '' : 'dim'}"><p class="lbl">Sections</p>${secBoxes(per.length ? per : o.sections, 'ps')}
-  ${(p.sources || []).length ? `<p class="lbl" style="margin-top:10px">Defect registers they can see and add to (editors and viewers)</p>${togList(p.sources.map(x => [x, x, '⚑']), perSrc.length ? perSrc : o.sources, 'pr')}<p class="note">For example, a village manager who only raises and follows up residents' issues.</p>` : ''}</div>
+  ${(p.sources || []).length ? `<p class="lbl" style="margin-top:10px">Defect registers they can see and add to (editors, inspectors, clients and viewers)</p>${togList(p.sources.map(x => [x, x, '⚑']), perSrc.length ? perSrc : o.sources, 'pr')}<p class="note">For example, a village manager who only raises and follows up residents' issues.</p>` : ''}</div>
   <p class="note">Admins are never limited, whatever is set here.</p>
   <div class="act"><button id="paX">Back</button><button class="go" id="paGo">Save</button></div>`, true);
   wireTg(); document.querySelectorAll('[name="paM"]').forEach(r => r.onchange = () => $('paL').classList.toggle('dim', r.value === 'org' && r.checked));
@@ -1024,7 +1024,7 @@ export async function importSheet(file) {
 export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That is not a backup file'); }
   if (j.type === 'template' && j.project) { if (!S.sup) return toast('Only a system administrator can create a project from a template'); const m = await import('./setup.js'); return m.newProjectWizard(j); }
-  if (j.type === 'aicontext' && (j.text || j.typicals)) { if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change the Gemini knowledge'); const patch = {}; if (j.text) patch.aiContext = j.text; if (Array.isArray(j.typicals)) patch.typicals = j.typicals; await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch); toast('Gemini project knowledge updated' + (j.typicals ? ' with ' + j.typicals.length + ' typical defects' : ''), 5000); return; }
+  if (j.type === 'aicontext' && (j.text || j.typicals)) { if (!S.project) return toast('Open the project first'); if (!can.admin()) return toast('Only a project admin can change the AI knowledge'); const patch = {}; if (j.text) patch.aiContext = j.text; if (Array.isArray(j.typicals)) patch.typicals = j.typicals; await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch); toast('AI project knowledge updated' + (j.typicals ? ' with ' + j.typicals.length + ' typical defects' : ''), 5000); return; }
   if (j.type === 'history' && Array.isArray(j.items)) {
     if (!S.project) return toast('Open the project first'); if (!can.edit()) return toast('Your role cannot import');
     const done = (S.project.historyPacks || []).includes(j.id);
@@ -1048,7 +1048,7 @@ export async function importJson(file) {
         const patch = { severities: j.list, sevLabel: j.label || '', sevMajor: j.serious || [], sevDefault: j.default || '' }; if (j.aiText) patch.aiContext = j.aiText;
         await S.store.updateProject(S.project.id, patch); Object.assign(S.project, patch);
         for (const r of ch) { $('ctSt').textContent = `Updating ${++n} of ${ch.length}…`; await S.store.updateDefect(S.project.id, r.d.id, { severity: r.to }, [{ t, who: S.user.name, txt: `${j.label || 'Severity'} set to "${r.to}" (was "${r.d.severity || '-'}") when the ${j.title || 'category scheme'} was adopted.` }]); r.d.severity = r.to; }
-        closeModal(); await X.reloadProject(); X.render(); toast(`${j.label || 'Severity'} scheme adopted; ${n} defect${n === 1 ? '' : 's'} updated${j.aiText ? '; Gemini knowledge updated' : ''}`, 7000);
+        closeModal(); await X.reloadProject(); X.render(); toast(`${j.label || 'Severity'} scheme adopted; ${n} defect${n === 1 ? '' : 's'} updated${j.aiText ? '; AI knowledge updated' : ''}`, 7000);
       } catch (e) { $('ctSt').textContent = ''; toast('Stopped: ' + e.message, 7000); $('ctGo').disabled = false; }
     };
     return;

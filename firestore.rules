@@ -18,6 +18,9 @@ service cloud.firestore {
     function isAdmin(pid) { return isSuper() || (signed() && roleOf(pid) == 'admin'); }
     function canEdit(pid) { return isSuper() || (signed() && roleOf(pid) in ['admin', 'editor']); }
     function isContractor(pid) { return signed() && roleOf(pid) == 'contractor'; }
+    // the building owner's team (reports issues, marks maintenance done) and inspectors (raise, comment, accept, reopen)
+    function isClient(pid) { return signed() && roleOf(pid) == 'client'; }
+    function isInspector(pid) { return signed() && roleOf(pid) == 'inspector'; }
     // Access by organisation (email domain) with a per-person override, set by admins in Users and access:
     // projects/{pid}.access = { orgs: { 'domain.co.nz': { sections: [...], sources: [...] } }, people: { 'name@domain': { sections: [...] } } }
     // An empty list means no limit. Admins are never limited. Register (source) limits apply to editors and viewers only.
@@ -36,7 +39,8 @@ service cloud.firestore {
           && request.resource.data.history.hasAll(resource.data.get('history', []))); }
     // who made a change is the person signed in
     function byMe() { return !changed().hasAny(['updatedBy']) || request.resource.data.updatedBy.lower() == myEmail(); }
-    function scoped(pid) { return !isSuper() && roleOf(pid) in ['editor', 'viewer'] && scope(pid).size() > 0; }
+    function scoped(pid) { return !isSuper() && roleOf(pid) in ['editor', 'viewer', 'client', 'inspector'] && scope(pid).size() > 0; }
+    function inScope(pid, src) { return !scoped(pid) || src in scope(pid); }
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
 
     match /system/{doc} {
@@ -59,7 +63,7 @@ service cloud.firestore {
       allow read: if isAdmin(resource.data.pid) || (verified() && resource.data.email == myEmail());
       allow create, update: if isAdmin(request.resource.data.pid)
         && inviteId == request.resource.data.pid + '_' + request.resource.data.email
-        && request.resource.data.role in ['admin', 'editor', 'contractor', 'viewer'];
+        && request.resource.data.role in ['admin', 'editor', 'contractor', 'viewer', 'client', 'inspector'];
       allow delete: if isAdmin(resource.data.pid) || (verified() && resource.data.email == myEmail());
     }
 
@@ -71,7 +75,7 @@ service cloud.firestore {
         // contractors and editors can add names to the subcontractor list
         || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['subcontractors']))
         // editors and contractors take the next defect number
-        || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
+        || ((canEdit(pid) || isContractor(pid) || isClient(pid) || isInspector(pid)) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
         // a member records when they last opened the project (their own memberInfo entry only)
         || (isMember(pid) && changed().hasOnly(['memberInfo'])
             && request.resource.data.memberInfo.diff(resource.data.get('memberInfo', {})).affectedKeys().hasOnly([request.auth.uid]))
@@ -94,13 +98,26 @@ service cloud.firestore {
         // contractors can raise items in their own name, and add items to their own registers
         allow create: if may(pid, ['defects']) && ((canEdit(pid) && (!scoped(pid) || request.resource.data.source in scope(pid)))
           || (isContractor(pid) && request.resource.data.get('createdBy', '').lower() == myEmail())
-          || (isContractor(pid) && request.resource.data.get('source', '') in proj(pid).get('selfCloseSources', [])));
+          || (isContractor(pid) && request.resource.data.get('source', '') in proj(pid).get('selfCloseSources', []))
+          // the client's team and inspectors raise items in their own name, in the registers they can see
+          || ((isClient(pid) || isInspector(pid)) && request.resource.data.get('createdBy', '').lower() == myEmail() && inScope(pid, request.resource.data.get('source', ''))));
         allow delete: if isAdmin(pid);
         allow update: if may(pid, ['defects']) && histKept() && byMe() && ((canEdit(pid) && (!scoped(pid) || (resource.data.source in scope(pid) && request.resource.data.source in scope(pid))))
           // a contractor can edit the items they raised themselves (who raised it cannot be changed)
           || (isContractor(pid)
               && resource.data.get('createdBy', '').lower() == myEmail()
               && !changed().hasAny(['createdBy', 'created']))
+          // the client's team and inspectors edit their own items, in the registers they can see
+          || ((isClient(pid) || isInspector(pid))
+              && resource.data.get('createdBy', '').lower() == myEmail()
+              && !changed().hasAny(['createdBy', 'created'])
+              && inScope(pid, resource.data.get('source', '')) && inScope(pid, request.resource.data.get('source', '')))
+          // an inspector accepts, reopens and comments on anyone's items in its registers
+          || (isInspector(pid) && inScope(pid, resource.data.get('source', ''))
+              && changed().hasOnly(['status', 'history', 'photos', 'files', 'updated', 'updatedBy']))
+          // the client's team comments and adds photos on anyone's items it can see
+          || (isClient(pid) && inScope(pid, resource.data.get('source', ''))
+              && changed().hasOnly(['history', 'photos', 'files', 'updated', 'updatedBy']))
           // items from the contractor's own registers: the contractor can correct the wording, subcontractor and register details
           || (isContractor(pid)
               && resource.data.get('source', '') in proj(pid).get('selfCloseSources', [])
@@ -124,10 +141,12 @@ service cloud.firestore {
       match /systems/{id} {
         allow read: if isMember(pid) && may(pid, ['assets', 'maint', 'comp', 'dash', 'docs']);
         allow write: if canEdit(pid) && may(pid, ['assets', 'maint', 'comp', 'dash', 'docs']);
+        // the client's team records each year's Form 12A certificates
+        allow update: if isClient(pid) && may(pid, ['comp', 'dash']) && changed().hasOnly(['cert12A', 'updated', 'updatedBy']);
       }
       match /docs/{id} {
         allow read: if isMember(pid) && may(pid, ['docs', 'assets', 'maint', 'comp', 'dash', 'guide']);
-        allow create: if (canEdit(pid) || isContractor(pid)) && may(pid, ['docs', 'assets', 'maint', 'comp', 'dash', 'guide']);      // contractors can upload warranties, O&Ms, PS3s
+        allow create: if (canEdit(pid) || isContractor(pid) || isClient(pid)) && may(pid, ['docs', 'assets', 'maint', 'comp', 'dash', 'guide']);      // contractors upload warranties, O&Ms, PS3s; the client's team uploads service reports
         // a contractor may work on a warranty it submitted: the check result, boxes on the document, and resubmission.
         // It can never mark its own submission Accepted, nor move one that was sent back anywhere except Superseded.
         allow update: if (canEdit(pid) && may(pid, ['docs', 'assets', 'maint', 'comp', 'dash', 'guide']))
@@ -174,7 +193,7 @@ service cloud.firestore {
               && resource.data.get('createdBy', '').lower() == myEmail()
               && !changed().hasAny(['createdBy', 'created']))
           // on anyone else's items a contractor responds, adds photos and moves the status only
-          || (isContractor(pid) && changed().hasOnly(['lastDone', 'nextDue', 'history', 'updated', 'updatedBy'])));
+          || ((isContractor(pid) || isClient(pid)) && may(pid, ['maint', 'comp', 'dash', 'assets', 'guide']) && changed().hasOnly(['lastDone', 'nextDue', 'history', 'updated', 'updatedBy'])));
       }
 
       // Feedback on the app itself: any member can send it, only admins read it
@@ -184,7 +203,7 @@ service cloud.firestore {
       }
 
       match /private/{doc} {
-        allow read: if isAdmin(pid) || (doc != 'admin' && (canEdit(pid) || isContractor(pid)));
+        allow read: if isAdmin(pid) || (doc != 'admin' && (canEdit(pid) || isContractor(pid) || isClient(pid) || isInspector(pid)));
         allow write: if isAdmin(pid);
       }
     }

@@ -12,10 +12,9 @@ export function saveLocal() { try { localStorage.setItem('rd-local', JSON.string
 
 // "View as" lets an admin test the app as another role (client-side only; the server rules still apply to the real role).
 const R = () => S.viewAs || S.role, SUP = () => !S.viewAs && S.sup;
-// An organisation (by email domain) can be limited to the registers it raised. Applies to editors and viewers only.
 // Access by organisation (email domain), with a per-person override:
 // project.access = { orgs: { 'domain.co.nz': { sections: [...], sources: [...] } }, people: { 'name@domain': { sections: [...] } } }
-// An empty or missing list means no limit. Admins are never limited. Register (source) limits apply to editors and viewers only.
+// An empty or missing list means no limit. Admins are never limited. Register (source) limits apply to editors, inspectors, clients and viewers.
 export const SECTIONS = { dash: 'Dashboard', defects: 'Defects', assets: 'Assets & warranties', maint: 'Maintenance', comp: 'Compliance', docs: 'Documents', contacts: 'Contacts', guide: 'Home guide' };
 const myMail = () => String((S.user && S.user.email) || '').toLowerCase();
 export const domainOf = e => String(e || '').toLowerCase().split('@')[1] || '';
@@ -30,7 +29,7 @@ export function mySections() {
 export const canRestricted = () => !!(S.sup || S.role === 'admin' || (S.project && (S.project.restrictedTo || []).some(x => x && (x === myMail() || x === domainOf(myMail())))));
 export const mayUse = sec => { const l = mySections(); return !l || l.includes(sec); };
 export function myScope() {
-  if (S.sup || !S.project || !['editor', 'viewer'].includes(S.role)) return null;
+  if (S.sup || !S.project || !['editor', 'viewer', 'client', 'inspector'].includes(S.role)) return null;
   const per = (((S.project.access || {}).people || {})[myMail()] || {}).sources;   // a person's own register limit wins over their company's
   const l = per && per.length ? per : orgAccess(S.project, domainOf(myMail())).sources;
   return l.length ? l : null;
@@ -40,8 +39,14 @@ export const can = {
   edit: () => SUP() || R() === 'admin' || R() === 'editor',
   contractor: () => !SUP() && R() === 'contractor',
   write: () => SUP() || ['admin', 'editor', 'contractor'].includes(R()),
+  client: () => !SUP() && R() === 'client',            // the building owner's team: raises and follows up its own items, comments on others
+  inspector: () => !SUP() && R() === 'inspector',      // raises in its own register, accepts or reopens items marked ready
+  raise: () => SUP() || ['admin', 'editor', 'contractor', 'client', 'inspector'].includes(R()),   // can raise new items and add photos
+  fmDone: () => SUP() || ['admin', 'editor', 'contractor', 'client'].includes(R()),             // can mark maintenance done
   realAdmin: () => S.sup || S.role === 'admin',
 };
+// Roles that work on other people's items with a limited set of changes (respond, comment, accept)
+export const partRole = () => can.contractor() || can.client() || can.inspector();
 
 // Fill any list a project has not customised with the defaults.
 export function withDefaults(p) {

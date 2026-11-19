@@ -139,7 +139,7 @@ export async function compare(file) {
 let HV = null;
 export async function helperVersion() { if (HV != null) return HV; try { const j = await gsCall('ping'); HV = j.version || 2; } catch (e) { HV = 0; } return HV; }
 export async function gsCall(action, extra) {
-  const h = S.ai || {}; if (!h.helperUrl) throw new Error('The Google helper is not set up for this project (menu, Gemini).');
+  const h = S.ai || {}; if (!h.helperUrl) throw new Error('The Google helper is not set up for this project (menu, AI).');
   let t; try { const r = await fetch(h.helperUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: h.helperKey || '', adminKey: (S.aiAdmin || {}).adminKey || '', action, ...(extra || {}) }), redirect: 'follow' }); t = await r.text(); } catch (e) { throw new Error('Could not reach the Google helper. Check the internet and try again.'); }
   let j; try { j = JSON.parse(t); } catch (e) { throw new Error('The Google helper has not been updated for spreadsheets yet (it sent back something unexpected).'); }
   if (j.error) throw new Error(j.error === 'nosheet' ? 'No Google Sheet is linked in the helper yet.' : j.error === 'nokey' || /bad request/.test(j.error) ? 'The Google helper needs updating to the new version before it can read the sheet.' : j.error);

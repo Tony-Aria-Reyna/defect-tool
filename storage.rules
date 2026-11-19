@@ -12,7 +12,7 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/projects/$(pid)).data.get('members', {}).get(request.auth.uid, '');
     }
     function canRead(pid) { return request.auth != null && (isSuper() || roleOf(pid) != ''); }
-    function canUpload(pid) { return request.auth != null && (isSuper() || roleOf(pid) in ['admin', 'editor', 'contractor']); }
+    function canUpload(pid) { return request.auth != null && (isSuper() || roleOf(pid) in ['admin', 'editor', 'contractor', 'client', 'inspector']); }
     function canDelete(pid) { return request.auth != null && (isSuper() || roleOf(pid) in ['admin', 'editor']); }
     function isAdmin(pid) { return request.auth != null && (isSuper() || roleOf(pid) == 'admin'); }
     function restrictedOk(pid) { return isAdmin(pid) || (canRead(pid)
@@ -34,7 +34,8 @@ service firebase.storage {
     // Plans and photos: images and PDFs, up to 20 MB
     match /projects/{pid}/{folder}/{rest=**} {
       allow read: if canRead(pid) && folder != 'restricted';
-      allow create, update: if folder in ['plans', 'photos'] && canUpload(pid)
+      // plan images belong to the project admins (the plan records are theirs too); photos come from anyone who can raise or respond
+      allow create, update: if ((folder == 'plans' && isAdmin(pid)) || (folder == 'photos' && canUpload(pid)))
         && request.resource.size < 20 * 1024 * 1024
         && request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.*|text/.*|message/rfc822|application/octet-stream');
       allow delete: if canDelete(pid) && folder != 'restricted';

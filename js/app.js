@@ -1,8 +1,8 @@
 // Resero Site - main app: sign in, projects, workspace, defect editor.
 import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
-import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
-import { S, can, myScope, domainOf, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
+import { APP, STATUS_COLOURS as SCOL, ROLES, ROLE_HELP } from './config.js';
+import { S, can, partRole, mayUse, myScope, domainOf, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
 import { addWorkDays, autoFitAll, $, esc, toast, modal, closeModal, busy, confirmBox, compressImage, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
@@ -44,7 +44,7 @@ async function imgUrl(u) { if (!u) return ''; if (urlCache[u]) return urlCache[u
 async function photoSrc(p) { if (p.data) return p.data; if (p.pending) return await pendingUrl(p.id); return p.url ? await imgUrl(p.url) : ''; }
 
 /* ================================================================ screens */
-function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id)); $('fab').style.display = id === 'scrWork' && can.write() ? '' : 'none'; }
+function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id)); $('fab').style.display = id === 'scrWork' && can.raise() ? '' : 'none'; }
 
 async function boot() {
   initMarkup();
@@ -149,7 +149,7 @@ async function autoVerify() {
   verifyTimer = setInterval(check, 4000); window.addEventListener('focus', check);
 }
 function friendly(e) { const c = (e && e.code) || ''; if (/popup-closed/.test(c)) return 'Sign-in window was closed.'; if (/unauthorized-domain/.test(c)) return 'This web address is not authorised in Firebase (Authentication > Settings > Authorised domains).'; if (/operation-not-allowed/.test(c)) return 'This sign-in method is not turned on in Firebase yet.'; if (/invalid-action-code|expired/.test(c)) return 'That sign-in link has expired or been used. Ask for a new one.'; if (/wrong-password|invalid-credential|invalid-login/.test(c)) return 'Wrong email or password. If you have not set a password yet, tap "Create a password".'; if (/user-not-found/.test(c)) return 'No password set for this email yet. Tap "Create a password".'; if (/weak-password/.test(c)) return 'Choose a stronger password (at least 8 characters).'; if (/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes or use "Forgot password".'; if (/network-request-failed/.test(c)) return 'No connection. Sign-in needs data the first time; once signed in the app works offline.'; return (e && e.message) || String(e); }
-async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for Gemini)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
+async function netbar() { const n = await outboxCount(); const b = $('netbar'); b.textContent = !navigator.onLine ? 'No coverage: everything you save stays on this phone and syncs when you are back in service' + (S.defects.filter(d => d.aiPending).length ? ` (${S.defects.filter(d => d.aiPending).length} site note${S.defects.filter(d => d.aiPending).length > 1 ? 's' : ''} waiting for the AI)` : '') + (n ? ` (${n} photo${n > 1 ? 's' : ''} waiting)` : '') : (n ? `Uploading ${n} photo${n > 1 ? 's' : ''}…` : ''); b.classList.toggle('show', !navigator.onLine || n > 0); }
 
 /* ================================================================ projects */
 export async function showProjects() {
@@ -183,7 +183,7 @@ export async function openProject(pid, quiet) {
     S.prevSeen = ((p.memberInfo || {})[S.user.uid] || {}).lastSeen || ''; S.actHidden = false;
     try { const ls = ((p.memberInfo || {})[S.user.uid] || {}).lastSeen; if (S.store.touch && navigator.onLine && (!ls || Date.now() - Date.parse(ls) > 30 * 60000)) S.store.touch(pid); } catch (e) {}
     S.plans = await S.store.listPlans(pid);
-    S.ai = can.write() ? await S.store.getPrivate(pid) : {}; S.aiAdmin = can.realAdmin() ? await S.store.getPrivate(pid, 'admin') : {};
+    S.ai = can.raise() ? await S.store.getPrivate(pid) : {}; S.aiAdmin = can.realAdmin() ? await S.store.getPrivate(pid, 'admin') : {};
     S.curPlan = S.plans[0] ? S.plans[0].id : null;
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
@@ -201,7 +201,7 @@ function applyDeepLink() {
   const sub = h.get('sub'), unit = h.get('unit'), id = h.get('id'); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   if (h.has('tryit')) { setTimeout(() => { if (S.project && !S.testMode) Try.start(); }, 1500); return; }
   const go = () => { if (id) { const d = S.defects.find(q => q.id === id); if (d) openEditor(d); return; }
-    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false, overdue: false, back: false, fresh: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']);
+    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false, overdue: false, back: false, fresh: false, mine: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']);
     if (sub) { const m = [...new Set(S.defects.map(d => d.subcontractor).filter(Boolean))].find(n => n.toLowerCase() === sub.toLowerCase()); if (m) S.F.sub = m; else S.F.q = sub; }
     if (unit) S.F.unit = unit; filtersDirty = true; if (S.F.q) $('q').value = S.F.q; setTab('list'); render(); toast(sub ? 'Showing open items for ' + sub : 'Showing open items for Unit ' + unit, 5000); };
   setTimeout(go, 2500);   // after the defects have loaded
@@ -209,7 +209,7 @@ function applyDeepLink() {
 export async function reloadProject() { const p = await S.store.getProject(S.project.id); S.project = withDefaults(p); S.plans = await S.store.listPlans(p.id); if (!S.plans.find(x => x.id === S.curPlan)) S.curPlan = S.plans[0] ? S.plans[0].id : null; applyProjectChrome(); initFilters(); renderPlanTabs(); await showPlan(S.curPlan); render(); }
 function applyProjectChrome() {
   const p = S.project; $('wTitle').firstChild.textContent = p.name; $('wSub').textContent = [p.address, p.client, ROLES[S.role] + (S.sup && S.role !== 'admin' ? ' (system admin)' : '')].filter(Boolean).join(' · ');
-  $('bNew').style.display = can.write() ? '' : 'none'; $('fab').style.display = can.write() ? '' : 'none';
+  $('bNew').style.display = can.raise() ? '' : 'none'; $('fab').style.display = can.raise() ? '' : 'none';
 }
 
 /* ================================================================ filters & list */
@@ -256,6 +256,9 @@ export const isNew = d => !!S.prevSeen && String(d.created || '') > S.prevSeen &
 function myActions() {
   const D = S.defects, A = [], ins = D.filter(mineToInspect).length, od = D.filter(overdue).length, back = D.filter(sentBack).length, fresh = D.filter(isNew).length, disp = D.filter(d => d.status === 'Disputed').length;
   if (can.contractor()) { if (back) A.push(['↩', back, 'sent back to you', { back: true }]); if (od) A.push(['⏰', od, 'past their due date', { overdue: true }]); if (fresh) A.push(['🆕', fresh, 'new since your last visit', { fresh: true }]); }
+  else if (can.client()) { const mine = D.filter(d => d.createdBy === S.user.email), mOd = mine.filter(overdue).length, mOpen = mine.filter(d => d.status !== 'Closed').length;
+    if (ins) A.push(['🔎', ins, 'ready for you to check', { toReview: true }]); if (mOd) A.push(['⏰', mOd, 'of your items past their due date', { overdue: true, mine: true }]);
+    if (mOpen) A.push(['📝', mOpen, 'of your items still open', { mine: true }]); if (fresh) A.push(['🆕', fresh, 'new since your last visit', { fresh: true }]); }
   else { if (ins) A.push(['🔎', ins, 'waiting for you to inspect', { toReview: true }]); if (disp && can.edit()) A.push(['⚑', disp, 'disputed by the contractor', { status: new Set(['Disputed']) }]); if (od) A.push(['⏰', od, 'overdue with the contractor', { overdue: true }]); if (fresh) A.push(['🆕', fresh, 'new since your last visit', { fresh: true }]); }
   const subs = S.fm && Sub.counts ? Sub.counts() : null; if (subs && can.edit() && subs.review) A.push(['📄', subs.review, 'warranty submissions to review', 'subs']); if (subs && can.contractor() && subs.fix) A.push(['📄', subs.fix, 'warranty submissions to fix', 'subs']);
   return A;
@@ -266,13 +269,13 @@ function renderActions() {
   el.innerHTML = `<div class="myact"><b>Your actions</b>${S.prevSeen ? `<span class="muted small"> · last visit ${esc(nzDT(S.prevSeen))}</span>` : ''}<button class="x" id="maX" title="Hide until next time">✕</button><div class="mabtns">${A.map((a, i) => `<button data-ma="${i}"><span>${a[0]}</span><b>${a[1]}</b> ${esc(a[2])}</button>`).join('')}</div></div>`;
   $('maX').onclick = () => { S.actHidden = true; renderActions(); };
   el.querySelectorAll('[data-ma]').forEach(b => b.onclick = () => { const f = A[+b.dataset.ma][3]; if (f === 'subs') { FM.showSubs(); return; }
-    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false, overdue: false, back: false, fresh: false }, f); if (!f.status) S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; setTab('list'); render(); });
+    Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false, overdue: false, back: false, fresh: false, mine: false }, f); if (!f.status) S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; setTab('list'); render(); });
 }
 export const overdue = d => !!d.targetDate && !['Closed', 'Ready for review'].includes(d.status) && d.targetDate < todayISO();
 export const mineToInspect = d => d.status === 'Ready for review' && !can.contractor() && (can.admin() || d.createdBy === S.user.email || ownsRegister(d.source));
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => (F.toReview ? mineToInspect(d) : F.overdue ? overdue(d) : F.back ? sentBack(d) : F.fresh ? isNew(d) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && mHas(F.block, d.block) && mHas(F.level, d.level) && (!F.unit || mv(F.unit).some(u => u === '-' ? !d.unit : String(d.unit) === u)) && mHas(F.sev, d.severity) && mHas(F.trade, d.trade) && mHas(F.resp, d.responsible) && mHas(F.sub, d.subcontractor) && mHas(F.by, d.source || '') && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
+  const r = S.defects.filter(d => (F.toReview ? mineToInspect(d) : F.overdue ? overdue(d) : F.back ? sentBack(d) : F.fresh ? isNew(d) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && mHas(F.block, d.block) && mHas(F.level, d.level) && (!F.unit || mv(F.unit).some(u => u === '-' ? !d.unit : String(d.unit) === u)) && mHas(F.sev, d.severity) && mHas(F.trade, d.trade) && mHas(F.resp, d.responsible) && mHas(F.sub, d.subcontractor) && mHas(F.by, d.source || '') && (!F.mine || d.createdBy === S.user.email) && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -305,11 +308,11 @@ export async function render() {
 const F_NAMES = { block: 'Block', level: 'Level', unit: 'Unit', sev: null, trade: 'Trade', resp: 'Responsible', sub: 'Subcontractor', by: 'Raised by' };
 function filterChips() {
   const F = S.F, on = Object.keys(F_NAMES).filter(k => F[k]).map(k => [k, (F_NAMES[k] ? F_NAMES[k] + ' ' : '') + mTxt(F[k])]);
-  if (F.q) on.unshift(['q', 'Search "' + F.q + '"']); if (F.review) on.push(['review', 'To check']); if (F.toReview) on.push(['toReview', 'For me to inspect']); if (F.overdue) on.push(['overdue', 'Overdue']); if (F.back) on.push(['back', 'Sent back to you']); if (F.fresh) on.push(['fresh', 'New since your last visit']);
+  if (F.q) on.unshift(['q', 'Search "' + F.q + '"']); if (F.review) on.push(['review', 'To check']); if (F.toReview) on.push(['toReview', 'For me to inspect']); if (F.overdue) on.push(['overdue', 'Overdue']); if (F.back) on.push(['back', 'Sent back to you']); if (F.fresh) on.push(['fresh', 'New since your last visit']); if (F.mine) on.push(['mine', 'Raised by me']);
   const n = on.filter(o => o[0] !== 'q').length, tg = $('fTog'), open = S.fOpen == null ? !isMobile() : S.fOpen;
   $('fMore').classList.toggle('open', open); tg.classList.toggle('on', open); tg.classList.toggle('has', n > 0); tg.innerHTML = (open ? '▴' : '▾') + ' Filters' + (n ? ` <b>${n}</b>` : '');
   $('fChips').innerHTML = on.length ? `<span class="fcl">Showing only:</span>` + on.map(o => `<button data-fx="${o[0]}">${esc(o[1])} ✕</button>`).join('') + (on.length > 1 ? '<button class="all" data-fx="*">Clear all</button>' : '') : '';
-  $('fChips').querySelectorAll('button').forEach(b => b.onclick = () => { const k = b.dataset.fx; if (k === '*') { $('clr').click(); return; } S.F[k] = ['review', 'toReview', 'overdue', 'back', 'fresh'].includes(k) ? false : ''; if (k === 'q') $('q').value = ''; filtersDirty = true; render(); });
+  $('fChips').querySelectorAll('button').forEach(b => b.onclick = () => { const k = b.dataset.fx; if (k === '*') { $('clr').click(); return; } S.F[k] = ['review', 'toReview', 'overdue', 'back', 'fresh', 'mine'].includes(k) ? false : ''; if (k === 'q') $('q').value = ''; filtersDirty = true; render(); });
 }
 // A square cut-out of the plan centred on an item's pin. Plan images are decoded once and cut-outs are remembered.
 const planImgs = new Map(), snips = new Map();
@@ -401,7 +404,7 @@ function noteDialog(o) {
       raw = $('ndTxt').value; $('ndTxt').value = clean(j.comment) + (kp.length ? '\nKey points: ' + kp.join('; ') + '.' : ''); $('ndTxt').rows = Math.min(8, 3 + kp.length); $('ndUndo').style.display = '';
       const q = (j.queries || []).map(clean).filter(Boolean); $('ndQ').style.display = q.length ? '' : 'none'; $('ndQ').innerHTML = q.length ? '<b>Check before saving:</b><br>' + q.map(esc).join('<br>') : '';
       st('Tidied by ' + ((aiCall.last && aiCall.last.via) || 'AI') + '. Read it, edit if needed, then save.' + (aiCall.note ? ' ' + aiCall.note : ''));
-    } catch (e) { st(e.message === 'nokey' ? 'Set up the AI helper first (Menu > Gemini).' : e.message === 'offline' ? 'No connection: the AI could not be reached. Your words are unchanged.' : e.message, true); }
+    } catch (e) { st(e.message === 'nokey' ? 'Set up the AI helper first (Menu > AI).' : e.message === 'offline' ? 'No connection: the AI could not be reached. Your words are unchanged.' : e.message, true); }
     finally { btn.disabled = false; btn.textContent = '✨ Tidy with AI'; }
   };
   setTimeout(() => $('ndTxt') && !isMobile() && $('ndTxt').focus(), 60);
@@ -536,7 +539,7 @@ function renderPlanTabs() {
     markTabs();
   } else pt.innerHTML = (lastG = null, sorted.map(p => { const g = gOf(p), sep = lastG && g !== lastG ? '<span class="ptsep"></span>' : ''; lastG = g; return sep + tabBtn(p); }).join('')) +
     (S.plans.length ? '' : (can.admin() ? '<span class="muted small">No plans yet.</span><button class="act" id="bUpPlan">Upload plans</button>' : '<span class="muted small">No plans uploaded for this project yet.</span>'));
-  let pinBtn = $('bPin'); if (!pinBtn) { pinBtn = document.createElement('button'); pinBtn.id = 'bPin'; pinBtn.className = 'pinfab'; $('planPane').appendChild(pinBtn); } pinBtn.textContent = '📍 Add pin'; pinBtn.classList.remove('on'); pinBtn.style.display = S.plans.length && can.write() ? '' : 'none';
+  let pinBtn = $('bPin'); if (!pinBtn) { pinBtn = document.createElement('button'); pinBtn.id = 'bPin'; pinBtn.className = 'pinfab'; $('planPane').appendChild(pinBtn); } pinBtn.textContent = '📍 Add pin'; pinBtn.classList.remove('on'); pinBtn.style.display = S.plans.length && can.raise() ? '' : 'none';
   pt.querySelectorAll('[data-p]').forEach(b => b.onclick = () => showPlan(b.dataset.p));
   if ($('bPin')) $('bPin').onclick = () => placing ? stopPlacing() : startPlacing({ mode: 'new' });
   if ($('bUpPlan')) $('bUpPlan').onclick = () => Admin.plansDialog();
@@ -745,18 +748,19 @@ async function newDefect() {
 export function openEditor(d, isNew, isDraft) {
   const w = isDraft ? d : JSON.parse(JSON.stringify(d)); const p = S.project;
   ED = { d: w, isNew: !!isNew, orig: isNew ? null : S.defects.find(x => x.id === d.id), removed: ED && ED.d === d ? ED.removed : [] };
-  const ro = !can.write(), con = limited(w, isNew);   // a contractor's own items are theirs to edit
+  const ro = !can.raise(), con = limited(w, isNew);   // a contractor's, client's or inspector's own items are theirs to edit
   const dis = ro || con ? 'disabled' : '', disW = ro || (con && !selfClose(w)) ? 'disabled' : '';   // wording of the contractor's own register items is theirs to correct
   $('edTitle').textContent = isNew ? 'New defect' : w.id;
   const units = [...new Set([...unitList(p), ...(w.unit ? [String(w.unit)] : [])])];
-  const stat = con ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status || (s === 'Closed' && selfClose(w))) : p.statuses;
-  $('edBody').innerHTML = `${w.aiPending ? '<div class="ainote show" id="aiWait">📵 Site note recorded out of coverage. Gemini will fill in the form when the phone is back in service. You can still edit and pin it now.' + (w.transcript ? '<br><span class="muted">Spoken note: “' + esc(w.transcript) + '”</span>' : '') + ' <a href="#" id="aiWaitX">Already filled in? Clear this notice</a></div>' : ''}${w.aiReview ? '<div class="ainote show">✨ Gemini filled this in from your site note while you were out of coverage. Check the fields, then Save to mark it checked.</div>' : ''}
+  const stat = con && can.contractor() ? p.statuses.filter(s => ['Open', 'In progress', 'Ready for review'].includes(s) || s === w.status || (s === 'Closed' && selfClose(w))) : con && can.client() ? [w.status] : p.statuses;
+  $('edBody').innerHTML = `${w.aiPending ? '<div class="ainote show" id="aiWait">📵 Site note recorded out of coverage. The AI will fill in the form when the phone is back in service. You can still edit and pin it now.' + (w.transcript ? '<br><span class="muted">Spoken note: “' + esc(w.transcript) + '”</span>' : '') + ' <a href="#" id="aiWaitX">Already filled in? Clear this notice</a></div>' : ''}${w.aiReview ? '<div class="ainote show">✨ The AI filled this in from your site note while you were out of coverage. Check the fields, then Save to mark it checked.</div>' : ''}
   ${!ro && !con && (isNew || w.createdBy === S.user.email || (!w.createdBy && can.admin())) ? `<div class="dict">
     <div class="row1"><button class="mic" id="mic" title="Hold to talk"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg></button>
     <textarea id="dt" placeholder="Hold the mic and say what is wrong, e.g. &quot;silicone to the shower tray is patchy and there is a gap behind the vanity, contractor to redo before handover&quot;. The pin gives the unit and room.">${esc(w.transcript || '')}</textarea></div>
-    <div class="row2"><button class="ai" id="aiGo">✨ Interpret with Gemini</button><label><input type="checkbox" id="aiPh" checked> include first photo</label><span id="aiSt" class="muted"></span></div>
+    <div class="row2"><button class="ai" id="aiGo">✨ Interpret with AI</button><label><input type="checkbox" id="aiPh" checked> include first photo</label><span id="aiSt" class="muted"></span></div>
     <div class="ainote" id="aiNote"></div></div>` : ''}
-  ${con ? `<p class="note muted small">${selfClose(w) ? 'This item is from your own register: you can correct its title and description, add photos and files, respond, and close it.' : 'You can add photos, attach files, add a response and mark the item ready for inspection. Other changes are made by the project team.'}</p>` : ''}
+  ${con && can.client() ? '<p class="note muted small">You can comment and add photos or files. Changes to this item are made by the person who raised it or the project team.</p>' : ''}${con && can.inspector() ? '<p class="note muted small">You can comment, add photos and files, and accept or reopen this item. Its wording stays as the person who raised it wrote it.</p>' : ''}
+  ${con && can.contractor() ? `<p class="note muted small">${selfClose(w) ? 'This item is from your own register: you can correct its title and description, add photos and files, respond, and close it.' : 'You can add photos, attach files, add a response and mark the item ready for inspection. Other changes are made by the project team.'}</p>` : ''}
   ${!isNew && !ro ? workflowBar(w, con) : ''}
   <div class="grid">
     <label class="f full">Title ${!dis ? '<a href="#" id="edTyp" class="small" style="float:right">⚡ Typical defects</a>' : ''}<input name="title" value="${esc(w.title)}" ${disW} placeholder="Short name, e.g. Shower tray silicone incomplete"></label>
@@ -780,7 +784,7 @@ export function openEditor(d, isNew, isDraft) {
   <datalist id="levels">${[...new Set(S.plans.map(x => x.level).filter(Boolean))].map(r => `<option>${esc(r)}</option>`).join('')}</datalist>
   <h3 class="sec">Classification</h3>
   <div class="grid">
-    <label class="f">Status<select name="status" ${ro ? 'disabled' : ''}>${opts(stat, w.status)}</select></label>
+    <label class="f">Status<select name="status" ${ro || (con && can.client()) ? 'disabled' : ''}>${opts(stat, w.status)}</select></label>
     <label class="f">${esc(sevLabel(p))}<select name="severity" ${dis}>${opts(p.severities, w.severity)}</select></label>
     <label class="f">Type<select name="type" ${dis}>${opts(p.types, w.type)}</select></label>
     <label class="f">Trade<select name="trade" ${dis}>${opts(p.trades, w.trade)}</select></label>
@@ -794,7 +798,7 @@ export function openEditor(d, isNew, isDraft) {
   <div class="photos" id="phs"></div>
   <h3 class="sec">Attachments</h3>
   <div class="files" id="fls">${(w.files || []).map((f, i) => `<div class="file"><a href="#" data-f="${i}">📎 ${esc(f.name)}</a><span class="muted small"> · ${esc(f.by || '')} ${esc(nzDate((f.t || '').slice(0, 10)))}${f.pending ? ' · waiting to upload' : ''}</span>${!ro && (can.edit() || f.isNew) ? ` <button data-fx="${i}" class="small">✕</button>` : ''}</div>`).join('')}${!ro ? `<div class="flbtns"><button id="addfile" class="small">📎 Attach PDF or file</button>${((S.fm || {}).docs || []).length ? '<button id="findDoc" class="small">🔎 Find a project document</button>' : ''}</div>` : ''}</div>
-  ${!ro ? `<div id="cmtBox"><h3 class="sec">${con ? 'Your response' : 'Add a comment'}</h3><label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="cmtFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}</div>` : ''}
+  ${!ro ? `<div id="cmtBox"><h3 class="sec">${con && can.contractor() ? 'Your response' : 'Add a comment'}</h3><label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con && can.contractor() ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="cmtFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}</div>` : ''}
   <h3 class="sec" id="hHist">History <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">newest first</span>${can.realAdmin() && w.id && !w.isNew ? ` <a href="#" id="hLog" class="small" style="text-transform:none;letter-spacing:0;font-weight:400" title="Every change to this item, stamped by the server with the time and the signed-in person. It cannot be edited.">Server log</a>` : ''}</h3>
   <div class="hist">${(w.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(histHtml).join('') || '<div>No history yet.</div>'}</div>
   ${w.ext ? `<details class="ext"><summary>Original record (${esc(w.extRef || w.source)})</summary>${Object.entries(w.ext).filter(e => e[1]).map(([k, v]) => `<p><b>${esc(k)}:</b> ${esc(v)}</p>`).join('')}</details>` : ''}`;
@@ -811,13 +815,13 @@ export function openEditor(d, isNew, isDraft) {
   const dict = $('edBody').querySelector('.dict');
   if (isNew && dict && S.plans.length) {
     const hs = [...$('edBody').querySelectorAll('h3.sec')], hLoc = hs.find(h => /^Location/.test(h.textContent)), hPh = hs.find(h => /^Photos/.test(h.textContent));
-    const hG = document.createElement('h3'); hG.className = 'sec stg'; hG.id = 'stg3'; hG.innerHTML = '<i>3</i> Describe it <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">Gemini fills in the form</span>';
+    const hG = document.createElement('h3'); hG.className = 'sec stg'; hG.id = 'stg3'; hG.innerHTML = '<i>3</i> Describe it <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">The AI fills in the form</span>';
     const lk = document.createElement('div'); lk.className = 'note small stglock'; lk.id = 'stgLock';
     const B = $('edBody'), tag = (t, k) => `<span class="rq ${k}">${t}</span>`, sub = 'style="text-transform:none;letter-spacing:0;font-weight:400"';
     const hAtt = hs.find(h => /^Attachments/.test(h.textContent)), hCls = hs.find(h => /^Classification/.test(h.textContent)), hHist = $('hHist'), tg = B.querySelector('[name=title]').closest('.grid'), elg = B.querySelector('[name=element]').closest('.grid');
     hLoc.classList.add('stg'); hLoc.id = 'stg1'; hLoc.innerHTML = '<i>1</i> Where is it ' + tag('Required', 'must');
-    hPh.classList.add('stg'); hPh.id = 'stg2'; hPh.innerHTML = '<i>2</i> Photo ' + tag('Needed for Gemini', 'must') + ` <span class="muted small" ${sub}>Tap a photo to mark it up</span>`;
-    hG.innerHTML = '<i>3</i> Describe it ' + tag('Required', 'must') + ` <span class="muted small" ${sub}>Say it and Gemini fills in the form, or type a title</span>`;
+    hPh.classList.add('stg'); hPh.id = 'stg2'; hPh.innerHTML = '<i>2</i> Photo ' + tag('Needed for the AI', 'must') + ` <span class="muted small" ${sub}>Tap a photo to mark it up</span>`;
+    hG.innerHTML = '<i>3</i> Describe it ' + tag('Required', 'must') + ` <span class="muted small" ${sub}>Say it and the AI fills in the form, or type a title</span>`;
     const hRef = document.createElement('div'); hRef.className = 'subh'; hRef.innerHTML = 'Reference documents ' + tag('Optional', 'opt') + ` <span class="muted small">A drawing, specification or data sheet for quick reference</span>`;
     const hDet = document.createElement('h3'); hDet.className = 'sec stg'; hDet.innerHTML = '<i>4</i> Details ' + tag('Optional', 'opt') + ` <span class="muted small" ${sub}>Already set to the usual answers</span>`;
     const card = nodes => { const c = document.createElement('div'); c.className = 'stgcard'; nodes.forEach(n => n && c.appendChild(n)); return c; };
@@ -845,7 +849,7 @@ export function openEditor(d, isNew, isDraft) {
     if (lb && lm) { const row = document.createElement('div'); row.className = 'pinrow'; ['setPin', 'clrPin', 'genBtn', 'goPin'].forEach(id => { const b = $(id); if (b && id !== 'goPin') row.appendChild(b); else if (b) b.remove(); }); lm.appendChild(row); lb.style.display = 'none'; lm.querySelector('summary').textContent = 'Location details' + (pinned ? '' : ' (not pinned)'); }
     if (pinned) snip(w, 200).then(u => { const im = $('sumSnip'); if (im && u) { im.src = u; snipWire(im, ED.d); } }).catch(() => {});
     if ($('sumSet')) $('sumSet').onclick = () => $('setPin') && $('setPin').click();
-    const dc = B.querySelector('.dict'); if (dc) { const dd = document.createElement('details'); dd.className = 'ext'; dd.innerHTML = '<summary>✨ Dictate a change with Gemini</summary>'; B.insertBefore(dd, tg); dd.appendChild(dc); if (w.aiPending || w.transcript && !w.title) dd.open = true; }
+    const dc = B.querySelector('.dict'); if (dc) { const dd = document.createElement('details'); dd.className = 'ext'; dd.innerHTML = '<summary>✨ Dictate a change with AI</summary>'; B.insertBefore(dd, tg); dd.appendChild(dc); if (w.aiPending || w.transcript && !w.title) dd.open = true; }
     const hT = document.createElement('h3'); hT.className = 'sec'; hT.textContent = 'The defect'; B.insertBefore(hT, tg);
     if (hCls) { const gr = hCls.nextElementSibling, dd = document.createElement('details'); dd.className = 'ext clsd'; dd.innerHTML = `<summary>Details <span class="muted small">${esc([w.severity, w.trade, w.subcontractor || w.responsible, w.targetDate ? 'due ' + nzDate(w.targetDate) : ''].filter(Boolean).join(' · '))}</span></summary>`; B.insertBefore(dd, hCls); dd.appendChild(gr); hCls.remove(); if (!isMobile()) dd.open = true; }
   }
@@ -884,11 +888,11 @@ function stageGate() {
   if (!ED || !ED.staged) return true; const d = ED.d, pin = !!((d.plan && d.x != null) || d.general), ph = (d.photos || []).length > 0, dict = $('edBody').querySelector('.dict');
   const mark = (id, ok) => { const h = $(id); if (h) h.classList.toggle('done', ok); }; mark('stg1', pin); mark('stg2', ph); mark('stg3', ['title', 'desc'].some(n => { const el = $('edBody').querySelector(`[name=${n}]`); return el && el.value.trim(); }));
   if (dict) dict.classList.toggle('locked', !(pin && ph));
-  const lk = $('stgLock'); if (lk) { lk.style.display = pin && ph ? 'none' : ''; lk.textContent = !pin && !ph ? '🔒 Pin it and add a photo first. Gemini then knows where it is and can see it.' : !pin ? '🔒 Pin it on the plan first (or mark it as a general defect).' : '🔒 Add a photo first so Gemini can see it.'; }
+  const lk = $('stgLock'); if (lk) { lk.style.display = pin && ph ? 'none' : ''; lk.textContent = !pin && !ph ? '🔒 Pin it and add a photo first. The AI then knows where it is and can see it.' : !pin ? '🔒 Pin it on the plan first (or mark it as a general defect).' : '🔒 Add a photo first so the AI can see it.'; }
   return pin && ph;
 }
 async function renderPhotos() {
-  const w = ED.d, ro = !can.write(); stageGate();
+  const w = ED.d, ro = !can.raise(); stageGate();
   wireLastPhotos($('edBody'), w);
   if ($('hLog')) $('hLog').onclick = e => { e.preventDefault(); serverLog(w.id); };
   // photos that were attached to comments in the history: tap to view, with the others of the same comment
@@ -910,7 +914,7 @@ async function renderPhotos() {
   if ($('wfDisp')) $('wfDisp').onclick = () => noteDialog({ title: 'Dispute this item', ask: 'Why it is disputed', ph: 'e.g. Built to the approved drawing A-201 Rev C, so not a defect. Or: damage by others after handover.', btn: 'Send the dispute', warn: true, required: true, need: 'Give the reason so the project team can decide.', go: wf('Disputed', 'Disputed', true) });
   if ($('wfDAgree')) $('wfDAgree').onclick = () => noteDialog({ title: 'Agree with the dispute and close', ask: 'Decision', ph: 'e.g. Agreed: built to the approved drawing. No further work.', btn: 'Agree and close', required: true, need: 'Record the decision.', go: wf('Closed', 'Dispute agreed and closed', true) });
   if ($('wfProg')) $('wfProg').onclick = () => noteDialog({ title: 'Mark in progress', ask: 'Note', ph: 'e.g. Painter booked for Tuesday', btn: 'Mark in progress', go: wf('In progress', 'In progress', false) });
-  if ($('wfCmt')) $('wfCmt').onclick = () => noteDialog({ title: limited(ED.d) ? 'Add a response' : 'Add a comment', ask: limited(ED.d) ? 'Your response' : 'Comment', ph: 'Saved with your name and the time', btn: 'Save comment', required: true, go: saveEditor });
+  if ($('wfCmt')) $('wfCmt').onclick = () => noteDialog({ title: limited(ED.d) && can.contractor() ? 'Add a response' : 'Add a comment', ask: limited(ED.d) && can.contractor() ? 'Your response' : 'Comment', ph: 'Saved with your name and the time', btn: 'Save comment', required: true, go: saveEditor });
   if ($('edTyp')) $('edTyp').onclick = ev => { ev.preventDefault(); typicalPicker(); };
   requestAnimationFrame(() => { Nav.refit($('edBody')); if (ED && !ED.isNew) ED.snap = edSnap(); if (ED) ED.snap0 = edSnap(); });
 }
@@ -931,9 +935,9 @@ function readyDialog(go, close) {
     <div class="rd3"><button id="rdCam">📷<span>Take a photo</span></button><button id="rdGal">🖼<span>From gallery</span></button><button id="rdDoc">📎<span>File or PDF</span></button></div><div id="rdPh" class="rdph"></div><div id="rdFl" class="rdfl"></div>
     <input type="file" id="rdFile" accept="image/*" capture="environment" hidden><input type="file" id="rdFile2" accept="image/*" multiple hidden><input type="file" id="rdFile3" multiple hidden>
     <div class="rdsec">What was done</div>
-    <div class="rdgem"><button class="mic" id="rdMic" title="Hold to talk to Gemini">🎤</button><div><b>✨ Tell Gemini</b><span class="note" id="rdSt">Hold the microphone and say what was fixed. Let go and Gemini writes it up for you.</span></div></div>
+    <div class="rdgem"><button class="mic" id="rdMic" title="Hold to talk to the AI">🎤</button><div><b>✨ Tell the AI</b><span class="note" id="rdSt">Hold the microphone and say what was fixed. Let go and the AI writes it up for you.</span></div></div>
     <label class="f"><span class="rdor">or write it yourself</span><textarea id="rdTxt" rows="3" placeholder="Type what was done. It is saved exactly as you write it.">${esc(pre)}</textarea></label>
-    <div class="rdtidy"><button id="rdTidy">✨ Tidy my writing with Gemini (optional)</button></div>
+    <div class="rdtidy"><button id="rdTidy">✨ Tidy my writing with AI (optional)</button></div>
     <div class="act"><button id="rdX">Cancel</button><button class="go" id="rdGo">${close ? 'Close this item' : 'Mark ready for inspection'}</button></div>`);
   const st = (t, bad) => { $('rdSt').textContent = t; $('rdSt').style.color = bad ? '#a32222' : ''; };
   const draw = () => { $('rdPh').innerHTML = shots.map((p, i) => `<div class="ph"><img src="${p.data}" alt=""><button data-x="${i}">✕</button></div>`).join(''); $('rdPh').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { shots.splice(+b.dataset.x, 1); draw(); }); $('rdFl').innerHTML = docs.map((f, i) => `<div class="file">📎 ${esc(f.name)} <button data-fxx="${i}" class="small">✕</button></div>`).join(''); $('rdFl').querySelectorAll('[data-fxx]').forEach(b => b.onclick = () => { docs.splice(+b.dataset.fxx, 1); draw(); }); };
@@ -941,8 +945,8 @@ function readyDialog(go, close) {
   $('rdCam').onclick = () => $('rdFile').click(); $('rdGal').onclick = () => $('rdFile2').click(); $('rdDoc').onclick = () => $('rdFile3').click(); $('rdFile').onchange = add; $('rdFile2').onchange = add;
   $('rdFile3').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; for (const f of fs) { if (f.type.startsWith('image/')) { try { shots.push(await newPhoto(f)); } catch (x) { toast('Could not read that photo'); } continue; } if (f.size > 19 * 1024 * 1024) { toast(f.name + ' is over 19 MB'); continue; } const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); docs.push({ id: uid(), name: f.name, mime: f.type || 'application/octet-stream', data, t: new Date().toISOString(), by: S.user.name, isNew: true }); } draw(); };
   const tidy = async () => { stopDictation(); const raw = $('rdTxt').value.trim(); if (!raw) return st('Say or write what was done first.', true); if (!navigator.onLine) return st('No signal: your words are kept as they are.'); st('Tidying up…');
-    try { const out = await aiCall(`A contractor on a building site is reporting that a defect has been fixed and is ready for inspection. Rewrite their spoken note as one to three short, clear, professional sentences in New Zealand English, past tense, no em dashes. Keep every fact they gave (what was done, where, when, by whom, product names). Do not add anything they did not say and do not claim the work complies.\nDEFECT: ${d.title || ''}. ${d.desc || ''}\nSPOKEN NOTE: ${raw}\nReturn JSON only: {"text":"..."}`); let t = ''; try { t = JSON.parse(out).text || ''; } catch (e) { t = String(out || '').trim(); } if (t && $('rdTxt')) { $('rdTxt').value = t.replace(/\s*—\s*/g, ', '); st('Gemini has written it up below. Check it reads right, then mark ready.'); } else st('Kept as you said it.'); }
-    catch (e) { st(e.message === 'nokey' ? 'Gemini is not set up on this device, so your words are kept as they are.' : 'Could not tidy it (' + friendly(e) + '). Your words are kept.', true); } };
+    try { const out = await aiCall(`A contractor on a building site is reporting that a defect has been fixed and is ready for inspection. Rewrite their spoken note as one to three short, clear, professional sentences in New Zealand English, past tense, no em dashes. Keep every fact they gave (what was done, where, when, by whom, product names). Do not add anything they did not say and do not claim the work complies.\nDEFECT: ${d.title || ''}. ${d.desc || ''}\nSPOKEN NOTE: ${raw}\nReturn JSON only: {"text":"..."}`); let t = ''; try { t = JSON.parse(out).text || ''; } catch (e) { t = String(out || '').trim(); } if (t && $('rdTxt')) { $('rdTxt').value = t.replace(/\s*—\s*/g, ', '); st('The AI has written it up below. Check it reads right, then mark ready.'); } else st('Kept as you said it.'); }
+    catch (e) { st(e.message === 'nokey' ? 'The AI is not set up on this device, so your words are kept as they are.' : 'Could not tidy it (' + friendly(e) + '). Your words are kept.', true); } };
   holdToTalk($('rdMic'), () => dictate($('rdTxt'), $('rdMic'), st, () => { if ($('rdTxt') && $('rdTxt').value.trim()) tidy(); }));
   $('rdTidy').onclick = tidy;
   $('rdX').onclick = () => { stopDictation(); closeModal(); };
@@ -950,7 +954,8 @@ function readyDialog(go, close) {
     d.photos = (d.photos || []).concat(shots); d.files = (d.files || []).concat(docs); if ($('cmt')) $('cmt').value = txt || [shots.length ? `Photo${shots.length === 1 ? '' : 's'}` : '', docs.length ? `file${docs.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ').replace(/^f/, 'F') + ' of the completed work attached.'; closeModal(); await go(); };
 }
 // A contractor can raise items and edit the ones they raised. On items raised by someone else they respond, add photos and move the status only.
-const limited = (d, isNew) => can.contractor() && !isNew && !(d && d.createdBy && d.createdBy === S.user.email);
+// contractors, clients and inspectors make a limited set of changes to items other people raised
+const limited = (d, isNew) => partRole() && !isNew && !(d && d.createdBy && d.createdBy === S.user.email);
 function collect() { const b = $('edBody'); FIELDS.forEach(f => { const el = b.querySelector(`[name=${f}]`); if (el) ED.d[f] = el.value; }); if ($('dt')) ED.d.transcript = $('dt').value; return ED.d; }
 // Close, Cancel and Escape ask before throwing away unsaved changes. A click outside the editor does nothing.
 async function tryCloseEditor() { if (ED && ED.snap0 && ED.snap0 !== edSnap() && !(await askDiscard('Your changes to this item have not been saved.'))) return; closeEditor(); }
@@ -992,12 +997,12 @@ async function saveEditor() {
     const clean = o => { const c = { ...o }; delete c.isNew; delete c.zoneHit; c.photos = (c.photos || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); c.files = (c.files || []).map(p => { const q = { ...p }; delete q.data; delete q.isNew; return q; }); return c; };
     if (E.isNew) {
       newH.push({ t, who, txt: 'Raised (' + d.source + '). Status ' + d.status + '.' }); if (cm) newH.push({ t, who, txt: cm, ...(cmPh.length ? { photos: cmPh } : {}) });
-      if (d.aiPending) newH.push({ t, who, txt: 'Site note recorded out of coverage; waiting for Gemini.' });
+      if (d.aiPending) newH.push({ t, who, txt: 'Site note recorded out of coverage; waiting for the AI.' });
       const rec = clean({ ...d, created: t, createdBy: S.user.email, updated: t, updatedBy: S.user.email, history: newH });
       await S.store.createDefect(pid, rec);
     } else {
       const o = E.orig || {}, patch = {}, ch = [];
-      const lim = limited(o); const keys = lim ? ['status', 'subcontractor', ...(selfClose(o) ? ['title', 'desc'] : [])] : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc', 'general'];
+      const lim = limited(o); const keys = lim ? (can.client() ? [] : can.inspector() ? ['status'] : ['status', 'subcontractor', ...(selfClose(o) ? ['title', 'desc'] : [])]) : [...FIELDS, 'plan', 'x', 'y', 'plan2', 'x2', 'y2', 'transcript', 'aiPending', 'autoLoc', 'general'];
       if (E.wfLabel) { ch.push(E.wfLabel.toLowerCase()); }
       if (o.aiReview && !lim) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
@@ -1051,19 +1056,19 @@ function swipeWire(el) {
 const AIMAP = { title: 'title', description: 'desc', action: 'action', unit: 'unit', room: 'room', surface: 'surface', item: 'item', block: 'block', level: 'level', element: 'element', type: 'type', severity: 'severity', trade: 'trade', responsible: 'responsible', status: 'status', targetDate: 'targetDate' };
 // Ask Gemini to turn a spoken note into defect records. If a description comes back as the speaker's own words, ask once more for a proper rewrite.
 async function aiDefects(text, cur, photo) {
-  const ask = async strict => { const raw = await aiCall(aiPrompt(text, cur, strict), photo); let o; try { o = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { throw new Error('Gemini sent back something I could not read. Try again.'); } return { o, list: Array.isArray(o) ? o : (o.defects || [o]) }; };
+  const ask = async strict => { const raw = await aiCall(aiPrompt(text, cur, strict), photo); let o; try { o = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch (e) { throw new Error('The AI sent back something I could not read. Try again.'); } return { o, list: Array.isArray(o) ? o : (o.defects || [o]) }; };
   let r = await ask(false);
   if (r.list.some(x => tooVerbatim(text, x.description))) { try { const r2 = await ask(true); if (r2.list.length) r = r2; } catch (e) { console.warn('rewrite', e); } }
   return r;
 }
 async function interpret() {
-  if (!stageGate()) { toast('Pin it and add a photo first, then Gemini can fill in the form', 4500); return; }
+  if (!stageGate()) { toast('Pin it and add a photo first, then the AI can fill in the form', 4500); return; }
   const text = $('dt').value.trim(); if (!text) { toast('Say or type the defect first'); return; }
-  const cur = collect(); const btn = $('aiGo'); btn.disabled = true; aiStatus('Asking Gemini…'); $('aiNote').classList.remove('show');
+  const cur = collect(); const btn = $('aiGo'); btn.disabled = true; aiStatus('Asking the AI…'); $('aiNote').classList.remove('show');
   try {
     const ph = $('aiPh').checked && cur.photos[0] ? await photoSrc(cur.photos[0]) : null;
     const { o, list } = await aiDefects(text, cur, ph && ph.startsWith('data:') ? ph : null);
-    if (!list.length) throw new Error('Gemini did not find a defect in that note.');
+    if (!list.length) throw new Error('The AI did not find a defect in that note.');
     applyAI(list[0]); if (ED.d.aiPending) { ED.d.aiPending = false; const n = $('aiWait'); if (n) n.remove(); }
     const extra = list.slice(1), qs = (o.questions || []).filter(Boolean); let h = '';
     if (qs.length) h += '<b>Check:</b> ' + qs.map(esc).join(' · ');
@@ -1071,9 +1076,9 @@ async function interpret() {
     if (h) { $('aiNote').innerHTML = h; $('aiNote').classList.add('show'); if ($('aiMore')) $('aiMore').onclick = () => addExtra(extra); }
     $('dt').value = ''; $('dt').dispatchEvent(new Event('input')); aiStatus('Filled in. Check and save.' + (aiCall.note ? ' ' + aiCall.note : ''));
   } catch (e) {
-    if (e.message === 'nokey') { aiStatus(''); Admin.aiSettings('Set up Gemini to use the interpreter.'); }
+    if (e.message === 'nokey') { aiStatus(''); Admin.aiSettings('Set up the AI to use the interpreter.'); }
     else if (!navigator.onLine || e.message === 'offline') queueNote(text);
-    else { aiStatus(e.message + ' Your words are still in the box: tap "Interpret with Gemini" to try again.', true); $('aiNote').innerHTML = 'Gemini did not answer, so nothing has been filled in. <button id="aiLater">Keep it as a spoken note for Gemini to write up later</button>'; $('aiNote').classList.add('show'); $('aiLater').onclick = () => { $('aiNote').classList.remove('show'); queueNote(text); }; }
+    else { aiStatus(e.message + ' Your words are still in the box: tap "Interpret with AI" to try again.', true); $('aiNote').innerHTML = 'The AI did not answer, so nothing has been filled in. <button id="aiLater">Keep it as a spoken note for the AI to write up later</button>'; $('aiNote').classList.add('show'); $('aiLater').onclick = () => { $('aiNote').classList.remove('show'); queueNote(text); }; }
   }
   finally { btn.disabled = false; }
 }
@@ -1083,11 +1088,11 @@ function queueNote(text) {
   if (!d.title) { const el = $('edBody').querySelector('[name=title]'); el.value = d.title = 'Site note: ' + text.replace(/\s+/g, ' ').slice(0, 60); }
   const m = /\bunit\s*(?:number\s*)?(\d{1,3})\b/i.exec(text); const b = $('edBody');
   if (m && !d.unit && unitList(S.project).includes(m[1])) { const el = b.querySelector('[name=unit]'); if (el) { el.value = m[1]; el.dispatchEvent(new Event('change')); } d.unit = m[1]; collect(); if (!d.plan) { const z = findZone(d.unit, ''); if (z) { applyZone(d, z.x, z.y, z.plan.id); d.zoneHit = 'Pinned at the centre of Unit ' + d.unit + ' (move it if needed)'; drawLoc(); } } }
-  aiStatus('No coverage. Your words are kept with the item as a spoken note; Gemini will write the description when you are back in service, then it will show under "To check".');
+  aiStatus('No coverage. Your words are kept with the item as a spoken note; the AI will write the description when you are back in service, then it will show under "To check".');
 }
 let aiBusy = false;
 export async function processPendingAI() {
-  if (aiBusy || !navigator.onLine || !S.project || !can.write()) return;
+  if (aiBusy || !navigator.onLine || !S.project || !can.raise()) return;
   const todo = S.defects.filter(d => d.aiPending && d.transcript && !limited(d)); if (!todo.length) return;
   aiBusy = true; const pid = S.project.id;
   try {
@@ -1102,7 +1107,7 @@ export async function processPendingAI() {
       if (nd.unit) { const u = unitInfo(nd.unit); if (u) { if (!x.block && u.block) patch.block = u.block; if (!x.level && u.level) patch.level = u.level; } }
       if (!d.plan) { const z = findZone(nd.unit, nd.room); if (z) { const tmp = {}; applyZone(tmp, z.x, z.y, z.plan.id); patch.plan = tmp.plan; patch.x = tmp.x; patch.y = tmp.y; patch.block = tmp.block || patch.block || d.block; patch.level = tmp.level || patch.level || d.level; patch.unit = tmp.unit || patch.unit || d.unit; patch.room = tmp.room || patch.room || d.room; } }
       const qs = (o.questions || []).filter(Boolean);
-      await S.store.updateDefect(pid, d.id, patch, [{ t, who: 'Gemini', txt: 'Filled in from the site note recorded out of coverage. Please check.' + (qs.length ? ' Check: ' + qs.join(' · ') : '') }]);
+      await S.store.updateDefect(pid, d.id, patch, [{ t, who: 'AI', txt: 'Filled in from the site note recorded out of coverage. Please check.' + (qs.length ? ' Check: ' + qs.join(' · ') : '') }]);
       if (list.length > 1) await createFromAI(list.slice(1), nd, 'Raised from the same site note as ' + d.id + ' (recorded out of coverage). Please check.', true);
     }
   } finally { aiBusy = false; }
@@ -1222,39 +1227,50 @@ function openExport() {
 }
 
 /* ================================================================ menu */
-function openMenu() {
-  const a = can.admin();
+function openMenu(page) {
+  const a = can.admin(), site = can.raise() && !can.client(), on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
+  // project set-up lives on its own page so the everyday menu stays short
+  if (page === 'setup') {
+    modal(`<h2>Project set-up</h2><div class="btnlist">
+    <button id="mCk">🚀 Set-up checklist (${Setup.progress().join(' of ')})<small>What this project still needs, with a button to each step</small></button>
+    <button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>
+    <button id="mDig">✉ Email digests<small>Daily, weekly or monthly emails with what each person needs to do</small></button>
+    <button id="mDue">📅 Due dates<small>${S.defects.filter(d => ['Open', 'In progress', 'Disputed'].includes(d.status) && !d.targetDate).length} open items have no due date. New items get ${S.project.dueDays || 7} working days</small></button>
+    <button id="mAI">✨ AI<small>Interpreter settings</small></button>
+    <button id="mTpl">📦 Save set-up as a template<small>Start the next project with the same categories, lists and rules</small></button>
+    <button id="mFbR">📊 Feedback received<small>What the team has said, and the try-out link to send people</small></button>
+  </div><div class="act"><button id="msBack">‹ Menu</button><button id="mX">Close</button></div>`);
+    $('msBack').onclick = () => openMenu(); $('mX').onclick = closeModal;
+    on('mCk', () => Setup.checklist()); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
+    on('mDig', async () => (await import('./digest.js')).digestDialog()); on('mDue', dueDialog); on('mAI', () => Admin.aiSettings()); on('mTpl', Setup.saveTemplate); on('mFbR', Try.results);
+    return;
+  }
   modal(`<h2>${esc(S.project.name)}</h2><p class="note">You are ${esc(ROLES[S.role] || '')}${S.sup ? ' and a system administrator' : ''} on this project.</p>
   <div class="btnlist">
     <button id="mFind">🔍 Search everything<small>Tools, defects, units, products. Spelling does not need to be exact</small></button>
-    ${a ? `<button id="mCk">🚀 Set-up checklist (${Setup.progress().join(' of ')})<small>What this project still needs, with a button to each step</small></button>` : ''}
-    ${a ? '<button id="mSet">⚙ Project settings<small>Details, logos, lists, units</small></button><button id="mUsers">👥 Users and access<small>Invite people, set roles</small></button><button id="mPlans">▦ Plans<small>Upload and order floor plans</small></button><button id="mZones">⬠ Room boundaries<small>Draw rooms so pins find their room</small></button>' : ''}
-    ${a ? '<button id="mDig">✉ Email digests<small>Daily, weekly or monthly emails with what each person needs to do</small></button>' : ''}
-    ${a ? `<button id="mDue">📅 Due dates<small>${S.defects.filter(d => ['Open', 'In progress', 'Disputed'].includes(d.status) && !d.targetDate).length} open items have no due date. New items get ${S.project.dueDays || 7} working days</small></button>` : ''}
+    ${can.client() && mayUse('dash') ? '<button id="mDueV">📅 What\'s due<small>Maintenance, compliance, warranties, the defects period, and anything overdue</small></button>' : ''}
+    ${a ? `<button id="mSetup">⚙ Project set-up<small>Checklist (${Setup.progress().join(' of ')}), settings, users and access, plans, rooms, AI, email digests, due dates</small></button>` : ''}
     ${can.edit() && unpinned().length ? `<button id="mPinQ">📍 Items to pin (${unpinned().length})<small>Go through open items that have no pin, one at a time</small></button>` : ''}
-    ${can.write() ? '<button id="mTick">📄 Scan a site tick sheet<small>Photograph a printed sheet: ticks and handwriting are read by Gemini</small></button>' : ''}
+    ${can.write() ? '<button id="mTick">📄 Scan a site tick sheet<small>Photograph a printed sheet: ticks and handwriting are read by the AI</small></button>' : ''}
     ${can.write() && Sync.available() ? '<button id="mSync">🔄 Update the contractor\'s spreadsheet<small>Two-way: completed rows close items here, closed items are ticked off in the Excel register</small></button>' : ''}
     ${can.edit() ? '<button id="mImp">⬆ Import register<small>Excel, CSV or a v1 backup file</small></button>' : ''}
-    ${can.edit() ? '<button id="mAI">✨ Gemini<small>Interpreter settings</small></button>' : ''}
+    ${can.edit() && !a ? '<button id="mAI">✨ AI<small>Interpreter settings</small></button>' : ''}
     ${canInstall() ? `<button id="mInst">📲 Install ${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'on this phone' : 'as a desktop app'}<small>${/Android|iPhone|iPad/.test(navigator.userAgent) ? 'Home screen app, stays signed in' : 'Opens in its own window from the Start menu or Dock'}</small></button>` : ''}
-    ${can.realAdmin() ? `<button id="mViewAs">👁 View as…<small>${S.viewAs ? 'Currently viewing as ' + esc(ROLES[S.viewAs] || S.viewAs) + ' (tap to change or stop)' : 'Test the app as an editor, contractor or viewer'}</small></button>` : ''}
-    ${a ? '<button id="mTpl">📦 Save set-up as a template<small>Start the next project with the same categories, lists and rules</small></button>' : ''}
-    <button id="mKeep">🗺 Save plans to this phone<small>So floor, ceiling, framing and elevation plans open with poor reception</small></button>
-    <button id="mReload">🔄 Reload app<small>Get the latest version (v${APP.version} now)</small></button>
+    ${can.realAdmin() ? `<button id="mViewAs">👁 View as…<small>${S.viewAs ? 'Currently viewing as ' + esc(ROLES[S.viewAs] || S.viewAs) + ' (tap to change or stop)' : 'Test the app as an editor, inspector, contractor, client or viewer'}</small></button>` : ''}
+    ${site ? '<button id="mKeep">🗺 Save plans to this phone<small>So floor, ceiling, framing and elevation plans open with poor reception</small></button>' : ''}
+    ${site ? '<button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>' : ''}
+    <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
     <button id="mTry">🧪 15-minute try-out<small>Practise on a throwaway copy, then tell us what you think</small></button>
     <button id="mFb">💬 Send feedback<small>What works, what is confusing, what is missing</small></button>
-    ${a ? '<button id="mFbR">📊 Feedback received<small>What the team has said, and the try-out link to send people</small></button>' : ''}
-    <button id="mCheck">✅ Site check<small>Test everything before you go on site</small></button>
-    <button id="mHelp">❓ Help<small>Quick guide, ask a question</small></button>
+    <button id="mReload">🔄 Reload app<small>Get the latest version (v${APP.version} now)</small></button>
     <button id="mProj">🗂 All projects<small>Switch project</small></button>
     <button id="mOut">⎋ Sign out<small>${esc(S.user.email)}</small></button>
   </div><p class="note" style="margin-top:12px">${esc(APP.name)} v${APP.version}${isDemo() ? ' · DEMO MODE (data stays in this browser)' : ''}</p><div class="act"><button id="mX">Close</button></div>`);
-  const on = (id, fn) => { if ($(id)) $(id).onclick = () => { closeModal(); fn(); }; };
-  on('mTry', Try.start); on('mFb', () => Try.feedback(false)); on('mFbR', Try.results);
-  on('mFind', () => Search.open()); on('mCk', () => Setup.checklist()); on('mTpl', Setup.saveTemplate);
-  on('mPinQ', pinQueue); on('mDue', dueDialog); on('mDig', async () => (await import('./digest.js')).digestDialog()); on('mTick', Tick.start); on('mSync', Sync.start); on('mSet', () => Admin.projectSettings(S.project)); on('mUsers', Admin.usersDialog); on('mPlans', Admin.plansDialog); on('mZones', () => Admin.zoneEditor(PV));
-  on('mImp', Admin.importDialog); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp); on('mKeep', () => keepPlansOnPhone(true));
-  on('mViewAs', () => { modal(`<h2>Test mode</h2><p>Try the app as another role on a <b>throwaway copy</b> of this project. Press every button you like: nothing is saved to the cloud, and leaving test mode throws the copy away.</p><div class="btnlist">${['admin', 'editor', 'contractor', 'viewer'].map(r => `<button data-va="${r}" class="${S.viewAs === r ? 'go' : ''}">${esc(ROLES[r] || r)}</button>`).join('')}${S.testMode ? '<button data-va="">Leave test mode</button>' : ''}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { closeModal(); b.dataset.va ? enterTestMode(b.dataset.va) : leaveTestMode(); }); }); on('mHelp', helpDialog); on('mAI', () => Admin.aiSettings()); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
+  on('mTry', Try.start); on('mFb', () => Try.feedback(false));
+  on('mFind', () => Search.open()); on('mDueV', () => FM.setModule('dash')); if ($('mSetup')) $('mSetup').onclick = () => openMenu('setup');
+  on('mPinQ', pinQueue); on('mTick', Tick.start); on('mSync', Sync.start);
+  on('mImp', Admin.importDialog); on('mAI', () => Admin.aiSettings()); on('mCheck', siteCheck); on('mInst', () => installDialog(false)); on('mReload', reloadApp); on('mKeep', () => keepPlansOnPhone(true));
+  on('mViewAs', () => { modal(`<h2>Test mode</h2><p>Try the app as another role on a <b>throwaway copy</b> of this project. Press every button you like: nothing is saved to the cloud, and leaving test mode throws the copy away.</p><div class="btnlist">${['admin', 'editor', 'inspector', 'contractor', 'client', 'viewer'].map(r => `<button data-va="${r}" class="${S.viewAs === r ? 'go' : ''}">${esc(ROLES[r] || r)}<small>${esc(ROLE_HELP[r] || '')}</small></button>`).join('')}${S.testMode ? '<button data-va="">Leave test mode</button>' : ''}</div><div class="act"><button id="vaX">Close</button></div>`); $('vaX').onclick = closeModal; $('mbox').querySelectorAll('[data-va]').forEach(b => b.onclick = () => { closeModal(); b.dataset.va ? enterTestMode(b.dataset.va) : leaveTestMode(); }); }); on('mHelp', helpDialog); on('mProj', showProjects); on('mOut', () => S.store.signOut()); $('mX').onclick = closeModal;
 }
 
 // Every tool in the app, for Search: what it is called, the words people might type for it, where it lives, and how to open it.
@@ -1262,20 +1278,22 @@ function toolList() {
   if (!S.project) return [];
   const a = can.admin(), e = can.edit(), w = can.write(), M = '☰ Menu', T = [];
   const t = (ok, icon, title, kw, where, run, sub) => { if (ok) T.push({ icon, title, kw, where, run, sub }); };
-  t(e, '＋', 'New defect', 'add raise create log record snag item pin photo dictate', ['＋ round button, bottom right'], newDefectChooser, 'Pin it, photograph it, describe it');
+  t(can.raise(), '＋', 'New defect', 'add raise create log record snag item pin photo dictate issue resident report', ['＋ round button, bottom right'], newDefectChooser, 'Pin it, photograph it, describe it');
   t(true, '⬇', 'Export: PDF schedule, Excel, photos', 'pdf excel xlsx csv zip print schedule report download send share list', ['Export button, top right'], openExport);
-  t(a, '🚀', 'Set-up checklist', 'setup set up getting started new project steps wizard onboarding', [M, '🚀 Set-up checklist'], () => Setup.checklist());
-  t(a, '⚙', 'Project settings', 'details name address client logo units lists trades rooms sources categories severity prefix pdf title consent', [M, '⚙ Project settings'], () => Admin.projectSettings(S.project));
-  t(a, '👥', 'Users and access', 'invite add remove person people team member role permission admin editor contractor viewer share email password login', [M, '👥 Users and access'], Admin.usersDialog);
-  t(a, '▦', 'Upload and order plans', 'drawings floor plan sheets pdf elevation wall ceiling upload add layers', [M, '▦ Plans'], Admin.plansDialog);
-  t(a, '⬠', 'Room boundaries', 'zones rooms units outline draw boundary markers areas', [M, '⬠ Room boundaries'], () => Admin.zoneEditor(PV));
-  t(a, '📦', 'Save set-up as a template', 'template copy next project reuse clone', [M, '📦 Save set-up as a template'], Setup.saveTemplate);
+  t(a, '🚀', 'Set-up checklist', 'setup set up getting started new project steps wizard onboarding', [M, '⚙ Project set-up', '🚀 Set-up checklist'], () => Setup.checklist());
+  t(a, '⚙', 'Project settings', 'details name address client logo units lists trades rooms sources categories severity prefix pdf title consent', [M, '⚙ Project set-up', '⚙ Project settings'], () => Admin.projectSettings(S.project));
+  t(a, '👥', 'Users and access', 'invite add remove person people team member role permission admin editor contractor viewer share email password login', [M, '⚙ Project set-up', '👥 Users and access'], Admin.usersDialog);
+  t(a, '▦', 'Upload and order plans', 'drawings floor plan sheets pdf elevation wall ceiling upload add layers', [M, '⚙ Project set-up', '▦ Plans'], Admin.plansDialog);
+  t(a, '⬠', 'Room boundaries', 'zones rooms units outline draw boundary markers areas', [M, '⚙ Project set-up', '⬠ Room boundaries'], () => Admin.zoneEditor(PV));
+  t(a, '📦', 'Save set-up as a template', 'template copy next project reuse clone', [M, '⚙ Project set-up', '📦 Save set-up as a template'], Setup.saveTemplate);
+  t(a, '✉', 'Email digests', 'email digest daily weekly monthly summary notification reminder maynard marks miles', [M, '⚙ Project set-up', '✉ Email digests'], async () => (await import('./digest.js')).digestDialog());
+  t(a, '📅', 'Due dates for defects', 'due date target date default working days deadline', [M, '⚙ Project set-up', '📅 Due dates'], dueDialog);
   t(e && unpinned().length, '📍', 'Items to pin (' + unpinned().length + ')', 'unpinned no pin missing location queue place', [M, '📍 Items to pin'], pinQueue);
   t(w, '📄', 'Scan a site tick sheet', 'paper printed handwriting tick ticked photograph sheet checklist scan', [M, '📄 Scan a site tick sheet'], Tick.start);
   t(w && Sync.available(), '🔄', "Update the contractor's spreadsheet", 'sync google sheet excel register two way link miles master list', [M, "🔄 Update the contractor's spreadsheet"], Sync.start);
   t(a && Sync.available(), '✉', 'Daily summary email', 'email summary daily notification recipients days weekend on off send test report', [M, "🔄 Update the contractor's spreadsheet", 'Daily summary email'], Sync.start);
   t(e, '⬆', 'Import a register', 'import excel csv json backup drop file maynard marks observation load', [M, '⬆ Import register'], Admin.importDialog);
-  t(e, '✨', 'Gemini settings', 'ai key helper voice dictation interpreter model google', [M, '✨ Gemini'], () => Admin.aiSettings());
+  t(e, '✨', 'AI settings', 'ai gemini claude key helper voice dictation interpreter model google', [M, ...(can.admin() ? ['⚙ Project set-up'] : []), '✨ AI'], () => Admin.aiSettings());
   t(canInstall(), '📲', 'Install the app', 'install phone home screen desktop app download', [M, '📲 Install'], () => installDialog(false));
   t(true, '🔄', 'Reload app', 'update latest version refresh not updating old', [M, '🔄 Reload app'], reloadApp, 'Now on v' + APP.version);
   t(true, '🗺', 'Save plans to this phone', 'offline plans slow reception floor ceiling framing elevation download cache save phone', [M, '🗺 Save plans to this phone'], () => keepPlansOnPhone(true));
@@ -1284,29 +1302,30 @@ function toolList() {
   t(true, '▾', 'Filters', 'filter narrow unit block level trade category subcontractor responsible', ['⚑ Defects', '☰ List', '▾ Filters button'], () => { setTab('list'); S.fOpen = true; filterChips(); });
   t(w, '☑', 'Select several items', 'bulk multiple many close assign change status all at once tick', ['⚑ Defects', '☰ List', '☑ Select'], () => { setTab('list'); if (!S.bulk) bulkToggle(); });
   t(true, '▦', 'Plans view', 'plan drawing map pins floor', ['▦ Plans tab'], () => setTab('plan'));
-  t(true, '◫', 'Dashboard', 'overview summary numbers progress chart key dates handover pack contacts', ['◫ Dashboard'], () => FM.setModule('dash'));
-  t(true, '▤', 'Assets and warranties', 'asset warranty warranties product guarantee register installer', ['▤ Assets & warranties'], () => FM.setModule('assets'));
-  t(true, '⟳', 'Maintenance', 'maintenance planned task schedule service due', ['⟳ Maintenance'], () => FM.setModule('maint'));
-  t(true, '✓', 'Compliance', 'compliance bwof code compliance certificate ccc consent', ['✓ Compliance'], () => FM.setModule('comp'));
-  t(true, '🗀', 'Documents', 'documents files o&m manual producer statement ps3 ps4 certificate handover', ['🗀 Documents'], () => FM.setModule('docs'));
+  t(mayUse('dash'), '◫', 'Dashboard', 'overview summary numbers progress chart key dates handover pack contacts', ['◫ Dashboard'], () => FM.setModule('dash'));
+  t(mayUse('dash'), '📅', "What's due", 'due overdue upcoming this month next soon calendar deadline bwof walk-through walkthrough defects period expiry expiring', ['◫ Dashboard', "What's due"], () => FM.setModule('dash'));
+  t(mayUse('assets'), '▤', 'Assets and warranties', 'asset warranty warranties product guarantee register installer', ['▤ Assets & warranties'], () => FM.setModule('assets'));
+  t(mayUse('maint'), '⟳', 'Maintenance', 'maintenance planned task schedule service due', ['⟳ Maintenance'], () => FM.setModule('maint'));
+  t(mayUse('comp'), '✓', 'Compliance', 'compliance bwof code compliance certificate ccc consent', ['✓ Compliance'], () => FM.setModule('comp'));
+  t(mayUse('docs'), '🗀', 'Documents', 'documents files o&m manual producer statement ps3 ps4 certificate handover', ['🗀 Documents'], () => FM.setModule('docs'));
   t(true, '🧪', '15-minute try-out', 'practice practise test mode training learn demo sandbox try', [M, '🧪 15-minute try-out'], Try.start);
   t(true, '💬', 'Send feedback', 'feedback suggestion complaint idea problem bug report comment', [M, '💬 Send feedback'], () => Try.feedback(false));
-  t(a, '📊', 'Feedback received', 'feedback results responses survey testers', [M, '📊 Feedback received'], Try.results);
+  t(a, '📊', 'Feedback received', 'feedback results responses survey testers', [M, '⚙ Project set-up', '📊 Feedback received'], Try.results);
   t(true, '🗂', 'All projects', 'switch change project other job list', ['‹ back arrow, top left'], showProjects);
   t(true, '⎋', 'Sign out', 'log out logout sign off account', [M, '⎋ Sign out'], () => S.store.signOut());
   return T;
 }
-function filterBy(o) { FM.setModule('defects'); Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false, overdue: false, back: false, fresh: false }, o); $('q').value = S.F.q || ''; filtersDirty = true; setTab('list'); render(); }
+function filterBy(o) { FM.setModule('defects'); Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', review: false, toReview: false, overdue: false, back: false, fresh: false, mine: false }, o); $('q').value = S.F.q || ''; filtersDirty = true; setTab('list'); render(); }
 
 /* ================================================================ wiring */
 function wire() {
   PV = new PlanView($('vp'), { onPlace, onPinTap: id => { const d = S.defects.find(x => x.id === id); if (d) { S.sel = id; render(); openEditor(d); } }, canDragPins: () => can.write() && !can.contractor() && !ED, pinDragLabel: (id, x, y) => { const fp = S.plans.find(q => q.id === S.curPlan); if (!fp) return ''; const hit = locate(fp.zones, x, y) || {}; return [id, hit.unit ? 'Unit ' + hit.unit : '', hit.room || '', !hit.unit && !hit.room ? [fp.block ? 'Block ' + fp.block : '', fp.level || ''].filter(Boolean).join(' ') || fp.name || '' : ''].filter(Boolean).join(' · '); }, onPinMoved: movePin });
   Admin.init({ PV, render, reloadProject, showProjects, openProject, showPlan, setTab, filtered, planViews, VIEW_TYPES, pickPoint, stopPlacing, remapElevationPins, pinPatch, pinQueue, unpinned, elevSpot, Sync });
-  FM.init({ render, getBytes }); const placeIt = (d, opt) => Placer.place(d, { pinPatch, elevSpot }, { rules: S.project.placeRules, ...(opt || {}) }); Tick.init({ render, reloadProject, pinPatch, placeIt }); Sync.init({ render, reloadProject, pinPatch, addSubs, placeIt });
+  FM.init({ render, getBytes, filterBy }); const placeIt = (d, opt) => Placer.place(d, { pinPatch, elevSpot }, { rules: S.project.placeRules, ...(opt || {}) }); Tick.init({ render, reloadProject, pinPatch, placeIt }); Sync.init({ render, reloadProject, pinPatch, addSubs, placeIt });
   [['q', 'q', 'input'], ['fBlock', 'block', 'change'], ['fLevel', 'level', 'change'], ['fUnit', 'unit', 'change'], ['fSev', 'sev', 'change'], ['fTrade', 'trade', 'change'], ['fResp', 'resp', 'change'], ['fSub', 'sub', 'change'], ['fBy', 'by', 'change'], ['sort', 'sort', 'change']].forEach(([id, k]) => { if (id[0] === 'f') multiPick($(id), k); });
   [['q', 'q', 'input'], ['sort', 'sort', 'change']].forEach(([id, k, ev]) => $(id).addEventListener(ev, e => { S.F[k] = e.target.value; render(); }));
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
-  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false, overdue: false, back: false, fresh: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
+  $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false, overdue: false, back: false, fresh: false, mine: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
   Search.init({ tools: toolList, expiry: w => FM.warrantyExpiry(w), units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
   Try.init({ enterTestMode, leaveTestMode, saveLocal, bar: viewAsBar });
@@ -1338,15 +1357,18 @@ function wire() {
 // Quick-pick a typical defect: fills title, description, action, trade, type, severity and element; keeps location and photos.
 // One-tap workflow: the responsible party marks it ready; the raiser (or an admin/editor) accepts or sends it back.
 function workflowBar(w, con) {
-  const mine = w.createdBy === S.user.email, reviewer = !con && (mine || can.edit());
+  // the client's team comments on other people's items; an inspector reviews them (accept, reopen, decide a dispute)
+  if (con && can.client()) return `<div class="wf"><button id="wfCmt" class="cmt">💬 Comment</button></div>`;
+  const insp = con && can.inspector(); if (insp) con = false;
+  const mine = w.createdBy === S.user.email, reviewer = !con && (mine || can.edit() || can.inspector());
   const b = [], cm = `<button id="wfCmt" class="cmt">💬 ${con ? 'Respond' : 'Comment'}</button>`, wrap = x => '<div class="wf">' + x.join('') + cm + '</div>';
   if (con && selfClose(w)) { if (w.status !== 'Closed') b.push('<button class="go" id="wfSelf">✔ Complete and close</button>'); if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>'); return wrap(b); }
   // a disputed item goes to the reviewer: agree and close, or send it back with the reason
   if (w.status === 'Disputed' && reviewer) return wrap(['<button class="go" id="wfDAgree">✔ Agree and close</button><button class="warn" id="wfReopen">↩ Not agreed: send back</button>']);
   if (w.status === 'Disputed' && con) return '<p class="note">Disputed: waiting for the project team to decide.</p>' + wrap([]);
-  if (w.status !== 'Closed' && w.status !== 'Ready for review') b.push('<button class="go" id="wfReady">✅ Ready for inspection</button>');
+  if (w.status !== 'Closed' && w.status !== 'Ready for review' && !insp) b.push('<button class="go" id="wfReady">✅ Ready for inspection</button>');
   if (con && ['Open', 'In progress'].includes(w.status)) b.push('<button class="warn" id="wfDisp" title="Not a defect, not in the contract, or damage by others: say why">⚑ Dispute</button>');
-  if (w.status === 'Open') b.push('<button id="wfProg">🔧 In progress</button>');
+  if (w.status === 'Open' && !insp) b.push('<button id="wfProg">🔧 In progress</button>');
   if (w.status !== 'Closed' && w.status !== 'Ready for review' && reviewer) b.push('<button id="wfAccept">✔ Close now</button>');   // the reviewer can close without waiting for it to be marked ready
   if (w.status === 'Ready for review' && reviewer) b.push('<button class="go" id="wfAccept">✔ Accept and close</button><button class="warn" id="wfReopen">↩ Reopen and send back</button>');
   if (w.status === 'Ready for review' && !reviewer) return '<p class="note">Marked ready for inspection; waiting for ' + esc(w.createdBy || 'the project team') + ' to review.</p>' + wrap([]);

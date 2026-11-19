@@ -10,7 +10,7 @@ const P = 'p1';
 const seed = async () => env.withSecurityRulesDisabled(async ctx => {
   const db = ctx.firestore();
   await setDoc(doc(db, 'system/admins'), { uids: ['super'] });
-  await setDoc(doc(db, 'projects', P), { name: 'T', memberUids: ['adm', 'ed', 'con', 'mm', 'cli', 'vm', 'lim'], members: { adm: 'admin', ed: 'editor', con: 'contractor', mm: 'editor', cli: 'viewer', vm: 'editor', lim: 'editor' },
+  await setDoc(doc(db, 'projects', P), { name: 'T', memberUids: ['adm', 'ed', 'con', 'mm', 'cli', 'vm', 'lim', 'fm', 'ins'], members: { adm: 'admin', ed: 'editor', con: 'contractor', mm: 'editor', cli: 'viewer', vm: 'editor', lim: 'editor', fm: 'client', ins: 'inspector' },
     access: { orgs: { 'mm.co.nz': { sections: ['dash', 'defects'], sources: ['MM'] } }, people: { 'vm@client.co.nz': { sections: ['defects', 'guide'], sources: ['Residents'] }, 'lim@resero.co.nz': { sections: ['defects'] } } },
     restrictedTo: ['client.co.nz'], selfCloseSources: ['Miles list'], seq: 3 });
   await setDoc(doc(db, `projects/${P}/defects/D-1`), { source: 'PC', status: 'Open', history: [{ t: '1', who: 'a', txt: 'Raised' }], createdBy: 'adm@resero.co.nz', updatedBy: 'adm@resero.co.nz' });
@@ -21,6 +21,8 @@ const seed = async () => env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, `projects/${P}/private/ai`), { helperKey: 'k' });
   await setDoc(doc(db, `projects/${P}/private/admin`), { adminKey: 'a' });
   await setDoc(doc(db, `projects/${P}/assets/a1`), { element: 'Roof' });
+  await setDoc(doc(db, `projects/${P}/systems/s1`), { name: 'Fire alarm', cert12A: {} });
+  await setDoc(doc(db, `projects/${P}/defects/MM-2`), { source: 'MM', status: 'Ready for review', desc: 'Lintel', history: [] });
   await setDoc(doc(db, `projects/${P}/log/l1`), { email: 'x' });
   await setDoc(doc(db, 'library/typicals'), { items: [{ t: 'A' }, { t: 'B' }] });
   const st = ctx.storage();
@@ -29,7 +31,7 @@ const seed = async () => env.withSecurityRulesDisabled(async ctx => {
 });
 await seed();
 const who = (uid, email) => env.authenticatedContext(uid, { email, email_verified: true });
-const U = { adm: who('adm', 'adm@resero.co.nz'), ed: who('ed', 'ed@resero.co.nz'), con: who('con', 'con@gmail.com'), mm: who('mm', 'insp@mm.co.nz'), cli: who('cli', 'pl@client.co.nz'), vm: who('vm', 'vm@client.co.nz'), lim: who('lim', 'lim@resero.co.nz'), sup: who('super', 's@resero.co.nz'), rnd: who('rnd', 'x@random.com') };
+const U = { fm: who('fm', 'fm@client.co.nz'), ins: who('ins', 'ins@mm.co.nz'), adm: who('adm', 'adm@resero.co.nz'), ed: who('ed', 'ed@resero.co.nz'), con: who('con', 'con@gmail.com'), mm: who('mm', 'insp@mm.co.nz'), cli: who('cli', 'pl@client.co.nz'), vm: who('vm', 'vm@client.co.nz'), lim: who('lim', 'lim@resero.co.nz'), sup: who('super', 's@resero.co.nz'), rnd: who('rnd', 'x@random.com') };
 const db = u => U[u].firestore(), st = u => U[u].storage(), D = (u, p) => doc(db(u), p);
 let pass = 0, fail = 0;
 const t = async (name, fn) => { try { await fn(); pass++; console.log('ok    ' + name); } catch (e) { fail++; console.log('FAIL  ' + name + ' :: ' + String(e && e.message || e).split('\n')[0]); } };
@@ -83,6 +85,25 @@ await t('a full editor changes an element', () => ok(updateDoc(D('ed', pp('asset
 // maintenance tasks
 await t('contractor marks maintenance done', () => ok(updateDoc(D('con', pp('tasks/t1')), { lastDone: '2026-11-20', nextDue: '2027-11-20', history: arrayUnion({ t: '2', who: 'c', notes: 'done' }) })));
 await t('contractor cannot wipe a task history', () => no(updateDoc(D('con', pp('tasks/t1')), { history: [] })));
+// client role: report, follow up, mark maintenance done, record Form 12A
+await t('client raises an issue in its own name', () => ok(setDoc(D('fm', pp('defects/R-9')), { source: 'Residents', status: 'Open', history: [], createdBy: 'fm@client.co.nz' })));
+await t('client cannot raise an issue in someone else\'s name', () => no(setDoc(D('fm', pp('defects/R-8')), { source: 'Residents', status: 'Open', history: [], createdBy: 'adm@resero.co.nz' })));
+await t('client closes its own issue', () => ok(updateDoc(D('fm', pp('defects/R-9')), { status: 'Closed', history: arrayUnion({ t: '2', who: 'f', txt: 'Accepted and closed.' }), updatedBy: 'fm@client.co.nz' })));
+await t('client comments on another item', () => ok(updateDoc(D('fm', pp('defects/D-1')), { history: arrayUnion({ t: '9', who: 'f', txt: 'Resident says it is still leaking' }), updatedBy: 'fm@client.co.nz' })));
+await t('client cannot change the status of another item', () => no(updateDoc(D('fm', pp('defects/D-1')), { status: 'Closed' })));
+await t('client marks maintenance done', () => ok(updateDoc(D('fm', pp('tasks/t1')), { lastDone: '2026-12-01', nextDue: '2027-12-01', history: arrayUnion({ t: '3', who: 'f', notes: 'serviced' }) })));
+await t('client records a Form 12A', () => ok(updateDoc(D('fm', pp('systems/s1')), { cert12A: { 2027: { date: '2027-11-01' } } })));
+await t('client cannot rename a system', () => no(updateDoc(D('fm', pp('systems/s1')), { name: 'x' })));
+await t('client uploads a service report record', () => ok(setDoc(D('fm', pp('docs/rep1')), { title: 'Lift service report' })));
+await t('client cannot change an element', () => no(updateDoc(D('fm', pp('assets/a1')), { element: 'x' })));
+await t('client reads the AI helper settings', () => ok(getDoc(D('fm', pp('private/ai')))));
+await t('client cannot read the admin key', () => no(getDoc(D('fm', pp('private/admin')))));
+await t('client cannot delete an issue', () => no(deleteDoc(D('fm', pp('defects/R-9')))));
+// inspector role: raise, comment, accept, reopen within its registers
+await t('inspector accepts an item in its register', () => ok(updateDoc(D('ins', pp('defects/MM-2')), { status: 'Closed', history: arrayUnion({ t: '2', who: 'i', txt: 'Accepted and closed.' }), updatedBy: 'ins@mm.co.nz' })));
+await t('inspector cannot rewrite the description of an item it did not raise', () => no(updateDoc(D('ins', pp('defects/MM-2')), { desc: 'changed' })));
+await t('inspector cannot touch another register', () => no(updateDoc(D('ins', pp('defects/D-1')), { status: 'Closed' })));
+await t('inspector raises an item in its register', () => ok(setDoc(D('ins', pp('defects/MM-3')), { source: 'MM', status: 'Open', history: [], createdBy: 'ins@mm.co.nz' })));
 // helper keys
 await t('contractor reads the AI helper settings', () => ok(getDoc(D('con', pp('private/ai')))));
 await t('contractor cannot read the admin key', () => no(getDoc(D('con', pp('private/admin')))));
@@ -94,6 +115,10 @@ await t('contractor cannot open a restricted file', () => no(getBytes(ref(st('co
 await t('client domain opens a restricted file', () => ok(getBytes(ref(st('cli'), pp('restricted/r1/bond.pdf')))));
 await t('contractor opens an ordinary document file', () => ok(getBytes(ref(st('con'), pp('docs/doc1/deed.pdf')))));
 await t('a stranger cannot open a document file', () => no(getBytes(ref(st('rnd'), pp('docs/doc1/deed.pdf')))));
+await t('client uploads a defect photo', () => ok(uploadBytes(ref(st('fm'), pp('photos/R-9/p1.jpg')), new Uint8Array([1]), { contentType: 'image/jpeg' })));
+await t('client uploads a service report', () => ok(uploadBytes(ref(st('fm'), pp('docs/rep1/report.pdf')), new Uint8Array([1]), { contentType: 'application/pdf' })));
+await t('contractor cannot replace a plan image', () => no(uploadBytes(ref(st('con'), pp('plans/pl1.jpg')), new Uint8Array([1]), { contentType: 'image/jpeg' })));
+await t('admin uploads a plan image', () => ok(uploadBytes(ref(st('adm'), pp('plans/pl1.jpg')), new Uint8Array([1]), { contentType: 'image/jpeg' })));
 await t('editor cannot upload into the restricted folder', () => no(uploadBytes(ref(st('ed'), pp('restricted/r9/x.pdf')), new Uint8Array([1]))));
 
 await env.cleanup();
