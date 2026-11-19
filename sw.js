@@ -1,5 +1,5 @@
 // Resero Defects - offline support. The app shell and libraries are cached; data is cached by Firestore itself.
-const VERSION = 'resero-defects-2.78.0';
+const VERSION = 'resero-defects-2.78.1';
 const SHELL = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'img/resero-navy.png', 'img/resero-white.png',
   'js/app.js', 'js/admin.js', 'js/faces.js', 'js/autofit.js', 'js/ticksheet.js', 'js/sheetsync.js', 'js/placer.js', 'js/search.js', 'js/setup.js', 'js/tryit.js', 'js/fm.js', 'js/docai.js', 'js/actions.js', 'js/docview.js', 'js/guide.js', 'js/skills.js', 'js/clausefind.js', 'js/pack.js', 'js/dnd.js', 'js/help.js', 'js/nav.js', 'js/install.js', 'js/typicals.js', 'js/ai.js', 'js/config.js', 'js/exports.js', 'js/photos.js', 'js/planview.js', 'js/state.js', 'js/store.js', 'js/util.js',
   'lib/firebase/firebase-app.js', 'lib/firebase/firebase-auth.js', 'lib/firebase/firebase-firestore.js', 'lib/firebase/firebase-storage.js',
@@ -9,7 +9,7 @@ self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(k => Pro
 self.addEventListener('fetch', e => {
   const r = e.request; if (r.method !== 'GET') return; const u = new URL(r.url);
   // plan images and photos from Firebase Storage: cache first, so plans work with no signal once viewed
-  if (/firebasestorage\.googleapis\.com$/.test(u.hostname)) { e.respondWith(caches.open('resero-defects-img').then(c => c.match(r).then(m => m || fetch(r).then(res => { if (res.ok || res.type === 'opaque') c.put(r, res.clone()).catch(() => {}); return res; })))); return; }
+  if (/firebasestorage\.googleapis\.com$/.test(u.hostname)) { e.respondWith(caches.open('resero-defects-img').then(c => c.match(r).then(m => (m && !(m.type === 'opaque' && r.mode === 'cors')) ? m : fetch(r).then(res => { if (res.ok || (res.type === 'opaque' && !m)) c.put(r, res.clone()).catch(() => {}); return res; }).catch(err => { if (m && r.mode !== 'cors') return m; throw err; })))); return; }
   if (u.origin !== location.origin) return;
   // app files: network first so updates arrive, cache when offline
   // app files: always fetched fresh from the server (a changing query string gets past the browser cache and the hosting CDN, which

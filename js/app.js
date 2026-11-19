@@ -1073,7 +1073,7 @@ async function sendItem() {
 }
 
 /* ================================================================ export */
-export function getBytes(u) { return (async () => { const src = u.startsWith('data:') ? u : await imgUrl(u); const r = await fetch(src); if (!r.ok) throw new Error('fetch ' + r.status); return await r.arrayBuffer(); })(); }
+export function getBytes(u) { return (async () => { const src = u.startsWith('data:') ? u : await imgUrl(u); let r = await fetch(src, { mode: 'cors' }); if (!r.ok) r = await fetch(src + (src.includes('?') ? '&' : '?') + 'pdf=' + Date.now(), { mode: 'cors', cache: 'no-store' }); if (!r.ok) throw new Error('fetch ' + r.status); return await r.arrayBuffer(); })(); }
 function openExport() {
   const L = filtered(), p = S.project;
   modal(`<h2>Export</h2>
