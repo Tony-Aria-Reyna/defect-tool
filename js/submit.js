@@ -397,10 +397,18 @@ export function matchLibrary() {
 async function renderInto(el, d, token) {
   if (!d.size) { el.innerHTML = `<div class="cmpempty"><b>No file is stored for this entry.</b><p>It was added on ${esc(nzDate(String(d.created || '').slice(0, 10)))} while the file was online-only in OneDrive, so only the name came through. It holds nothing to compare.</p><p>${can.admin() ? 'Delete this empty entry with the Delete button above. Your file in OneDrive is not touched.' : 'Ask an admin to delete this empty entry.'}</p></div>`; return; }
   el.innerHTML = '<p class="muted small">Loading…</p>';
+  const words = []; el._words = null;
   try { const pdf = await DV.loadPdf(d); if (el.dataset.tok !== token) return; el.innerHTML = `<p class="muted small">${pdf.numPages} page${pdf.numPages === 1 ? '' : 's'}</p>`;
     for (let p = 1; p <= Math.min(pdf.numPages, 12); p++) { const pg = await pdf.getPage(p), base = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(2, 900 / base.width) }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; c.className = 'cmpg';
       await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; if (el.dataset.tok !== token) return; const blank = isBlank(c);
-      el.insertAdjacentHTML('beforeend', `<div class="cmppg">Page ${p} of ${pdf.numPages}${blank ? ' <b class="cmpbl">blank page</b>' : ''}${can.edit() && pdf.numPages > 1 ? ` <button class="mini" data-rmpg="${p}">🗑 Remove this page</button>` : ''}</div>`); el.appendChild(c); }
+      el.insertAdjacentHTML('beforeend', `<div class="cmppg">Page ${p} of ${pdf.numPages}${blank ? ' <b class="cmpbl">blank page</b>' : ''}${can.edit() && pdf.numPages > 1 ? ` <button class="mini" data-rmpg="${p}">🗑 Remove this page</button>` : ''}</div>`);
+      const wrap = document.createElement('div'), ov = document.createElement('canvas'); wrap.className = 'cmpgw'; ov.className = 'cmpo'; ov.width = c.width; ov.height = c.height; wrap.append(c, ov); el.appendChild(wrap);
+      try { const tc = await pg.getTextContent(), U = (await DV.pdfLib()).Util;
+        tc.items.forEach(it => { const str = it.str || ''; if (!str.trim()) return; const t = U.transform(vp.transform, it.transform), fh = Math.hypot(t[2], t[3]) || 10, wd = (it.width || 0) * vp.scale, n = str.length || 1;
+          const full = MEAS.measureText(str).width || n;   // place each word by the measured width of the text before it, not by letter count
+          str.replace(/\S+/g, (w, i) => { const x0 = MEAS.measureText(str.slice(0, i)).width / full, x1 = MEAS.measureText(str.slice(0, i + w.length)).width / full; words.push({ w, k: norm(w), ov, x: t[4] + wd * x0, y: t[5] - fh, wd: wd * (x1 - x0), h: fh * 1.2 }); return w; }); });
+      } catch (e) {} }
+    el._words = words.filter(x => x.k);
     el.querySelectorAll('[data-rmpg]').forEach(b => b.onclick = () => removePage(d, +b.dataset.rmpg, pdf.numPages, el));
     if (pdf.numPages > 12) el.insertAdjacentHTML('beforeend', '<p class="muted small">First 12 pages shown. Open it to see the rest.</p>'); pdf.destroy();
   } catch (e) { const gone = /40[34]|not.?found|unauthori/i.test(e.message || '');
@@ -408,7 +416,7 @@ async function renderInto(el, d, token) {
     const inp = el.querySelector('input[type=file]'); if (inp) inp.onchange = async () => { const f = inp.files[0]; if (!f || !f.size) return toast('That file reads as empty'); const b = busy('Uploading ' + f.name + '…');
       try { const path = `projects/${S.project.id}/docs/${d.id}/${safeName(f.name)}`, url = await S.store.putFile(path, f); await S.store.patchItem(S.project.id, 'docs', d.id, { url, path, size: f.size, fileName: f.name, mime: f.type || 'application/pdf' }); Object.assign(d, { url, path, size: f.size, fileName: f.name }); b.done(); toast('File restored'); el.dataset.tok = Math.random().toString(36); renderInto(el, d, el.dataset.tok); } catch (x) { b.done(); toast('Could not upload: ' + x.message, 7000); } }; }
 }
-let CMP_LOCK = true;
+let CMP_LOCK = true, CMP_DIFF = true;
 // A page is blank when almost every pixel is close to white (scanners leave specks, so a little ink is allowed)
 function isBlank(c) { try { const w = 400, h = Math.round(c.height / c.width * w) || 1, t = document.createElement('canvas'); t.width = w; t.height = h; const x = t.getContext('2d'); x.drawImage(c, 0, 0, w, h);
   const px = x.getImageData(0, 0, w, h).data; let ink = 0; for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 600) ink++; return ink < 25; } catch (e) { return false; } }
@@ -425,8 +433,20 @@ async function removePage(d, n, total, el) {
     const marks = (d.marks || []).filter(m => m.page !== n).map(m => m.page > n ? { ...m, page: m.page - 1 } : m);
     const patch = { url, path, size: blob.size, prevFiles: prev, marks, textIdx: null };
     await S.store.patchItem(S.project.id, 'docs', d.id, patch); Object.assign(d, patch); b.done(); toast(`Page ${n} removed. The earlier file is kept with this entry.`, 5000);
-    el.dataset.tok = Math.random().toString(36); renderInto(el, d, el.dataset.tok);
+    el.dataset.tok = Math.random().toString(36); await renderInto(el, d, el.dataset.tok); if ($('cmDiff')) $('cmDiff').dispatchEvent(new Event('change'));
   } catch (e) { b.done(); toast('Could not remove the page: ' + e.message, 8000); }
+}
+// Differences: a word counts as shared when it appears in the other document with the same word before or after it,
+// so a changed date, name, figure or clause stands out while text that has only moved is left alone.
+const MEAS = (() => { const g = document.createElement('canvas').getContext('2d'); g.font = '20px Helvetica, Arial, sans-serif'; return g; })();
+const norm = w => String(w).toLowerCase().replace(/[^a-z0-9$%.\/-]/g, '').replace(/^[.\/-]+|[.\/-]+$/g, '');
+function markDiffs(A, B, on) {
+  const pairs = W => { const s = new Set(); for (let i = 0; i < W.length - 1; i++) s.add(W[i].k + ' ' + W[i + 1].k); return s; };
+  const pa = pairs(A), pb = pairs(B), only = (W, other) => W.filter((x, i) => !((i > 0 && other.has(W[i - 1].k + ' ' + x.k)) || (i < W.length - 1 && other.has(x.k + ' ' + W[i + 1].k))));
+  const dA = only(A, pb), dB = only(B, pa);
+  [...A, ...B].forEach(x => { if (!x.ov._clr) { x.ov.getContext('2d').clearRect(0, 0, x.ov.width, x.ov.height); x.ov._clr = 1; } }); [...A, ...B].forEach(x => delete x.ov._clr);
+  if (on) [[dA, 'rgba(255,196,0,.42)'], [dB, 'rgba(0,170,255,.32)']].forEach(([L, col]) => L.forEach(x => { const g = x.ov.getContext('2d'); g.fillStyle = col; g.fillRect(x.x - 1, x.y, x.wd + 2, x.h); }));
+  return { dA, dB };
 }
 function compare(G, a, k) {
   clearPeeks();
@@ -435,8 +455,19 @@ function compare(G, a, k) {
   const side = (i, w) => { const d = G[i]; return `<div class="cmps"><div class="cmph"><select data-side="${w}">${G.map((x, j) => `<option value="${j}" ${j === i ? 'selected' : ''}>${esc(nzDate(dateIn(x)) || '')} · ${esc(x.title)}</option>`).join('')}</select>
     <div class="small muted">${esc(d.fileName || '')} · ${d.size ? (d.size / 1e6).toFixed(1) + ' MB' : '<b style="color:#a32222">empty: no file stored</b>'} · added ${esc(nzDate(String(d.created || '').slice(0, 10)))}${d.createdBy ? ' by ' + esc(d.createdBy) : ''}</div>
     <div class="cmpa">${d.size ? `<button class="btn2 go sm" data-use="${w}">✔ Link this one</button>` : ''}<button class="btn2 sm" data-sup="${w}">Move to Superseded</button>${adm ? `<button class="btn2 sm warn" data-del="${w}">🗑 Delete</button>` : ''}<button class="btn2 sm" data-open="${w}">Open</button>${G.length > 2 ? `<button class="btn2 sm" data-out="${w}" title="This one is a different document: take it out of this group">≠ Not this one</button>` : ''}</div></div><div class="cmpb" id="cmp${w}"></div></div>`; };
-  const draw = () => { modal(`<h2>⧉ Compare similar documents (${G.length})</h2><p class="note">Scroll each side to compare <label class="cmplk"><input type="checkbox" id="cmLock" ${CMP_LOCK ? 'checked' : ''}> scroll together, page by page</label>. Pick which to link, move older versions to Superseded (kept, but out of the way), or delete a file that should not be here.</p><div class="cmpw">${side(L, 'L')}${side(R, 'R')}</div><div class="act"><button id="cmApart" title="They were grouped because they matched the same element or have similar names">≠ These are different documents</button><button id="cmX">‹ Back to the list</button></div>`, true);
-    $('mbox').classList.add('xwide'); ['L', 'R'].forEach(w => { const el = $('cmp' + w); el.dataset.tok = Math.random().toString(36); renderInto(el, G[w === 'L' ? L : R], el.dataset.tok); });
+  const draw = () => { modal(`<h2>⧉ Compare similar documents (${G.length})</h2><p class="note">Scroll each side to compare <label class="cmplk"><input type="checkbox" id="cmLock" ${CMP_LOCK ? 'checked' : ''}> scroll together, page by page</label> <label class="cmplk"><input type="checkbox" id="cmDiff" ${CMP_DIFF ? 'checked' : ''}> highlight differences</label> <span id="cmDN" class="small"></span> <button class="mini" id="cmNext" hidden>Next difference ▾</button>. Pick which to link, move older versions to Superseded (kept, but out of the way), or delete a file that should not be here.</p><div class="cmpw">${side(L, 'L')}${side(R, 'R')}</div><div class="act"><button id="cmApart" title="They were grouped because they matched the same element or have similar names">≠ These are different documents</button><button id="cmX">‹ Back to the list</button></div>`, true);
+    $('mbox').classList.add('xwide'); const loads = ['L', 'R'].map(w => { const el = $('cmp' + w); el.dataset.tok = Math.random().toString(36); return renderInto(el, G[w === 'L' ? L : R], el.dataset.tok); });
+    let spots = [], at = -1;
+    const diffs = () => { const A = $('cmpL') && $('cmpL')._words, B = $('cmpR') && $('cmpR')._words; if (!A || !B) return;
+      if (!A.length || !B.length) { $('cmDN').textContent = `(${!A.length && !B.length ? 'both are scans' : (!A.length ? 'the left one' : 'the right one') + ' is a scan'} with no readable text, so differences cannot be shown)`; return; }
+      const r = markDiffs(A, B, CMP_DIFF); spots = r.dA.length ? r.dA : []; at = -1;
+      $('cmDN').innerHTML = CMP_DIFF ? (r.dA.length || r.dB.length ? `<span class="cmpk l"></span>${r.dA.length} word${r.dA.length === 1 ? "" : "s"} only on the left · <span class="cmpk r"></span>${r.dB.length} only on the right` : 'No differences in the text') : ''; $('cmNext').hidden = !CMP_DIFF || !spots.length; };
+    Promise.all(loads).then(diffs);
+    $('cmDiff').onchange = e => { CMP_DIFF = e.target.checked; diffs(); };
+    $('cmNext').onclick = () => { if (!spots.length) return; const el = $('cmpL'); let k = at, y0 = el.scrollTop + 40;
+      // jump to the next highlighted word lower down the left side (wrapping to the top)
+      const yOf = x => x.ov.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop + x.y * (x.ov.offsetHeight / x.ov.height);
+      const nxt = spots.findIndex(x => yOf(x) > y0); at = nxt < 0 ? 0 : nxt; el.scrollTop = Math.max(0, yOf(spots[at]) - 60); el.dispatchEvent(new Event('scroll')); };
     // Scroll together by page, not by overall length: the same page number, the same distance down it, so two
     // documents with different page counts or page sizes stay lined up. Untick to scroll each side on its own.
     const both = [$('cmpL'), $('cmpR')]; let lock = false; $('cmLock').onchange = e => { CMP_LOCK = e.target.checked; };
