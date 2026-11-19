@@ -376,7 +376,10 @@ async function renderInto(el, d, token) {
     for (let p = 1; p <= Math.min(pdf.numPages, 12); p++) { const pg = await pdf.getPage(p), base = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(2, 900 / base.width) }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; c.className = 'cmpg';
       await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; if (el.dataset.tok !== token) return; el.appendChild(c); }
     if (pdf.numPages > 12) el.insertAdjacentHTML('beforeend', '<p class="muted small">First 12 pages shown. Open it to see the rest.</p>'); pdf.destroy();
-  } catch (e) { el.innerHTML = `<p class="note">Could not show this document: ${esc(e.message)}</p>`; }
+  } catch (e) { const gone = /40[34]|not.?found|unauthori/i.test(e.message || '');
+    el.innerHTML = gone ? `<div class="cmpempty"><b>The file for this entry is missing from storage.</b><p>The library entry is here but its file could not be fetched (${esc(e.message)}). Choose the same file again from your folders to restore it; the entry, its links and history are kept.</p>${can.edit() ? '<p><label class="btn2 sm">⬆ Choose the file again<input type="file" accept=".pdf,application/pdf" hidden></label></p>' : ''}</div>` : `<p class="note">Could not show this document: ${esc(e.message)}</p>`;
+    const inp = el.querySelector('input[type=file]'); if (inp) inp.onchange = async () => { const f = inp.files[0]; if (!f || !f.size) return toast('That file reads as empty'); const b = busy('Uploading ' + f.name + '…');
+      try { const path = `projects/${S.project.id}/docs/${d.id}/${safeName(f.name)}`, url = await S.store.putFile(path, f); await S.store.patchItem(S.project.id, 'docs', d.id, { url, path, size: f.size, fileName: f.name, mime: f.type || 'application/pdf' }); Object.assign(d, { url, path, size: f.size, fileName: f.name }); b.done(); toast('File restored'); el.dataset.tok = Math.random().toString(36); renderInto(el, d, el.dataset.tok); } catch (x) { b.done(); toast('Could not upload: ' + x.message, 7000); } }; }
 }
 function compare(G, a, k) {
   G = G.map(d => fm().docs.find(x => x.id === d.id)).filter(Boolean); if (G.length < 2) return matchLibrary();
