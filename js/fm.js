@@ -387,7 +387,7 @@ function docs() {
   if (q) L = L.map(d => ({ d, k: rank(d) - (hitMarks(d).length ? 0.5 : 0) })).sort((a, b) => a.k - b.k || natural(a.d.title, b.d.title)).map(x => x.d);
   const nChk = Dd.filter(AI.needsCheck).length, nProb = Dd.filter(d => (d.aiProblems || []).length).length;
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button>${can.edit() ? '<button class="btn2" id="dAi">✨ Read with AI</button>' : ''}</div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dDup" title="Find documents that are in the library more than once and remove the extra copies">🧹 Remove duplicates</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button>${can.edit() ? '<button class="btn2" id="dAi">✨ Read with AI</button>' : ''}</div>
   <div class="atab"><button id="dChk0" class="${F.chk ? '' : 'on'}">All documents</button><button id="dChk1" class="${F.chk ? 'on' : ''}">To check (${nChk})${nProb ? ' · ' + nProb + ' with problems' : ''}</button></div>
   <p class="muted small">${L.length} of ${Dd.length} documents${q ? ' · most important first; matching boxes are listed under each document' : ''}</p>
   ${L.length ? `<table class="ftable"><tr><th>Document</th><th>Type</th><th class="hm">From</th><th class="hm">Expiry</th><th class="hm">Linked to</th><th></th></tr>
@@ -397,6 +397,7 @@ function docs() {
   $('dS').onchange = e => { F.sys = e.target.value; docs(); }; $('dT').onchange = e => { F.type = e.target.value; docs(); };
   if ($('dUp')) $('dUp').onclick = () => pickDocs({ system: F.sys });
   if ($('dFold')) $('dFold').onclick = () => $('fFolder').click();
+  if ($('dDup')) $('dDup').onclick = removeDuplicates;
   if ($('dLink')) $('dLink').onclick = () => editDoc(null);
   $('dFind').onclick = () => DV.findClause({});
   $('dChk0').onclick = () => { F.chk = false; docs(); }; $('dChk1').onclick = () => { F.chk = true; docs(); };
@@ -551,6 +552,25 @@ export async function uploadFolder(files) {
     for (const x of todo) { if (x.f.size > 150e6) continue; const c = classify(x.path); c.srcPath = x.path; await uploadFiles([x.f], { classified: c, replaceId: broken[x.path] && broken[x.path].id, keep: broken[x.path], onProgress: () => b.set(`Uploading ${++n} of ${todo.length}: ${x.f.name}`) }); }
     b.done(); toast(`Uploaded ${n} documents` + (emptyNow ? `. ${emptyNow} were skipped because they are not downloaded to this computer (OneDrive online-only): right-click the folder, choose "Always keep on this device", wait for the green ticks, then upload again.` : ''), emptyNow ? 15000 : 4000); setTimeout(autoLink, 1500);
   } catch (e) { b.done(); toast(`Stopped after ${n} documents: ${e.message}. Run it again to carry on; finished files are skipped.`, 8000); }
+}
+// The same file in the library more than once (same name and size, usually after folders were renamed and uploaded again).
+// The copy that has had work done on it is kept: boxes, AI reading, links to assets. Links are carried over to the kept copy.
+async function removeDuplicates() {
+  const g = {}; fm().docs.filter(d => d.size && d.fileName && !d.link && !d.submitted).forEach(d => (g[d.fileName.toLowerCase() + '|' + d.size] = g[d.fileName.toLowerCase() + '|' + d.size] || []).push(d));
+  const score = d => (d.marks || []).length * 100 + (d.aiRead ? 50 : 0) + (d.assetIds || []).length * 10 + (d.taskId ? 5 : 0), sets = Object.values(g).filter(L => L.length > 1).map(L => L.slice().sort((a, b) => score(b) - score(a) || String(b.created || '').localeCompare(String(a.created || ''))));
+  if (!sets.length) return toast('No duplicates found: every document is in the library once.');
+  const n = sets.reduce((a, L) => a + L.length - 1, 0), mb = sets.reduce((a, L) => a + L.slice(1).reduce((x, d) => x + d.size, 0), 0) / 1e6;
+  modal(`<h2>🧹 Remove duplicates</h2><p>${sets.length} document${sets.length === 1 ? ' is' : 's are'} in the library more than once. Removing the ${n} extra cop${n === 1 ? 'y' : 'ies'} frees ${mb.toFixed(0)} MB.</p>
+  <p class="note">A duplicate is the same file name and the same size. The copy with boxes, AI reading or asset links is kept (otherwise the newest), and any asset links on the removed copies are moved to it. Warranty submissions are never touched.</p>
+  <div style="max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px">${sets.map(L => `<div class="small" style="padding:3px 0"><b>${esc(L[0].fileName)}</b> <span class="muted">× ${L.length} · keeping the copy in ${esc((L[0].srcPath || L[0].system || 'the library').split('/').slice(-3, -1).join(' / ') || L[0].system || 'the library')}</span></div>`).join('')}</div>
+  <div class="act"><button id="ddX">Cancel</button><button class="go" id="ddGo">Remove ${n} cop${n === 1 ? 'y' : 'ies'}</button></div>`, true);
+  $('ddX').onclick = closeModal;
+  $('ddGo').onclick = async () => { closeModal(); const b = busy('Removing duplicates…'), pid = S.project.id; let k = 0;
+    try { for (const L of sets) { const keep = L[0], ids = [...new Set(L.flatMap(d => d.assetIds || []))];
+        if (ids.length > (keep.assetIds || []).length) await S.store.patchItem(pid, 'docs', keep.id, { assetIds: ids });
+        for (const d of L.slice(1)) { b.set(`Removing ${++k} of ${n}…`); await S.store.deleteItem(pid, 'docs', d.id); if (d.path && d.path !== keep.path) { try { await S.store.deleteFile(d.path); } catch (e) { console.warn('file', e); } } } }
+      b.done(); toast(`${k} duplicate${k === 1 ? '' : 's'} removed, ${mb.toFixed(0)} MB freed`, 6000); }
+    catch (e) { b.done(); toast(`Stopped after ${k}: ${e.message}. Run it again to carry on.`, 8000); } };
 }
 // Link warranty and O&M documents to assets when the company and system match (best guess; check in Documents).
 async function autoLink() {
