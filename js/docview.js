@@ -12,6 +12,8 @@ const KCLS = { 'Warranty requirement': 'kw', 'Maintenance requirement': 'km', 'D
 export { loadPdf, lib as pdfLib };
 const fm = () => S.fm || { assets: [], docs: [], tasks: [], systems: [] };
 export function init(ctx) { X = ctx; }
+// Who may draw and edit boxes: editors anywhere; contractors on the warranties they have submitted.
+const canMark = () => can.edit() || (can.contractor() && !!(V && V.d && V.d.submitted));
 export const isPdf = d => !!d && !!d.url && (/\.pdf$/i.test(d.fileName || '') || d.mime === 'application/pdf');
 // Source documents are where requirements come from: the contract and the specification, or anything ticked as a source or already marked up.
 export const isSource = d => isPdf(d) && d.source !== false && (d.source === true || (d.marks || []).some(m => !m.ai) || ['Contract document', 'Specification / drawing'].includes(d.type));
@@ -63,7 +65,7 @@ function shell() {
     <span class="dvgrp"><button id="dvPrev" class="ic" title="Previous page">↑</button><button id="dvNext" class="ic" title="Next page">↓</button><input id="dvP" type="number" min="1" title="Go to page"><span id="dvN" class="muted"></span></span>
     <span class="dvgrp"><button id="dvZo" class="ic" title="Zoom out">−</button><span id="dvZ" class="muted" title="Zoom">100%</span><button id="dvZi" class="ic" title="Zoom in">+</button><button id="dvFit" class="ic" title="Fit to width">↔</button></span>
     <button id="dvMark" class="go" title="Draw a box around a clause or detail and link it to an asset or task">▭ Mark</button>
-    <button id="dvDl" class="ic" title="Download the file">⬇</button><button id="dvTab" class="ic" title="Open in a new tab (to print)">↗</button></div>
+    <button id="dvDl" class="ic" title="Download the original file">⬇</button><button id="dvDlM" title="Download a copy with every box drawn on it and a summary page">⬇ With markup</button><button id="dvTab" class="ic" title="Open in a new tab (to print)">↗</button></div>
     <div class="dvb"><div class="dvpage" id="dvScroll"><div id="dvPages"></div></div><aside class="dvside" id="dvSide"></aside></div>`;
   document.body.appendChild(el);
   $('dvX').onclick = () => close(); $('dvPrev').onclick = () => show(V.page - 1); $('dvNext').onclick = () => show(V.page + 1);
@@ -81,6 +83,7 @@ function shell() {
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); $('dvFind').click(); }
     else if (!typing && e.key === 'PageDown') { e.preventDefault(); show(V.page + 1); } else if (!typing && e.key === 'PageUp') { e.preventDefault(); show(V.page - 1); }
     else if (!typing && e.key === 'Home') show(1); else if (!typing && e.key === 'End') show(V.n); });
+  $('dvDlM').onclick = () => window.dispatchEvent(new CustomEvent('rd-marked-pdf', { detail: V.d.id }));
   wireDraw();
 }
 function setMode(m) { V.mode = m; $('dvMark').classList.toggle('on', m === 'mark'); $('dvMark').textContent = m === 'mark' ? '✕ Stop marking' : '▭ Mark'; $('dvPages').classList.toggle('drawing', m === 'mark'); if (m === 'mark') toast('Drag a box around the clause or detail on the page', 3500); }
@@ -94,11 +97,11 @@ export async function open(d, opts = {}) {
   shell(); const fresh = !V;
   if (fresh) { V = { zoom: 1, gen: 0, pp: [], mode: 'view', side: 'home', res: null, q: '', all: !!opts.all, asset: opts.asset || null, ret: opts.ret || null }; Nav.open('docview', () => close(true)); $('dv').classList.add('show'); }
   if (opts.asset) V.asset = opts.asset; if (opts.all != null) V.all = !!opts.all;
-  $('dvMark').style.display = can.edit() ? '' : 'none'; setMode('view');
+  setMode('view');
   const b = busy('Opening the document…');
   try { V.d = fm().docs.find(x => x.id === d.id) || d; V.pdf = await loadPdf(V.d); V.n = V.pdf.numPages; V.hl = null; }
   catch (e) { b.done(); toast('Could not open this document: ' + e.message, 6000); close(); return; }
-  b.done(); $('dvT').textContent = V.d.title; $('dvN').textContent = '/ ' + V.n; $('dvP').max = V.n;
+  b.done(); $('dvMark').style.display = canMark() ? '' : 'none'; $('dvT').textContent = V.d.title; $('dvN').textContent = '/ ' + V.n; $('dvP').max = V.n;
   const mk = opts.markId ? (V.d.marks || []).find(m => m.id === opts.markId) : null;
   await layout(); if (!V) return;
   await show(mk ? mk.page : (opts.page || 1), mk ? mk.y : 0);
@@ -185,10 +188,11 @@ function home() {
     <div class="dvquick">${QUICK.map(([l, q]) => `<button data-q="${esc(q)}">${l}</button>`).join('')}</div>
     <label class="dvall"><input type="checkbox" id="dvAll" ${V.all ? 'checked' : ''}> Search all contract and specification documents</label>
     <div id="dvRes"></div>
-    ${V.d.aiRead ? `<div class="dvctx"><b>✨ Read by AI</b> ${esc(nzDate(String(V.d.aiRead).slice(0, 10)))}${V.d.aiSummary ? '<br><span class="small">' + esc(V.d.aiSummary) + '</span>' : ''}${(V.d.aiProblems || []).length ? '<br><span class="small" style="color:#a32222"><b>Problems found:</b><br>' + V.d.aiProblems.map(x => '• ' + esc(x)).join('<br>') + '</span>' : ''}${marks.some(m => m.pending) && can.edit() ? `<br><button class="mini" id="dvAcc">✔ Accept all ${marks.filter(m => m.pending).length} AI boxes</button>` : ''}</div>` : ''}
+    ${X.subBox ? X.subBox(V.d) : ''}
+    ${V.d.aiRead && !V.d.submitted ? `<div class="dvctx"><b>✨ Read by AI</b> ${esc(nzDate(String(V.d.aiRead).slice(0, 10)))}${V.d.aiSummary ? '<br><span class="small">' + esc(V.d.aiSummary) + '</span>' : ''}${(V.d.aiProblems || []).length ? '<br><span class="small" style="color:#a32222"><b>Problems found:</b><br>' + V.d.aiProblems.map(x => '• ' + esc(x)).join('<br>') + '</span>' : ''}${marks.some(m => m.pending) && can.edit() ? `<br><button class="mini" id="dvAcc">✔ Accept all ${marks.filter(m => m.pending).length} AI boxes</button>` : ''}</div>` : ''}
     ${can.edit() && V.d.size ? `<p><button class="mini" id="dvRead">✨ ${V.d.aiRead ? 'Read again with AI' : 'Read this document with AI'}</button></p>` : ''}
     <h4>Marked in this document (${marks.length})</h4>
-    ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b>${m.flag ? ' <span class="st st-bad">problem</span>' : ''}${m.pending ? ' <span class="st st-warn">to check</span>' : ''} <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
+    ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b>${m.flag ? ' <span class="st st-bad">problem</span>' : ''}${m.pending ? ' <span class="st st-warn">to check</span>' : ''} <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${V.d.submitted && canMark() ? 'Nothing marked yet. Press “Mark” and drag a box around anything that is wrong or needs explaining.' : can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
     ${can.edit() ? `<label class="dvall" style="margin-top:10px"><input type="checkbox" id="dvSrc" ${isSource(V.d) ? 'checked' : ''}> This is a requirement source (included in clause searches)</label>` : ''}`;
   if ($('dvRead')) $('dvRead').onclick = () => window.dispatchEvent(new CustomEvent('rd-ai-read', { detail: V.d.id }));
   if ($('dvAcc')) $('dvAcc').onclick = async () => { await saveMarks((V.d.marks || []).map(m => m.pending ? { ...m, pending: false, checkedBy: S.user.email } : m)); toast('Accepted'); home(); };
@@ -238,17 +242,34 @@ function detail(m) {
     ${m.period ? `<p class="dvper">${esc(m.period)}</p>` : ''}<p class="muted small">${esc(V.d.title)} · page ${m.page}${m.clause ? ' · clause ' + esc(m.clause) : ''}</p>
     <img class="dvsnip" id="dvSn" alt="The marked clause">${m.text ? `<p class="dvtext">${esc(m.text)}</p>` : ''}${m.note ? `<p><b>Note:</b> ${esc(m.note)}</p>` : ''}${m.flag ? `<p style="color:#a32222"><b>Problem:</b> ${esc(m.flag)}</p>` : ''}${m.pending ? `<p class="muted small">Marked by AI. Check the box is in the right place and linked to the right asset.${can.edit() ? ' <button class="mini" id="dvOk">✔ Accept</button>' : ''}</p>` : ''}
     <h4>Applies to</h4>${A.map(a => `<button class="dvlink" data-a="${esc(a.id)}">▤ ${esc(a.ref || '')} ${esc(a.element)}<small>Open the asset</small></button>`).join('')}${T.map(t => `<button class="dvlink" data-t="${esc(t.id)}">⟳ ${esc(t.title)}<small>Open the maintenance task</small></button>`).join('')}${!A.length && !T.length ? '<p class="muted small">Not linked to an asset or task yet.</p>' : ''}
-    ${can.edit() ? '<div class="act"><button id="dvDel" class="warn">Delete</button><button id="dvEd" class="go">Edit</button></div>' : ''}`;
+    ${canMark() ? '<div class="act"><button id="dvDel" class="warn">Delete</button><button id="dvEd" class="go">Edit</button></div>' : ''}`;
   snipImg($('dvSn'), m); $('dvB').onclick = home; const step = async k => { const t = all[ix + k]; if (!t) return; await show(t.page, t.y); detail(t); overlay(); }; $('dvPv').onclick = () => step(-1); $('dvNx').onclick = () => step(1);
   if ($('dvOk')) $('dvOk').onclick = async () => { const o = { ...m, pending: false, checkedBy: S.user.email }; await saveMarks((V.d.marks || []).map(x => x.id === m.id ? o : x)); toast('Accepted'); detail(o); };
   $('dvSide').querySelectorAll('[data-a]').forEach(b => b.onclick = () => { const id = b.dataset.a; if (V) V.ret = null; close(); X.openAsset(id); });
   $('dvSide').querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const id = b.dataset.t; if (V) V.ret = null; close(); X.openTask(id); });
   if ($('dvEd')) $('dvEd').onclick = () => form(JSON.parse(JSON.stringify(m)), false);
-  if ($('dvDel')) $('dvDel').onclick = async () => { if (!(await confirmBox('Delete this marked clause? The links to its assets and tasks go with it.', 'Delete'))) return; await saveMarks((V.d.marks || []).filter(x => x.id !== m.id)); if (m.snip) { try { S.store.deleteFile(`projects/${S.project.id}/docs/${V.d.id}/snips/${m.id}.jpg`); } catch (e) {} } toast('Deleted'); home(); };
+  if ($('dvDel')) $('dvDel').onclick = async () => { if (!(await confirmBox(V.d.submitted ? 'Delete this box?' : 'Delete this marked clause? The links to its assets and tasks go with it.', 'Delete'))) return; await saveMarks((V.d.marks || []).filter(x => x.id !== m.id), m.flag, ''); if (m.snip && can.edit()) { try { Promise.resolve(S.store.deleteFile(`projects/${S.project.id}/docs/${V.d.id}/snips/${m.id}.jpg`)).catch(() => {}); } catch (e) {} } toast('Deleted'); home(); };
   overlay();
 }
 const pick = (list, ids, label, key) => `<div class="dvpick" data-pick="${key}"><input type="search" placeholder="Filter ${label}…"><div class="dvlist">${list.map(x => `<label data-s="${esc((x.txt).toLowerCase())}"><input type="checkbox" value="${esc(x.id)}" ${ids.includes(x.id) ? 'checked' : ''}> ${esc(x.txt)}</label>`).join('')}</div></div>`;
-function form(m, isNew) {
+// On a submitted warranty a box only needs to say what is wrong: one field, one tap to save.
+function quickForm(m, isNew) {
+  V.side = 'form'; setMode('view'); V.sel = m.id;
+  $('dvSide').innerHTML = `<h3>${isNew ? 'New box' : 'Edit box'}</h3><p class="muted small">Page ${m.page} of ${esc(V.d.title)}</p>
+    ${m.text ? `<p class="dvtext">${esc(m.text.slice(0, 300))}</p>` : ''}
+    <label class="f">What needs to change here?<textarea id="qkF" rows="4" placeholder="e.g. Contractor must read Miles Construction Limited">${esc(m.flag || '')}</textarea></label>
+    <label class="f">Note (optional, not a problem)<input id="qkN" value="${esc(m.note || '')}" placeholder="e.g. Signature confirmed by phone"></label>
+    <div class="act"><button id="qkX">Cancel</button>${can.edit() ? '<button id="qkMore">More options</button>' : ''}<button id="qkS" class="go">Save</button></div>`;
+  const read = () => ({ ...m, kind: m.kind && !isNew ? m.kind : 'Other', flag: $('qkF').value.trim(), note: $('qkN').value.trim(), period: (m.chk ? m.period : '') || ($('qkF').value.trim() || $('qkN').value.trim()).slice(0, 80), assetIds: (m.assetIds || []).length ? m.assetIds : (V.d.assetIds || []).slice(), taskIds: m.taskIds || [], pending: false, chk: false, updated: new Date().toISOString(), by: S.user.email });
+  $('qkX').onclick = () => { const cur = (V.d.marks || []).find(x => x.id === m.id); cur ? detail(cur) : home(); };
+  if ($('qkMore')) $('qkMore').onclick = () => form(read(), isNew, true);
+  $('qkS').onclick = async () => { const o = read(); if (!o.flag && !o.note) return toast('Say what needs to change, or add a note');
+    const b = busy('Saving…'); try { if (isNew || !o.snip) { try { o.snip = await makeSnip(o); } catch (e) { console.warn('snip', e); } } await saveMarks([...(V.d.marks || []).filter(x => x.id !== o.id), o].map(x => JSON.parse(JSON.stringify(x))), m.flag || '', o.flag); b.done(); toast('Saved'); home(); }
+    catch (e) { b.done(); toast('Could not save: ' + e.message, 6000); } };
+  setTimeout(() => $('qkF') && $('qkF').focus(), 50); overlay();
+}
+function form(m, isNew, full) {
+  if (V.d.submitted && !full) return quickForm(m, isNew);
   V.side = 'form'; setMode('view'); V.sel = m.id;
   const A = fm().assets.slice().sort((a, b) => natural(a.system, b.system) || natural(a.ref || '', b.ref || '')).map(a => ({ id: a.id, txt: `${a.ref || ''} ${a.element}${a.installer ? ' (' + a.installer + ')' : ''}`.trim() }));
   const T = fm().tasks.slice().sort((a, b) => natural(a.system || '', b.system || '') || natural(a.title, b.title)).map(t => ({ id: t.id, txt: t.title }));

@@ -27,6 +27,7 @@ export function projectSettings(p) {
     <div id="psCLogoPrev">${p.contractorLogo ? `<img src="${esc(p.contractorLogo)}" style="max-height:40px">` : ''}</div>
     <label class="f full">Short description (helps Gemini)<input id="psDesc" value="${esc(p.description || '')}" placeholder="e.g. 42 one-bedroom units for older people in two blocks"></label>
     <label class="f">Contract<input id="psContract" value="${esc(p.contract || '')}" placeholder="e.g. NZS 3916:2013"></label>
+    <label class="f">Warranty deed form (submitted warranties are checked against this)<input id="psDeed" value="${esc(p.deedForm || '')}" placeholder="NZS 3916:2013 Schedule 13"></label>
     <label class="f">Main contractor<input id="psCon" value="${esc(p.contractor || '')}"></label>
     <label class="f">Engineer to the Contract<input id="psEng" value="${esc(p.engineer || '')}"></label>
     <label class="f">Building consent<input id="psBc" value="${esc(p.consent || '')}"></label>
@@ -68,7 +69,7 @@ export function projectSettings(p) {
   $('psX').onclick = closeModal;
   $('psOk').onclick = async () => {
     const name = $('psName').value.trim(); if (!name) return toast('Enter the project name');
-    const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, contractorLogo: clogo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
+    const data = { name, address: $('psAddr').value.trim(), client: $('psClient').value.trim(), clientLogo: logo, contractorLogo: clogo, description: $('psDesc').value.trim(), contract: $('psContract').value.trim(), deedForm: $('psDeed').value.trim(), contractor: $('psCon').value.trim(), engineer: $('psEng').value.trim(), consent: $('psBc').value.trim(), units: $('psUnits').value.trim(), idPrefix: ($('psPre').value.trim() || 'D').toUpperCase().replace(/[^A-Z]/g, '') || 'D',
       responsible: fromLines($('psResp').value), sources: fromLines($('psSrc').value), selfCloseSources: fromLines($('psSelf').value), jobNo: $('psJob').value.trim(), registerAccess: $('psAcc').value.trim(), subcontractors: fromLines($('psSubs').value), severities: fromLines($('psSev').value), sevLabel: ($('psSevL').value.trim() || 'Severity') === 'Severity' ? '' : $('psSevL').value.trim(), sevDefault: $('psSevD').value.trim(), sevMajor: fromLines($('psSevM').value), types: fromLines($('psTyp').value), trades: fromLines($('psTr').value), rooms: fromLines($('psRooms').value), aiContext: $('psAi').value.trim(), pdfTitle: $('psPt').value.trim(), pdfSub: $('psPs').value.trim(), pdfIntro: $('psPi').value.trim() };
     data.typicals = $('psTyp').value.split('\n').map(l => l.split('|').map(x => x.trim())).filter(c => c[0]).map(c => ({ t: c[0], d: c[1] || '', a: c[2] || '', tr: c[3] || '', ty: c[4] || '', s: c[5] || '', el: c[6] || '', r: c[7] || '' }));
     if ($('psArch')) data.archived = $('psArch').checked;

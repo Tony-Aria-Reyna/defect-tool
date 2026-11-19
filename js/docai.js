@@ -90,3 +90,5 @@ export async function readDoc(d, onProg = () => {}) {
     return { marks, problems };
   } finally { try { pdf.destroy(); } catch (e) {} }
 }
+
+export { pageRuns, locate, pageImage, parse };

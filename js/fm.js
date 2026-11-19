@@ -8,6 +8,7 @@ import * as DV from './docview.js';
 import * as Guide from './guide.js';
 import * as AI from './docai.js';
 import * as Act from './actions.js';
+import * as Sub from './submit.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
@@ -20,7 +21,8 @@ let X = {}, unsubs = [], cur = 'defects';
 const F = { q: '', sys: '', st: '', type: '', cat: '', win: '90', resp: '' };
 export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads();
   Guide.init({ getBytes: ctx.getBytes, modal, closeModal, askDiscard });
-  DV.init({ getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
+  Sub.init({ getBytes: ctx.getBytes, SYSTEMS, DOC_TYPES, render: () => render() });
+  DV.init({ subBox: Sub.boxHtml, getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
 const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] });
 export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] };
@@ -105,6 +107,7 @@ function dash() {
     ${k(bw != null && bw < 60 ? '#d64545' : '#2f78c4', bw == null ? '-' : bw < 0 ? 'Overdue' : bw + ' d', p.bwofDue ? 'BWoF due ' + nzDate(p.bwofDue) : 'BWoF date not set', 'comp')}
     ${k(cert.length < SY.length ? '#e39b1b' : '#2e9b5f', `${cert.length}/${SY.length}`, `Form 12A certificates for ${yr}`, 'comp')}
     ${k(missing.length ? '#e39b1b' : '#2e9b5f', missing.length, 'Assets with handover documents outstanding', 'assets')}
+    ${(() => { const c = Sub.counts(); return can.edit() ? k(c.review ? '#2f78c4' : '#2e9b5f', c.review, 'Warranty submissions awaiting your review', 'subs') : k(c.fix ? '#d64545' : '#2e9b5f', c.fix, 'Warranty submissions to fix', 'subs'); })()}
     ${k('#3bafbe', Dd.length, 'Documents in the library', 'docs')}
   </div>
   <div class="dgrid">
@@ -115,7 +118,7 @@ function dash() {
     <div class="panel"><h3>Warranties expiring or expired</h3>${[...expired, ...exp90].sort((a, b) => a.e.localeCompare(b.e)).slice(0, 12).map(x => `<div class="prow"><div class="g">${esc(x.a.element)}<small>${esc(x.w.label || '')} · ${esc(x.w.party || '')}</small></div>${dueBadge(x.e)}</div>`).join('') || `<p class="muted">${p.pcDate ? 'None in the next 90 days.' : 'Set the practical completion date (Key dates) so warranty expiry dates can be calculated.'}</p>`}</div>
     <div class="panel"><h3>Handover documents outstanding</h3>${missing.slice(0, 12).map(a => `<div class="prow" data-asset="${esc(a.id)}" style="cursor:pointer"><div class="g">${esc(a.element)}<small>${esc(sysShort(a.system))} · ${esc(a.installer || a.product || '')}</small></div>${stBadge(a.status)}</div>`).join('') || '<p class="muted">All received.</p>'}${missing.length > 12 ? `<p class="muted small">and ${missing.length - 12} more in Assets &amp; warranties.</p>` : ''}</div>
   </div>`;
-  document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => setModule(b.dataset.go));
+  document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { if (b.dataset.go === 'subs') { F.atab = 'subs'; return setModule('assets'); } setModule(b.dataset.go); });
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeTask(T.find(t => t.id === b.dataset.done)));
   document.querySelectorAll('[data-asset]').forEach(b => b.onclick = () => editAsset(A.find(a => a.id === b.dataset.asset)));
   if ($('dSet')) $('dSet').onclick = keyDates; if ($('dCon')) $('dCon').onclick = contactsDialog; $('dHand').onclick = Pack.packDialog;
@@ -149,16 +152,21 @@ function contactsDialog() {
 }
 
 /* ================================================================ ASSETS AND WARRANTIES */
+const subTabs = on => { const c = Sub.counts(), n = can.edit() ? c.review : c.fix; return `<div class="atab"><button id="aT0" class="${on ? '' : 'on'}">Register</button><button id="aT1" class="${on ? 'on' : ''}">⬆ Warranty submissions${n ? ` <b class="sbn">${n}</b>` : ''}</button></div>`; };
+const wireSubTabs = () => { $('aT0').onclick = () => { F.atab = 'reg'; assets(); }; $('aT1').onclick = () => { F.atab = 'subs'; assets(); }; };
 function assets() {
+  if ((F.atab || (can.contractor() ? 'subs' : 'reg')) === 'subs') { Sub.view(subTabs(true)); wireSubTabs(); return; }
   const A = fm().assets.slice().sort((a, b) => natural(a.system, b.system) || natural(a.ref, b.ref)), q = F.q.toLowerCase();
   const L = A.filter(a => (!F.sys || a.system === F.sys) && (!F.st || a.status === F.st) && (!q || [a.ref, a.element, a.product, a.location, a.installer, a.notes].join(' ').toLowerCase().includes(q)));
   let last = '';
   $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="aQ" placeholder="Search element, product, installer…" value="${esc(F.q)}"><select id="aSys">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="aSt"><option value="">All statuses</option>${ASSET_STATUS.map(s => `<option ${s === F.st ? 'selected' : ''}>${s}</option>`).join('')}</select>${can.edit() ? '<button class="btn2 go" id="aNew">+ Asset</button>' : ''}<button class="btn2" id="aX">⬇ Excel</button></div>
+  ${subTabs(false)}
   <p class="muted small">${L.length} of ${A.length} assets · ${A.filter(a => a.status === 'Received').length} with documents received · warranty expiry runs from ${pcDate() ? 'practical completion (' + nzDate(pcDate()) + ')' : 'practical completion (date not set yet: Dashboard > Key dates)'}</p>
   ${L.length ? `<table class="ftable"><tr><th>Ref</th><th>Element</th><th class="hm">Product / installer</th><th class="hm">Location</th><th>Warranty to</th><th>Documents</th><th>Status</th></tr>
   ${L.map(a => { const g = a.system !== last ? `<tr class="grp"><td colspan="7">${esc(a.system)}</td></tr>` : ''; last = a.system; const e = assetExpiry(a), nd = fm().docs.filter(d => (d.assetIds || []).includes(a.id)).length;
     return g + `<tr class="click" data-id="${esc(a.id)}"><td>${esc(a.ref || '')}</td><td><b>${esc(a.element)}</b>${a.maint ? ' <span class="st st-info" title="Warranty depends on maintenance">maint.</span>' : ''}</td><td class="hm">${esc(a.product || '')}<br><span class="muted small">${esc(a.installer || '')}</span></td><td class="hm">${esc(a.location || '')}</td><td>${e ? dueBadge(e) : '<span class="muted small">' + esc((a.warranties || [])[0]?.label || '-') + '</span>'}</td><td>${nd || '-'}</td><td>${stBadge(a.status)}</td></tr>`; }).join('')}</table>` : `<div class="empty2">${A.length ? 'No assets match.' : 'No assets yet. Add them one at a time, or import the warranty register from ☰ > Import register.'}</div>`}`;
   $('aQ').oninput = e => { F.q = e.target.value; assets(); $('aQ').focus(); $('aQ').setSelectionRange(F.q.length, F.q.length); };
+  wireSubTabs();
   $('aSys').onchange = e => { F.sys = e.target.value; assets(); }; $('aSt').onchange = e => { F.st = e.target.value; assets(); };
   if ($('aNew')) $('aNew').onclick = () => editAsset(null);
   $('aX').onclick = exportFmRegister;
@@ -193,7 +201,7 @@ function editAsset(a) {
   <h3 class="sec">Where this is required <span class="sp"></span>${can.edit() && !isNew ? '<button class="mini" id="aReq">▭ Mark in the contract or specification</button>' : ''}</h3>
   ${reqHtml('asset', a.id, 'No clause marked yet. Marking the clause shows everyone exactly where the contract or specification asks for this.')}
   <h3 class="sec">Warranties <span class="sp"></span>${ro ? '' : '<button class="mini" id="aWadd">+ Add</button>'}</h3><div id="aW">${(a.warranties || []).map(wr).join('') || '<p class="muted small">No warranty periods recorded.</p>'}</div>
-  <h3 class="sec">Documents <span class="sp"></span>${can.write() ? '<button class="mini" id="aDup">⬆ Upload for this asset</button>' : ''}</h3>
+  <h3 class="sec">Documents <span class="sp"></span>${can.write() && !isNew ? '<button class="mini" id="aSubm">⬆ Submit a warranty (checked automatically)</button>' : ''}${can.edit() ? '<button class="mini" id="aDup">⬆ Upload for this asset</button>' : ''}</h3>
   ${docsL.map(d => `<div class="prow"><div class="g"><a href="#" data-open="${esc(d.id)}">${esc(d.title)}</a><small>${esc(d.type)}${d.expiry ? ' · expires ' + nzDate(d.expiry) : ''}</small></div></div>`).join('') || '<p class="muted small">None linked yet. Link documents from the Documents tab, or upload here.</p>'}
   <h3 class="sec">Maintenance <span class="sp"></span>${can.edit() && !isNew ? '<button class="mini" id="aTadd">+ Task</button>' : ''}</h3>
   ${tasksL.map(t => `<div class="prow"><div class="g">${esc(t.title)}<small>${esc(freqText(t))}</small></div>${dueBadge(t.nextDue)}</div>`).join('') || '<p class="muted small">No maintenance tasks for this asset.</p>'}`,
@@ -212,6 +220,7 @@ function editAsset(a) {
   const reA = () => { const x = fm().assets.find(q => q.id === a.id); if (x) editAsset(x); };
   wireReq(reA);
   if ($('aReq')) $('aReq').onclick = async () => { await tryCloseSheet(); if ($('sheet2').classList.contains('show')) return; DV.findClause({ asset: { id: a.id, element: a.element }, query: a.element + ' warranty', ret: reA }); };
+  if ($('aSubm')) $('aSubm').onclick = () => Sub.submitDialog(a);
   if ($('aDup')) $('aDup').onclick = () => pickDocs({ assetIds: [a.id], system: val('aS') || a.system });
   if ($('aTadd')) $('aTadd').onclick = () => { closeSheet(); editTask(null, { assetId: a.id, system: a.system, title: 'Maintain ' + a.element }); };
   document.querySelectorAll('[data-open]').forEach(l => l.onclick = e => { e.preventDefault(); openDoc(fm().docs.find(d => d.id === l.dataset.open)); });
@@ -347,6 +356,7 @@ function record12A(s, yr) {
 /* ================================================================ DOCUMENTS */
 // Read documents with AI, one after another. Warranties and deeds first: they are what practical completion waits on.
 let aiStop = false;
+window.addEventListener('rd-marked-pdf', e => { const d = fm().docs.find(x => x.id === e.detail); if (d) Sub.markedPdf(d); });
 window.addEventListener('rd-ai-read', async e => { const d = fm().docs.find(x => x.id === e.detail); if (!d) return; const b = busy('Reading with AI…');
   try { const r = await AI.readDoc(d, t => b.set('Reading with AI: ' + t)); b.done(); toast(`${r.marks.length} boxes drawn${r.problems.length ? ', ' + r.problems.length + ' problem' + (r.problems.length > 1 ? 's' : '') + ' found' : ''}. Check them.`, 6000); const nd = fm().docs.find(x => x.id === d.id) || d; DV.open({ ...nd }, {}); }
   catch (x) { b.done(); toast(x.message === 'nokey' ? 'Set up the AI helper first (Menu > Gemini).' : 'Could not read it: ' + x.message, 7000); } });
@@ -511,7 +521,7 @@ async function uploadFiles(files, ctx) {
     const o = { id, title: typeof ctx.title === 'function' ? ctx.title(f) : (meta.title || f.name.replace(/\.[^.]+$/, '')), type: meta.type || ctx.type || guessType(f.name), system: meta.system || ctx.system || '', party: meta.party || (f.name.includes(' - ') ? f.name.split(' - ')[0] : ''), assetIds: ctx.assetIds || (ctx.keep && ctx.keep.assetIds) || [], url, path, fileName: f.name, size: f.size, mime: f.type, srcPath: meta.srcPath || '', taskId: ctx.taskId || '', audience: 'FM', created: nowISO(), createdBy: S.user.email };
     const w = /\((\d+)\s*(?:yr|year)/i.exec(f.name); if (w && /warrant|deed/i.test(o.type)) o.warrantyYears = +w[1];
     await S.store.saveItem(pid, 'docs', o); ids.push(id);
-    for (const aid of o.assetIds) { const a = fm().assets.find(x => x.id === aid); if (a && a.status === 'Not received') await S.store.patchItem(pid, 'assets', aid, { status: 'Partial' }); }
+    for (const aid of o.assetIds) { const a = fm().assets.find(x => x.id === aid); if (a && a.status === 'Not received' && can.edit()) await S.store.patchItem(pid, 'assets', aid, { status: 'Partial' }); }
   }
   return ids;
 }
