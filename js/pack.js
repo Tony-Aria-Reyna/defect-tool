@@ -214,6 +214,8 @@ export async function archiveDialog() {
   if (!can.admin()) return toast('Only project admins can archive a project');
   const p = S.project, Dd = X.fm().docs.filter(d => d.path && d.url), ph = (S.defects || []).flatMap(d => (d.photos || []).filter(x => x.path)), mb = Dd.reduce((a, d) => a + (d.size || 0), 0) / 1e6;
   if (!p.handoverExported) return toast('Generate and download the handover pack (with the documents bundled) first. Archiving removes the files from the cloud.', 8000);
+  const hr = p.handoverRecord; if (hr && (hr.failed || hr.saved < hr.files)) return toast(`The last handover pack is missing ${hr.files - hr.saved} documents. Make a complete pack first.`, 8000);
+  const endDnp = p.pcDate ? X.addFreq(p.pcDate, +(p.dnpMonths || 12), 'months') : ''; if (!endDnp || todayISO() < endDnp) return toast(endDnp ? `Archiving is held until the defects notification period ends (${nzDate(endDnp)}). The client still needs the documents until then.` : 'Set the practical completion date first: archiving is held until the defects notification period ends.', 9000);
   modal(`<h2>Archive ${esc(p.name)}</h2><p>The handover pack was downloaded on <b>${esc(nzDate(String(p.handoverExported).slice(0, 10)))}</b>. Archiving:</p>
   <ul><li>removes ${Dd.length} document files (about ${mb.toFixed(0)} MB) and ${ph.length} defect photos from cloud storage;</li><li>keeps every record (defects, histories, assets, warranties, maintenance), so the project's track record stays;</li><li>hides the project from everyone except system administrators.</li></ul>
   <p class="note">This cannot be undone from the app. Check the downloaded pack opens and is stored in the client's system and your own records first.</p>
@@ -232,6 +234,7 @@ export async function archiveDialog() {
 /* ------------------------------------------------------------ dialog */
 export function packDialog() {
   const Dd = X.fm().docs.filter(d => !d.template && !d.superseded); const files = Dd.filter(d => d.url && !d.link); const mb = files.reduce((a, d) => a + (d.size || 0), 0) / 1e6;
+  const canFolder = typeof window.showDirectoryPicker === 'function', big = mb > 500, nRes = files.filter(d => d.restricted).length;
   modal(`<h2>Handover pack</h2><p class="note">Generates the handover documents from what is in this project now. Regenerate any time; nothing in the project changes.</p>
   <div class="opt"><input type="checkbox" id="hpF" checked><label for="hpF"><b>Facility Management Manual</b>: key dates, contacts, compliance schedule and BWoF, maintenance schedule, assets and warranties, document index, open defects</label></div>
   <div class="opt"><input type="checkbox" id="hpH" checked><label for="hpH"><b>Home User Guide</b> for residents: large clear type, how to look after the home, fire safety, who to call</label></div>
@@ -240,36 +243,55 @@ export function packDialog() {
   <div class="opt"><input type="checkbox" id="hpD" checked><label for="hpD"><b>Defects register at handover</b>: Excel of every defect, and a PDF with each item's full history</label></div>
   <div class="opt" style="margin-left:24px"><input type="checkbox" id="hpDp"><label for="hpDp">Include photos and plan locations in the defects PDF (much larger and slower)</label></div>
   <div class="opt"><input type="checkbox" id="hpJ" checked><label for="hpJ"><b>Data file</b> (JSON): every record, kept with the pack so the project can be read back into Resero Site later</label></div>
-  <h3 class="sec">Documents</h3>
-  <label class="opt"><input type="radio" name="hpM" value="zip" checked> Bundle every document into one zip, filed by building system and type, with the manuals linking to the files (${files.length} files, about ${mb.toFixed(0)} MB). Best for SharePoint and long-term records.</label>
-  <label class="opt"><input type="radio" name="hpM" value="online"> Manuals only, linking to the online copies (small and quick)</label>
-  <p class="note">Links to files inside the zip work in Adobe Acrobat Reader and most desktop PDF readers once the zip is extracted. Browser PDF viewers may not follow them.</p>
+  <h3 class="sec">Documents (${files.length} files, about ${mb.toFixed(0)} MB${nRes ? `, ${nRes} restricted` : ''})</h3>
+  ${canFolder ? `<label class="opt"><input type="radio" name="hpM" value="folder" checked> <span><b>Save straight into a folder on this computer</b> (recommended). Files are written one at a time, filed by building system and type, so a pack of any size works. Then copy the folder to SharePoint or a drive.</span></label>` : ''}
+  <label class="opt"><input type="radio" name="hpM" value="parts" ${canFolder ? '' : 'checked'}> <span><b>Zip files of about 400 MB each</b>${big ? ` (${Math.ceil(mb / 400)} parts)` : ''}. Extract them all into the same folder.</span></label>
+  <label class="opt"><input type="radio" name="hpM" value="zip" ${big ? 'disabled' : ''}> <span>One zip file${big ? ' (too big at this size: a browser runs out of memory past about 500 MB)' : ''}</span></label>
+  <label class="opt"><input type="radio" name="hpM" value="online"> <span>Manuals only, linking to the online copies (small and quick; restricted documents are left out)</span></label>
+  ${nRes ? '<p class="note">Restricted documents go into a separate Restricted folder. Give that folder only to the people entitled to it.</p>' : ''}
+  <p class="note">Links to files in the pack work in Adobe Acrobat Reader and most desktop PDF readers once everything is in one folder. Browser PDF viewers may not follow them.</p>
   <p class="note" id="hpSt"></p>
   <div class="act">${can.admin() ? '<button id="hpAr" class="warn" style="margin-right:auto">Archive after handover…</button>' : ''}<button id="hpX">Close</button><button class="go" id="hpGo">Generate</button></div>`);
   $('hpX').onclick = closeModal; if ($('hpAr')) $('hpAr').onclick = archiveDialog;
   $('hpGo').onclick = async () => {
-    const mode = document.querySelector('[name=hpM]:checked').value, st = t => $('hpSt').textContent = t, nm = safeName(S.project.name), n = stamp();
+    const mode = document.querySelector('[name=hpM]:checked').value, st = t => $('hpSt').textContent = t, nm = safeName(S.project.name), n = stamp(), root = `${nm} - Handover Pack - ${n}`, linkMode = mode === 'online' ? 'online' : 'zip';
+    let dir = null; if (mode === 'folder') { try { dir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch (e) { return; } }
     $('hpGo').disabled = true;
     try {
       const out = [];
-      if ($('hpF').checked) { st('Building the FM Manual…'); out.push([`${nm} - Facility Management Manual - ${n}.pdf`, await buildFmManual(mode, st)]); }
-      if ($('hpH').checked) { st('Building the Home User Guide…'); out.push([`${nm} - Home User Guide - ${n}.pdf`, await buildHomeGuide(mode, st)]); }
+      if ($('hpF').checked) { st('Building the FM Manual…'); out.push([`${nm} - Facility Management Manual - ${n}.pdf`, await buildFmManual(linkMode, st)]); }
+      if ($('hpH').checked) { st('Building the Home User Guide…'); out.push([`${nm} - Home User Guide - ${n}.pdf`, await buildHomeGuide(linkMode, st)]); }
       if ($('hpR').checked) { st('Building the FM register…'); const r = await X.registerBlob(); if (r) out.push([`${nm} - FM Register - ${n}.xlsx`, r]); out.push([`${nm} - Maintenance calendar - ${n}.ics`, X.icsBlob()]); }
       if ($('hpD').checked) { const L = (S.defects || []).slice().sort((a, b) => natural(a.id, b.id)), ctx = { project: S.project, plans: S.plans, getBytes: X.getBytes, logoResero: 'img/resero-navy.png', me: S.user.name };
         st('Building the defects register (Excel)…'); out.push([`${nm} - Defects Register at handover - ${n}.xlsx`, await buildXlsx(L, ctx)]);
         st('Building the defects register (PDF)…'); out.push([`${nm} - Defects Register at handover - ${n}.pdf`, await buildPdf(L, { title: 'Defects register at handover', sub: 'All defects', intro: 'Every defect recorded on the project, with its status and full history, as at handover.', team: true, comments: true, photos: $('hpDp').checked, plans: false, sig: false }, ctx, st)]); }
       if ($('hpJ').checked) out.push([`${nm} - Resero Site data - ${n}.json`, dataJson()]);
-      if ($('hpI').checked) out.push(['Open me first.html', new Blob([indexHtml(mode, files)], { type: 'text/html' })]);
-      if (mode === 'online' && out.length === 1) { deliver(out[0][1], out[0][0], 'Handover document'); st(''); return; }
-      if (!window.JSZip) await loadScript('lib/jszip.min.js');
-      const z = new JSZip(), root = `${nm} - Handover Pack - ${n}/`;
-      out.forEach(([name, blob]) => z.file(root + name, blob));
-      if (mode === 'zip') { let i = 0, fail = []; for (const d of files) { st(`Adding documents ${++i} of ${files.length}: ${d.title}`); try { z.file(root + docPath(d), await X.getBytes(d.url)); } catch (e) { fail.push(d.title); } } if (fail.length) z.file(root + 'Documents not included.txt', 'These documents could not be downloaded when the pack was made (check the storage CORS setting, README step 6):\r\n\r\n' + fail.join('\r\n')); }
-      z.file(root + 'Read me.txt', `${S.project.name} handover pack, prepared by ${APP.company}${S.project.client ? ' for ' + S.project.client : ''} on ${nzDate(todayISO())}.\r\n\r\nStart with the Facility Management Manual. Keep this folder together: the manuals link to the files in the Documents folder.\r\nThe Home User Guide is written for residents and can be printed or emailed on its own.\r\n`);
-      st('Zipping…'); const blob = await z.generateAsync({ type: 'blob' }, m => st(`Zipping… ${m.percent.toFixed(0)}%`));
-      deliver(blob, `${nm} - Handover Pack - ${n}.zip`, 'Handover pack'); st('');
-      if (mode === 'zip') { try { await S.store.updateProject(S.project.id, { handoverExported: new Date().toISOString() }); S.project.handoverExported = new Date().toISOString(); } catch (e) {} }
+      const docsIn = mode === 'online' ? [] : files;
+      if ($('hpI').checked) out.push(['Open me first.html', new Blob([indexHtml(linkMode, files)], { type: 'text/html' })]);
+      const readme = `${S.project.name} handover pack, prepared by ${APP.company}${S.project.client ? ' for ' + S.project.client : ''} on ${nzDate(todayISO())}.\r\n\r\nStart with "Open me first.html" or the Facility Management Manual. Keep this folder together: the manuals link to the files in the Documents folder.${nRes ? '\r\nThe Restricted folder holds credentials, bonds, guarantees and insurances: give it only to the people entitled to it.' : ''}\r\nThe Home User Guide is written for residents and can be printed or emailed on its own.\r\n`;
+      out.push(['Read me.txt', new Blob([readme], { type: 'text/plain' })]);
+      if (mode === 'online' && out.length === 2) { deliver(out[0][1], out[0][0], 'Handover document'); st(''); return; }
+      let ok = 0, fail = [];
+      if (mode === 'folder') {
+        const top = await dir.getDirectoryHandle(root, { create: true });
+        const write = async (path, blob) => { const parts = path.split('/'); let h = top; for (const seg of parts.slice(0, -1)) h = await h.getDirectoryHandle(seg.slice(0, 120), { create: true }); const f = await h.getFileHandle(parts[parts.length - 1].slice(0, 150), { create: true }); const w = await f.createWritable(); await w.write(blob); await w.close(); };
+        for (const [name, blob] of out) await write(name, blob);
+        let i = 0; for (const d of docsIn) { st(`Saving documents ${++i} of ${docsIn.length}: ${d.title}`); try { await write(docPath(d), new Blob([await X.getBytes(d.url)])); ok++; } catch (e) { fail.push(d.title + ' (' + e.message + ')'); } }
+        if (fail.length) await write('Documents not included.txt', new Blob(['These documents could not be downloaded when the pack was made. Download them from Resero Site and add them by hand:\r\n\r\n' + fail.join('\r\n')]));
+      } else {
+        if (!window.JSZip) await loadScript('lib/jszip.min.js');
+        const LIMIT = mode === 'parts' ? 400e6 : 1e12, packs = [[]]; let sz = 0;
+        docsIn.forEach(d => { if (sz + (d.size || 0) > LIMIT && packs[packs.length - 1].length) { packs.push([]); sz = 0; } packs[packs.length - 1].push(d); sz += d.size || 0; });
+        for (let k = 0; k < packs.length; k++) { const z = new JSZip(), base = root + '/'; if (k === 0) out.forEach(([name, blob]) => z.file(base + name, blob));
+          let i = 0; for (const d of packs[k]) { st(`Part ${k + 1} of ${packs.length}: adding ${++i} of ${packs[k].length}: ${d.title}`); try { z.file(base + docPath(d), await X.getBytes(d.url)); ok++; } catch (e) { fail.push(d.title); } }
+          if (k === packs.length - 1 && fail.length) z.file(base + 'Documents not included.txt', 'These documents could not be downloaded when the pack was made. Download them from Resero Site and add them by hand:\r\n\r\n' + fail.join('\r\n'));
+          st(`Zipping part ${k + 1} of ${packs.length}…`); const blob = await z.generateAsync({ type: 'blob' }, m => st(`Zipping part ${k + 1} of ${packs.length}… ${m.percent.toFixed(0)}%`));
+          deliver(blob, `${root}${packs.length > 1 ? ` - Part ${k + 1} of ${packs.length}` : ''}.zip`, 'Handover pack' + (packs.length > 1 ? ` part ${k + 1}` : '')); }
+      }
+      st('');
+      if (mode !== 'online') { const rec = { at: new Date().toISOString(), files: docsIn.length, saved: ok, failed: fail.length, mode }; try { await S.store.updateProject(S.project.id, { handoverExported: rec.at, handoverRecord: rec }); S.project.handoverExported = rec.at; S.project.handoverRecord = rec; } catch (e) {}
+        modal(`<h2>${fail.length ? '⚠ Handover pack saved with gaps' : '✔ Handover pack saved'}</h2><p><b>${ok} of ${docsIn.length}</b> documents are in the pack${mode === 'folder' ? ` (folder "${esc(root)}")` : ''}, plus the manuals and registers you chose.</p>${fail.length ? `<p>These could not be downloaded and are listed in "Documents not included.txt":</p><div class="small" style="max-height:200px;overflow:auto">${fail.map(esc).join('<br>')}</div>` : '<p>Every document is in. Open the pack and check it before you hand it over.</p>'}<div class="act"><button class="go" id="hpOk">Done</button></div>`); $('hpOk').onclick = closeModal; }
     } catch (e) { console.error(e); st(''); toast('Could not build the pack: ' + e.message, 7000); }
-    finally { $('hpGo').disabled = false; }
+    finally { if ($('hpGo')) $('hpGo').disabled = false; }
   };
 }

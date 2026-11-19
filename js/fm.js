@@ -580,14 +580,15 @@ function editContact(c) {
 }
 const RE_EMAIL = /[a-z0-9][a-z0-9._%+-]*@[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi, RE_PHONE = /(?:\+?64[\s-]?\(?0?\)?|\(?0)(?:2\d|[34679]|800|508)\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b/g;
 async function readContacts() {
-  const L = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found); if (!L.length) return;
-  const b = busy('Reading documents…'); let n = 0, hit = 0;
-  try { for (const d of L) { b.set(`Reading ${++n} of ${L.length}: ${d.title}`);
+  const pri = d => /warrant|deed|o&m|care|product data|producer|commission/i.test(d.type || '') ? 0 : 1;
+  const L = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found && !d.restricted).sort((a, b) => pri(a) - pri(b)); if (!L.length) return toast('Every document has been read for contact details already');
+  const b = busy('Reading documents…'); let n = 0, hit = 0, next = 0;
+  const one = async d => { b.set(`Reading ${++n} of ${L.length}: ${d.title}`);
       let found = { e: [], p: [], at: nowISO() };
       try { const t = await DV.frontText(d, 3); found.e = [...new Set((t.match(RE_EMAIL) || []).map(x => x.toLowerCase().replace(/\.$/, '')))].filter(x => !/aucklandcouncil|example\./.test(x)).slice(0, 6); found.p = [...new Set((t.match(RE_PHONE) || []).map(x => x.replace(/\s+/g, ' ').trim()))].filter(x => x.replace(/\D/g, '').length >= 9 && !/^0?9\s?301\s?0101$/.test(x)).slice(0, 6); if (found.e.length || found.p.length) hit++; }
       catch (e) { console.warn('contacts', d.title, e); found.err = 1; }
-      await S.store.patchItem(S.project.id, 'docs', d.id, { found });
-    }
+      await S.store.patchItem(S.project.id, 'docs', d.id, { found }); };
+  try { const worker = async () => { while (next < L.length) await one(L[next++]); }; await Promise.all([worker(), worker(), worker()]);
     b.done(); toast(`Read ${n} documents; contact details found in ${hit}`, 6000); setTimeout(render, 300);
   } catch (e) { b.done(); toast(`Stopped after ${n}: ${e.message}. Press the button again to carry on.`, 8000); }
 }
@@ -653,7 +654,8 @@ export async function uploadFolder(files) {
   if (!(await confirmBox(`Upload ${todo.length} documents (${mb.toFixed(0)} MB)?${nRep ? ' ' + (todo.length - nRep) + ' are new and ' + nRep + ' replace copies in the library whose stored file is empty (these are replaced in place, not added twice).' : ''} ${list.length - todo.length ? (list.length - todo.length) + ' already in the library will be skipped. ' : ''}${big.length ? big.length + ' over 150 MB will be skipped. ' : ''}They will be filed by building system and type from the folder names. Keep this page open until it finishes.`, 'Upload'))) return;
   const b = busy('Uploading…'); let n = 0;
   try {
-    for (const x of todo) { if (x.f.size > 150e6) continue; const c = classify(x.path); c.srcPath = x.path; await uploadFiles([x.f], { classified: c, replaceId: broken[x.path] && broken[x.path].id, keep: broken[x.path], onProgress: () => b.set(`Uploading ${++n} of ${todo.length}: ${x.f.name}`) }); }
+    let next = 0; const worker = async () => { while (next < todo.length) { const x = todo[next++]; if (x.f.size > 150e6) continue; const c = classify(x.path); c.srcPath = x.path; await uploadFiles([x.f], { classified: c, replaceId: broken[x.path] && broken[x.path].id, keep: broken[x.path], onProgress: () => b.set(`Uploading ${++n} of ${todo.length}: ${x.f.name}`) }); } };
+    await Promise.all([worker(), worker(), worker()]);   // three at a time
     b.done(); toast(`Uploaded ${n} documents` + (emptyNow ? `. ${emptyNow} were skipped because they are not downloaded to this computer (OneDrive online-only): right-click the folder, choose "Always keep on this device", wait for the green ticks, then upload again.` : ''), emptyNow ? 15000 : 4000); setTimeout(autoLink, 1500);
   } catch (e) { b.done(); toast(`Stopped after ${n} documents: ${e.message}. Run it again to carry on; finished files are skipped.`, 8000); }
 }

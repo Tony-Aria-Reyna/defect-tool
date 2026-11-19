@@ -78,8 +78,10 @@ export async function saveImage(src, name) {
   const ext = /png/.test(blob.type) ? 'png' : 'jpg'; deliver(blob, safeFile(name) + '.' + ext, 'Photo');
 }
 const safeFile = n => String(n || 'photo').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'photo';
+// Most mail systems refuse attachments over about 20 to 25 MB: say so when a file is that big
+const sizeNote = blob => blob && blob.size > 20e6 ? ` (${(blob.size / 1e6).toFixed(0)} MB: too big to email. Share it from SharePoint or OneDrive, or export it without photos.)` : '';
 export function deliver(blob, name, what) {
-  if (!isMobile()) { download(blob, name); toast(what + ' saved to Downloads'); return; }
+  if (!isMobile()) { download(blob, name); toast(what + ' saved to Downloads' + sizeNote(blob), blob && blob.size > 20e6 ? 9000 : undefined); return; }
   let file = null, can = false; try { file = new File([blob], name, { type: blob.type }); can = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) {}
   const box = $('done'); box.innerHTML = `<div class="m"><b>${esc(what)} ready.</b></div>`;
   const btn = (l, c, fn) => { const b = document.createElement('button'); b.textContent = l; if (c) b.className = c; b.onclick = fn; box.appendChild(b); };

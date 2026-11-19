@@ -713,3 +713,6 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .tag.over{background:#fde2e2;color:#a32222;font-weight:700}.cnt.over.on,.cnt.over:hover{border-color:#d64545}
 .myact{position:relative;background:#f2f7fd;border:1px solid #cfe0f3;border-left:4px solid #2f78c4;border-radius:10px;padding:10px 40px 10px 14px;margin:0 0 10px}.myact>b{color:#011c35}.myact .x{position:absolute;top:6px;right:8px;border:0;background:none;font-size:15px;cursor:pointer;color:#556}
 .mabtns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.mabtns button{display:inline-flex;align-items:center;gap:6px;border:1px solid #cfe0f3;background:#fff;border-radius:999px;padding:6px 12px;font-size:13.5px;cursor:pointer}.mabtns button:hover{border-color:#2f78c4}.mabtns b{font-size:15px;color:#011c35}
+.srcard{margin:8px 12px;padding:10px 14px;border:1px solid #cfe0f3;border-left:4px solid #2e9b5f;border-radius:10px;background:#f4fbf6;cursor:pointer;font-size:14px}.srcard div{color:#334;margin-top:2px;font-size:13px}
+.srans{margin:8px 12px;padding:10px 14px;border:1px solid #e6d9a8;border-left:4px solid #e39b1b;border-radius:10px;background:#fffaf0;font-size:14px}.srans b{font-weight:600;display:block;margin-bottom:4px}.srans a{color:#1f5fa8}
+.srrow.ask{background:#fffaf0}

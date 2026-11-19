@@ -1308,7 +1308,7 @@ function wire() {
   $('bSel').onclick = bulkToggle; $('bulkX').onclick = bulkToggle; $('bulkbar').querySelectorAll('[data-b]').forEach(x => x.onclick = () => bulkAction(x.dataset.b));
   $('clr').onclick = () => { Object.assign(S.F, { q: '', block: '', level: '', unit: '', sev: '', trade: '', resp: '', sub: '', by: '', review: false, toReview: false, overdue: false, back: false, fresh: false }); S.F.status = new Set(['Open', 'In progress', 'Ready for review', 'Disputed']); $('q').value = ''; filtersDirty = true; render(); };
   $('wBack').onclick = showProjects; $('pOut').onclick = () => S.store.signOut();
-  Search.init({ tools: toolList, units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
+  Search.init({ tools: toolList, expiry: w => FM.warrantyExpiry(w), units: () => unitList(S.project), openDefect: d => { FM.setModule('defects'); S.sel = d.id; render(); openEditor(d); }, filterBy, showPlan: id => { FM.setModule('defects'); setTab('plan'); showPlan(id); }, fmGo: (m, q) => FM.goTo(m, q), help: q => { helpDialog(); if (q && $('hq')) $('hq').value = q; }, statusColour: s => SCOL[s] || '#999' });
   Try.init({ enterTestMode, leaveTestMode, saveLocal, bar: viewAsBar });
   Setup.init({ openProject, zones: () => Admin.zoneEditor(PV), sync: Sync.start, siteCheck, saveLocal });
   $('bFind').onclick = () => Search.open();
