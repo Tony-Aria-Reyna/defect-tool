@@ -44,10 +44,10 @@ export async function digestDialog() {
   draw();
 }
 // An invitation email from the app (the helper sends it, so it comes from the project, not your own mailbox)
-export async function sendInvite(email, role, projectName) {
+export async function sendInvite(email, role, projectName, link) {
   if ((await helperVersion()) < 3) throw new Error('needs updating');
   const url = appUrl(), html = `<div style="font:14px Arial;color:#1d2733;max-width:600px"><p>Kia ora,</p><p>${esc(S.user.name)} has given you <b>${esc(ROLES[role] || role)}</b> access to <b>${esc(projectName)}</b> on Resero Site.</p><p>${esc(ROLE_HELP[role] || '')}</p>
-    <p><a href="${url}" style="display:inline-block;background:#011c35;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Open Resero Site</a></p>
-    <p>Sign in with Google, or choose "Email me a sign-in link", using this email address (${esc(email)}). On a phone you can add it to your home screen.</p><p style="color:#556;font-size:12px">Sent by Resero Site for ${esc(projectName)}. Questions: reply to this email.</p></div>`;
+    <p><a href="${esc(link || url)}" style="display:inline-block;background:#011c35;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Open your invitation</a></p>
+    <p>Then sign in with Google, or choose "First time? Create a password", using this email address (${esc(email)}). You are added straight away; there is no confirmation email to wait for. After that, the app is at ${esc(url)}. On a phone you can add it to your home screen.</p><p style="color:#556;font-size:12px">Sent by Resero Site for ${esc(projectName)}. Questions: reply to this email.</p></div>`;
   await gsCall('mail', { to: [email], subject: 'Your access to ' + projectName + ' on ' + APP.name, html, replyTo: S.user.email });
 }

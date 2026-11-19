@@ -32,6 +32,9 @@ const seed = async () => env.withSecurityRulesDisabled(async ctx => {
 await seed();
 const who = (uid, email) => env.authenticatedContext(uid, { email, email_verified: true });
 const U = { fm: who('fm', 'fm@client.co.nz'), ins: who('ins', 'ins@mm.co.nz'), adm: who('adm', 'adm@resero.co.nz'), ed: who('ed', 'ed@resero.co.nz'), con: who('con', 'con@gmail.com'), mm: who('mm', 'insp@mm.co.nz'), cli: who('cli', 'pl@client.co.nz'), vm: who('vm', 'vm@client.co.nz'), lim: who('lim', 'lim@resero.co.nz'), sup: who('super', 's@resero.co.nz'), rnd: who('rnd', 'x@random.com') };
+// people who created a password but never confirmed their email (the confirmation went to junk)
+U.nv = env.authenticatedContext('nv', { email: 'nick@miles.co.nz', email_verified: false });
+U.nv2 = env.authenticatedContext('nv2', { email: 'other@miles.co.nz', email_verified: false });
 const db = u => U[u].firestore(), st = u => U[u].storage(), D = (u, p) => doc(db(u), p);
 let pass = 0, fail = 0;
 const t = async (name, fn) => { try { await fn(); pass++; console.log('ok    ' + name); } catch (e) { fail++; console.log('FAIL  ' + name + ' :: ' + String(e && e.message || e).split('\n')[0]); } };
@@ -104,6 +107,15 @@ await t('inspector accepts an item in its register', () => ok(updateDoc(D('ins',
 await t('inspector cannot rewrite the description of an item it did not raise', () => no(updateDoc(D('ins', pp('defects/MM-2')), { desc: 'changed' })));
 await t('inspector cannot touch another register', () => no(updateDoc(D('ins', pp('defects/D-1')), { status: 'Closed' })));
 await t('inspector raises an item in its register', () => ok(setDoc(D('ins', pp('defects/MM-3')), { source: 'MM', status: 'Open', history: [], createdBy: 'ins@mm.co.nz' })));
+// joining with the key from the invitation link, without a confirmed email
+await env.withSecurityRulesDisabled(async ctx => { await setDoc(doc(ctx.firestore(), 'invites/p1_nick@miles.co.nz'), { pid: 'p1', email: 'nick@miles.co.nz', role: 'contractor', key: 'abcdefghjkmnpqrstuvw' }); });
+const joinAs = (u, uid, email, key, role) => updateDoc(D(u, 'projects/p1'), { [`members.${uid}`]: role, memberUids: arrayUnion(uid), [`memberInfo.${uid}`]: { name: 'N', email, inviteKey: key } });
+await t('an unconfirmed person cannot join with a wrong key', () => no(joinAs('nv', 'nv', 'nick@miles.co.nz', 'wrongwrongwrongwrong', 'contractor')));
+await t('an unconfirmed person cannot take a higher role than invited', () => no(joinAs('nv', 'nv', 'nick@miles.co.nz', 'abcdefghjkmnpqrstuvw', 'admin')));
+await t('someone else cannot use another person\'s link', () => no(joinAs('nv2', 'nv2', 'other@miles.co.nz', 'abcdefghjkmnpqrstuvw', 'contractor')));
+await t('an unconfirmed person joins with the key from their invitation link', () => ok(joinAs('nv', 'nv', 'nick@miles.co.nz', 'abcdefghjkmnpqrstuvw', 'contractor')));
+await t('after joining they can clear their invitation', () => ok(deleteDoc(D('nv', 'invites/p1_nick@miles.co.nz'))));
+await t('an invitation without a key still needs a confirmed email', async () => { await env.withSecurityRulesDisabled(async ctx => { await setDoc(doc(ctx.firestore(), 'invites/p1_other@miles.co.nz'), { pid: 'p1', email: 'other@miles.co.nz', role: 'viewer' }); }); return no(joinAs('nv2', 'nv2', 'other@miles.co.nz', '', 'viewer')); });
 // helper keys
 await t('contractor reads the AI helper settings', () => ok(getDoc(D('con', pp('private/ai')))));
 await t('contractor cannot read the admin key', () => no(getDoc(D('con', pp('private/admin')))));

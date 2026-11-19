@@ -64,7 +64,8 @@ service cloud.firestore {
       allow create, update: if isAdmin(request.resource.data.pid)
         && inviteId == request.resource.data.pid + '_' + request.resource.data.email
         && request.resource.data.role in ['admin', 'editor', 'contractor', 'viewer', 'client', 'inspector'];
-      allow delete: if isAdmin(resource.data.pid) || (verified() && resource.data.email == myEmail());
+      allow delete: if isAdmin(resource.data.pid) || (verified() && resource.data.email == myEmail())
+        || (signed() && resource.data.email == myEmail() && request.auth.uid in get(/databases/$(db)/documents/projects/$(resource.data.pid)).data.get('memberUids', []));
     }
 
     match /projects/{pid} {
@@ -78,6 +79,17 @@ service cloud.firestore {
         || ((canEdit(pid) || isContractor(pid) || isClient(pid) || isInspector(pid)) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
         // a member records when they last opened the project (their own memberInfo entry only)
         || (isMember(pid) && changed().hasOnly(['memberInfo'])
+            && request.resource.data.memberInfo.diff(resource.data.get('memberInfo', {})).affectedKeys().hasOnly([request.auth.uid]))
+        // a user accepts an invitation with the secret key from the link in their invitation email (opening it proves the mailbox is theirs)
+        || (signed()
+            && exists(/databases/$(db)/documents/invites/$(pid + '_' + myEmail()))
+            && get(/databases/$(db)/documents/invites/$(pid + '_' + myEmail())).data.get('key', '') is string
+            && get(/databases/$(db)/documents/invites/$(pid + '_' + myEmail())).data.get('key', '').size() >= 16
+            && request.resource.data.memberInfo[request.auth.uid].get('inviteKey', '') == get(/databases/$(db)/documents/invites/$(pid + '_' + myEmail())).data.key
+            && changed().hasOnly(['members', 'memberUids', 'memberInfo'])
+            && request.resource.data.members.diff(resource.data.get('members', {})).affectedKeys().hasOnly([request.auth.uid])
+            && request.resource.data.members[request.auth.uid] == get(/databases/$(db)/documents/invites/$(pid + '_' + myEmail())).data.role
+            && request.resource.data.memberUids.toSet() == resource.data.get('memberUids', []).toSet().union([request.auth.uid].toSet())
             && request.resource.data.memberInfo.diff(resource.data.get('memberInfo', {})).affectedKeys().hasOnly([request.auth.uid]))
         // a user accepts an invitation sent to their verified email address
         || (verified()

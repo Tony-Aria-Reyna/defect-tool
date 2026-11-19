@@ -62,12 +62,24 @@ async function boot() {
   let linkT = 0;
   $('sLink').onclick = async ev => { ev.preventDefault(); const e = sEm(); if (!e) return; if (Date.now() - linkT < 60000) { $('sMsg').textContent = 'A link was sent less than a minute ago. Check your inbox (and junk folder) before asking for another.'; return; } sBusy(true, 'Sending the link…'); try { await S.store.sendLink(e); linkT = Date.now(); sBusy(false, ''); $('sMsg').innerHTML = '<b>Sent to ' + esc(e) + '.</b> Open the email <b>on this phone</b> and tap the link. It can take a minute to arrive; check junk if not.'; } catch (x) { sBusy(false, friendly(x)); } };
   show('scrSign');
+  // an invitation link (?join=…&k=…): keep it until they have signed in, and tell them which address to use
+  try { const q = new URLSearchParams(location.search); if (q.get('join') && q.get('k')) { localStorage.setItem('rd-join', JSON.stringify({ pid: q.get('join'), key: q.get('k'), role: q.get('r') || '', email: (q.get('e') || '').toLowerCase(), at: Date.now() })); history.replaceState(null, '', location.pathname); } } catch (e) {}
+  const pendingJoin = () => { try { const j = JSON.parse(localStorage.getItem('rd-join') || 'null'); return j && Date.now() - j.at < 30 * 864e5 ? j : null; } catch (e) { return null; } };
+  { const j = pendingJoin(); if (j && $('sMsg')) { $('sMsg').innerHTML = `<b>You have been invited.</b> Sign in with Google, or choose "First time? Create a password", using <b>${esc(j.email || 'the address the invitation was sent to')}</b>. You are added straight away.`; if (j.email && $('sEmail')) $('sEmail').value = j.email; } }
   try { await S.store.completeLink(); } catch (e) { $('sMsg').textContent = friendly(e); }
   S.store.onAuth(async u => {
     S.user = u;
     if (!u) { cleanupProject(); show('scrSign'); $('signChecking').style.display = 'none'; $('signForm').style.display = ''; return; }
     S.sup = await S.store.isSuper(); S.store.getLibrary('typicals').then(L => { S.lib = L; });
     try { const n = await S.store.claimInvites(); if (n) toast('You have been added to ' + n + ' project' + (n > 1 ? 's' : '')); } catch (e) { console.warn(e); }
+    const j = pendingJoin();
+    if (j && S.store.joinWithKey) {
+      if (j.email && j.email !== String(u.email || '').toLowerCase()) toast(`That invitation was for ${j.email}, but you are signed in as ${u.email}. Sign out and sign in with ${j.email}.`, 12000);
+      else { try { await S.store.joinWithKey(j.pid, j.key, j.role); localStorage.removeItem('rd-join'); toast('You have joined the project. Welcome.', 6000); if (await openProject(j.pid, true)) return; }
+        catch (e) { console.warn('join', e); if (/permission/i.test(e.message || e.code || '')) { localStorage.removeItem('rd-join');
+          let mine = false; try { mine = (await S.store.listProjects()).some(x => x.id === j.pid); } catch (x) {}
+          if (mine) { if (await openProject(j.pid, true)) return; } else toast('That invitation link has been replaced or used already. Ask for the invitation to be sent again.', 10000); } } }
+    }
     const last = S.local.lastProject;
     if (last && (await openProject(last, true))) return;
     showProjects();

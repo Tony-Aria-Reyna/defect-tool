@@ -12,6 +12,8 @@ export function init(ctx) { X = ctx; }
 const lines = a => (a || []).join('\n');
 const fromLines = s => String(s || '').split('\n').map(x => x.trim()).filter(Boolean);
 const appUrl = () => location.origin + location.pathname;
+// the personal link in an invitation: opening it and signing in with the invited address joins the project, no confirmation email needed
+export const joinUrl = (pid, email, role, key) => `${appUrl()}?join=${encodeURIComponent(pid)}&r=${encodeURIComponent(role)}&k=${encodeURIComponent(key)}&e=${encodeURIComponent(email)}`;
 
 /* ================================================================ project settings */
 export function projectSettings(p) {
@@ -160,13 +162,13 @@ export async function usersDialog() {
   modal(`<h2>Users and access</h2>
   <table class="t"><tr><th>Person</th><th>Role</th><th></th></tr>
   ${Object.entries(p.members || {}).map(([u, r]) => `<tr><td>${u !== S.user.uid && (info[u] || {}).email ? `<a href="#" data-pa="${esc(info[u].email)}" title="Set which sections this person can use">` : '<span>'}<b>${esc((info[u] || {}).name || '')}</b><br><span class="muted small">${esc((info[u] || {}).email || u)}</span>${u !== S.user.uid && (info[u] || {}).email ? '</a>' : '</span>'}${accTag(p, (info[u] || {}).email, r)}<br><span class="muted small">${lastSeenTxt((info[u] || {}).lastSeen)}</span>${actTxt((info[u] || {}).act)}</td><td>${roleSel(r, `data-u="${esc(u)}" ${u === S.user.uid ? 'disabled' : ''}`)}</td><td>${u === S.user.uid ? '<span class="muted small">you</span>' : `<button class="btn" data-rm="${esc(u)}">Remove</button>`}</td></tr>`).join('')}
-  ${inv.map(i => `<tr><td><a href="#" data-pa="${esc(i.email)}" title="Set which sections this person can use">${esc(i.email)}</a>${accTag(p, i.email, i.role)}<br><span class="muted small">Invited ${esc(i.at ? i.at.slice(0, 10) : '')}, not signed in yet</span></td><td>${roleSel(i.role, `data-ir="${esc(i.email)}"`)}</td><td><button class="btn" data-ci="${esc(i.email)}">Cancel</button></td></tr>`).join('')}
+  ${inv.map(i => `<tr><td><a href="#" data-pa="${esc(i.email)}" title="Set which sections this person can use">${esc(i.email)}</a>${accTag(p, i.email, i.role)}<br><span class="muted small">Invited ${esc(i.at ? i.at.slice(0, 10) : '')}, not signed in yet</span></td><td>${roleSel(i.role, `data-ir="${esc(i.email)}"`)}</td><td><button class="btn" data-rs="${esc(i.email)}" data-rr="${esc(i.role)}" title="Send a fresh invitation with a personal link">Resend</button> <button class="btn" data-ci="${esc(i.email)}">Cancel</button></td></tr>`).join('')}
   </table>
   <h3 class="sec">Invite someone</h3>
   <div class="grid"><label class="f">Email address<input id="uEmail" type="email" placeholder="name@company.co.nz"></label><label class="f">Role${roleSel('editor', 'id="uRole"')}</label></div>
   <p class="note" id="uHelp"></p>
   <div class="act" style="justify-content:flex-start"><button class="go" id="uInv">Send invitation</button></div>
-  <p class="note">They sign in at <b>${esc(appUrl())}</b> with Google, or with an email link, <b>using this same email address</b>. They are added to the project automatically when they first sign in.</p>
+  <p class="note">The invitation has a personal link. They open it and sign in with Google, or create a password, <b>using this same email address</b>, and they are in. No confirmation email is needed. Invitations sent before 20 Nov 2026 have no link: press Resend.</p>
   <div class="act" style="justify-content:flex-start"><button id="uAcc">🔒 Access by organisation</button><span class="note" style="margin-left:8px">Choose which sections each company can use. Click a person's name to set them differently.</span></div>
   <details class="ext"><summary>Invitation not working? Add them by user ID</summary><p class="note">If someone has signed in and still sees "You have not been added to any projects yet", ask them to send you the user ID shown on that screen (copied, not retyped), paste it here and choose their role.</p><div class="grid"><label class="f">User ID<input id="uUid" placeholder="paste the user ID"></label><label class="f">Their email (for your records)<input id="uUidE" type="email"></label></div><div class="act" style="justify-content:flex-start"><button id="uUidGo">Add this person</button></div></details>
   <div class="act"><button id="uX">Close</button></div>`, true);
@@ -179,15 +181,17 @@ export async function usersDialog() {
   document.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => { if (await confirmBox('Remove this person from the project?', 'Remove')) { await S.store.setMember(p.id, b.dataset.rm, null); usersDialog(); } });
   document.querySelectorAll('[data-ir]').forEach(s => s.onchange = async () => { try { await S.store.invite(p.id, s.dataset.ir, s.value, p.name); toast('Invitation changed to ' + ROLES[s.value]); } catch (e) { toast('Could not change: ' + e.message, 5000); usersDialog(); } });
   document.querySelectorAll('[data-ci]').forEach(b => b.onclick = async () => { await S.store.cancelInvite(p.id, b.dataset.ci); usersDialog(); });
-  $('uInv').onclick = async () => {
-    const e = $('uEmail').value.trim().toLowerCase(), r = $('uRole').value; if (!/^\S+@\S+\.\S+$/.test(e)) return toast('Enter a valid email address');
-    try { await S.store.invite(p.id, e, r, p.name); } catch (x) { return toast('Could not invite: ' + x.message, 5000); }
-    const msg = `Hi,\n\nYou have been given ${ROLES[r]} access to ${p.name} on ${APP.name}. ${ROLE_HELP[r] || ''}\n\nOpen ${appUrl()} and sign in with Google, or choose "Email me a sign-in link", using this email address (${e}). On a phone you can add it to your home screen.\n\nRegards,\n${S.user.name}\n${APP.company}`;
+  const sendDlg = async (e, r) => {
+    let key; try { key = await S.store.invite(p.id, e, r, p.name); } catch (x) { return toast('Could not invite: ' + x.message, 5000); }
+    const link = joinUrl(p.id, e, r, key);
+    const msg = `Hi,\n\nYou have been given ${ROLES[r]} access to ${p.name} on ${APP.name}. ${ROLE_HELP[r] || ''}\n\nOpen your personal link below, then sign in with Google or choose "First time? Create a password", using this email address (${e}). You are added straight away.\n\n${link}\n\nAfter that, the app is at ${appUrl()}. On a phone you can add it to your home screen.\n\nRegards,\n${S.user.name}\n${APP.company}`;
     modal(`<h2>Invitation saved</h2><p>${esc(e)} is invited as <b>${esc(ROLES[r])}</b>. Send them this message (Outlook or text):</p><textarea class="codebox" style="width:100%;min-height:180px">${esc(msg)}</textarea>
       <div class="act"><button id="cpy">Copy message</button><a class="btn" href="mailto:${encodeURIComponent(e)}?subject=${encodeURIComponent('Your access to ' + p.name + ' on ' + APP.name)}&body=${encodeURIComponent(msg)}">Open in email</a><button class="go" id="ivSend">Send it from ${esc(APP.name)}</button><button id="bk">Back to users</button></div>`);
     $('cpy').onclick = () => { navigator.clipboard.writeText(msg).then(() => toast('Copied')); }; $('bk').onclick = usersDialog;
-    $('ivSend').onclick = async () => { const bb = busy('Sending…'); try { await (await import('./digest.js')).sendInvite(e, r, p.name); bb.done(); toast('Invitation sent to ' + e, 5000); usersDialog(); } catch (x) { bb.done(); toast(/needs updating/.test(x.message) ? 'The helper needs its update before it can send email. Use Open in email for now.' : x.message, 8000); } };
+    $('ivSend').onclick = async () => { const bb = busy('Sending…'); try { await (await import('./digest.js')).sendInvite(e, r, p.name, link); bb.done(); toast('Invitation sent to ' + e, 5000); usersDialog(); } catch (x) { bb.done(); toast(/needs updating/.test(x.message) ? 'The helper needs its update before it can send email. Use Open in email for now.' : x.message, 8000); } };
   };
+  $('uInv').onclick = () => { const e = $('uEmail').value.trim().toLowerCase(), r = $('uRole').value; if (!/^\S+@\S+\.\S+$/.test(e)) return toast('Enter a valid email address'); sendDlg(e, r); };
+  document.querySelectorAll('[data-rs]').forEach(b => b.onclick = () => sendDlg(b.dataset.rs, b.dataset.rr));
 }
 
 /* ================================================================ plans */

@@ -5,6 +5,8 @@ const unflat = a => Array.isArray(a) && a.length && !Array.isArray(a[0]) ? a.red
 //  - LocalStore:    ?demo mode. Everything in this browser's IndexedDB, one local admin user. Used for testing and training.
 import { firebaseConfig } from './config.js';
 
+// a hard-to-guess key for each invitation link
+const newKey = () => Array.from(crypto.getRandomValues(new Uint8Array(18)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
 const lower = s => String(s || '').trim().toLowerCase();
 const emailKey = e => lower(e).replace(/[^a-z0-9@._+-]/g, '');
 // Some records live in a second collection (restricted documents in rdocs). The FM module sets route.fn so a write to 'docs'
@@ -110,7 +112,12 @@ async function firebaseStore() {
     },
     // Invitations live in a top-level collection, id = <projectId>_<email>, so a new user can find theirs.
     async listInvites(pid) { const s = await F.getDocs(F.query(C('invites'), F.where('pid', '==', pid))); return s.docs.map(d => ({ id: d.id, ...d.data() })); },
-    async invite(pid, email, role, projectName) { const e = emailKey(email); await F.setDoc(D('invites', pid + '_' + e), { pid, email: e, role, projectName: projectName || '', by: me().email, at: new Date().toISOString() }); },
+    // Each invitation carries a secret key that goes in the link sent to the person. Opening the link proves they read that
+    // mailbox, which is what the confirmation email proved, so they can join without it (those emails often land in junk).
+    async invite(pid, email, role, projectName) { const e = emailKey(email), key = newKey(); await F.setDoc(D('invites', pid + '_' + e), { pid, email: e, role, projectName: projectName || '', by: me().email, at: new Date().toISOString(), key }); return key; },
+    async joinWithKey(pid, key, role) { const m = me(); if (!m.email) throw new Error('This sign-in has no email address');
+      await F.updateDoc(D('projects', pid), { [`members.${m.uid}`]: role, memberUids: F.arrayUnion(m.uid), [`memberInfo.${m.uid}`]: { name: m.name, email: m.email, inviteKey: key } });
+      try { await F.deleteDoc(D('invites', pid + '_' + m.email)); } catch (e) {} return true; },
     async cancelInvite(pid, email) { await F.deleteDoc(D('invites', pid + '_' + emailKey(email))); },
     // The same as claimInvites, but says what it found so a person stuck on "not added yet" can see why.
     async claimReport() {
@@ -236,7 +243,8 @@ async function localStore(dbName, asUser) {
     async updateProject(pid, patch) { const p = await get('projects/' + pid); await put('projects/' + pid, { ...p, ...patch }); },
     async setMember(pid, uid, role) { const p = await get('projects/' + pid); if (role) p.members[uid] = role; else { delete p.members[uid]; delete (p.memberInfo || {})[uid]; } p.memberUids = Object.keys(p.members); await put('projects/' + pid, p); },
     async listInvites(pid) { return list(`projects/${pid}/invites/`); },
-    async invite(pid, email, role, projectName) { const e = emailKey(email); await put(`projects/${pid}/invites/${e}`, { email: e, role, projectName, by: user.email, at: new Date().toISOString() }); },
+    async invite(pid, email, role, projectName) { const e = emailKey(email); await put(`projects/${pid}/invites/${e}`, { email: e, role, projectName, by: user.email, at: new Date().toISOString() }); return 'demo'; },
+    async joinWithKey() { return false; },
     async cancelInvite(pid, email) { await del(`projects/${pid}/invites/${emailKey(email)}`); },
     async claimInvites() { return 0; },
     async claimReport() { return { msg: 'Demo mode has no invitations.' }; },
