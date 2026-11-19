@@ -1,0 +1,18 @@
+name: Test Firebase rules
+on:
+  push:
+    branches: [rules-test]
+  workflow_dispatch:
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - run: npm i -g firebase-tools
+      - run: cd test && npm i --no-audit --no-fund
+      - run: firebase emulators:exec --only firestore,storage --project demo-resero "node test/rules.test.mjs"

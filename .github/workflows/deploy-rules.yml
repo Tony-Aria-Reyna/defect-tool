@@ -2,10 +2,14 @@ name: Deploy Firebase rules
 on:
   push:
     branches: [main]
-    paths: ['firestore.rules', 'storage.rules', 'firebase.json', '.github/workflows/deploy-rules.yml']
+    paths: ['firestore.rules', 'storage.rules', 'firebase.json', 'test/**', '.github/workflows/deploy-rules.yml', '.github/workflows/rules-test.yml']
   workflow_dispatch:
 jobs:
+  # the rules are tested against the emulator first; nothing is deployed if a test fails
+  test:
+    uses: ./.github/workflows/rules-test.yml
   rules:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

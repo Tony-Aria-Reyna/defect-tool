@@ -14,6 +14,16 @@ service firebase.storage {
     function canRead(pid) { return request.auth != null && (isSuper() || roleOf(pid) != ''); }
     function canUpload(pid) { return request.auth != null && (isSuper() || roleOf(pid) in ['admin', 'editor', 'contractor']); }
     function canDelete(pid) { return request.auth != null && (isSuper() || roleOf(pid) in ['admin', 'editor']); }
+    function isAdmin(pid) { return request.auth != null && (isSuper() || roleOf(pid) == 'admin'); }
+    function restrictedOk(pid) { return isAdmin(pid) || (canRead(pid)
+      && firestore.get(/databases/(default)/documents/projects/$(pid)).data.get('restrictedTo', []).hasAny([request.auth.token.email.lower(), request.auth.token.email.lower().split('@')[1]])); }
+
+    // Restricted documents (credentials, bonds, guarantees, insurances): admins and the people the project lists
+    match /projects/{pid}/restricted/{rest=**} {
+      allow read: if restrictedOk(pid);
+      allow create, update: if isAdmin(pid) && request.resource.size < 150 * 1024 * 1024;
+      allow delete: if isAdmin(pid);
+    }
 
     // Handover and FM documents: any file type, up to 150 MB
     match /projects/{pid}/docs/{rest=**} {
@@ -23,11 +33,11 @@ service firebase.storage {
     }
     // Plans and photos: images and PDFs, up to 20 MB
     match /projects/{pid}/{folder}/{rest=**} {
-      allow read: if canRead(pid);
+      allow read: if canRead(pid) && folder != 'restricted';
       allow create, update: if folder in ['plans', 'photos'] && canUpload(pid)
         && request.resource.size < 20 * 1024 * 1024
         && request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.*|text/.*|message/rfc822|application/octet-stream');
-      allow delete: if canDelete(pid);
+      allow delete: if canDelete(pid) && folder != 'restricted';
     }
   }
 }
