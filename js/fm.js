@@ -1,5 +1,6 @@
 // Facility management modules: dashboard, assets and warranties, maintenance, compliance (BWoF), documents.
-import { S, can, isMajor , mayUse } from './state.js';
+import { S, can, isMajor, mayUse, canRestricted } from './state.js';
+import { route } from './store.js';
 import { STATUS_COLOURS as SCOL } from './config.js';
 import * as Pack from './pack.js';
 import * as Nav from './nav.js';
@@ -28,7 +29,10 @@ export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] };
   const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], systems: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], tasks: ['maint', 'comp', 'dash', 'assets', 'guide'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'], actions: ['comp', 'dash'] };
   document.querySelectorAll('#modbar button').forEach(b => b.hidden = !mayUse(b.dataset.m === 'actions' ? 'comp' : b.dataset.m));
-  ['assets', 'docs', 'tasks', 'systems', 'guide', 'actions'].filter(c => NEED[c].some(mayUse)).forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
+  const parts = { docs: [], rdocs: [] }; RIDS = new Set(); route.fn = (c, id) => c === 'docs' && RIDS.has(id) ? 'rdocs' : c;
+  const mergeDocs = () => { fm().docs = [...parts.docs.filter(d => !RIDS.has(d.id)), ...parts.rdocs.map(d => ({ ...d, restricted: true }))]; };
+  ['assets', 'docs', 'tasks', 'systems', 'guide', 'actions'].filter(c => NEED[c].some(mayUse)).forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { if (c === 'docs') { parts.docs = l; mergeDocs(); } else fm()[c] = l; if (cur !== 'defects') render(); }, e => console.warn(c, e))));
+  if (canRestricted() && NEED.docs.some(mayUse)) unsubs.push(S.store.watchColl(pid, 'rdocs', l => { parts.rdocs = l; RIDS = new Set(l.map(d => d.id)); mergeDocs(); if (cur !== 'defects') render(); }, e => console.warn('rdocs', e)));
   const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
   setModule(mayUse('defects') || !first ? 'defects' : first.dataset.m);
 }
@@ -43,7 +47,8 @@ export function setModule(m) {
 function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view })[cur]?.(); }
 
 /* ---------------------------------------------------------------- dates and helpers */
-const dISO = d => d.toISOString().slice(0, 10);
+// a date as YYYY-MM-DD in local time (toISOString would give the UTC date, a day early in New Zealand)
+const dISO = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 export function addFreq(iso, n, unit) { const d = new Date((iso || todayISO()) + 'T00:00'); if (unit === 'weeks') d.setDate(d.getDate() + 7 * n); else if (unit === 'years') d.setFullYear(d.getFullYear() + +n); else d.setMonth(d.getMonth() + +n); return dISO(d); }
 const days = iso => iso ? Math.round((new Date(iso + 'T00:00') - new Date(todayISO() + 'T00:00')) / 864e5) : null;
 export const freqText = t => t.freqN ? (t.freqN == 1 ? 'Every ' + UNITS[t.freqUnit] : `Every ${t.freqN} ${t.freqUnit}`) : 'One-off';
@@ -99,6 +104,8 @@ function dash() {
   const dnpEnd = p.pcDate ? addFreq(p.pcDate, +(p.dnpMonths || 12), 'months') : '';
   const k = (c, n, l, m) => `<div class="kpi" style="--c:${c}" data-go="${m}"><b>${n}</b><span>${l}</span></div>`;
   $('fmView').innerHTML = `<div class="fbar"><h2>${esc(p.name)}: facility dashboard</h2><span class="sp"></span>${can.admin() ? '<button class="btn2" id="dSet">Key dates</button><button class="btn2" id="dCon">Contacts</button>' : ''}<button class="btn2" id="dIcs">📅 Calendar (.ics)</button><button class="btn2" id="dPack">⬇ FM register (Excel)</button><button class="btn2 go" id="dHand">📦 Handover pack</button></div>
+  ${can.admin() && !p.pcDate ? '<div class="fmwarn"><b>Practical completion date not set.</b> Warranty expiry dates and the end of the defects notification period cannot be worked out until it is. <button class="btn2 go sm" id="dPcSet">Set it</button></div>' : ''}
+  ${can.edit() && T.some(t => !t.nextDue) ? `<div class="fmwarn"><b>${T.filter(t => !t.nextDue).length} maintenance tasks have no due date</b>, so nothing will come up as due or overdue. <button class="btn2 go sm" id="dSch">Start the schedule</button></div>` : ''}
   <div class="kpis">
     ${k('#d64545', open.length, `Open defects${maj.length ? ` (${maj.length} major)` : ''}`, 'defects')}
     ${k(overdue.length ? '#d64545' : '#2e9b5f', overdue.length, 'Maintenance tasks overdue', 'maint')}
@@ -121,7 +128,7 @@ function dash() {
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { if (b.dataset.go === 'subs') { F.atab = 'subs'; return setModule('assets'); } setModule(b.dataset.go); });
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeTask(T.find(t => t.id === b.dataset.done)));
   document.querySelectorAll('[data-asset]').forEach(b => b.onclick = () => editAsset(A.find(a => a.id === b.dataset.asset)));
-  if ($('dSet')) $('dSet').onclick = keyDates; if ($('dCon')) $('dCon').onclick = contactsDialog; $('dHand').onclick = Pack.packDialog;
+  if ($('dSet')) $('dSet').onclick = keyDates; if ($('dPcSet')) $('dPcSet').onclick = keyDates; if ($('dSch')) $('dSch').onclick = startSchedule; if ($('dCon')) $('dCon').onclick = contactsDialog; $('dHand').onclick = Pack.packDialog;
   $('dIcs').onclick = exportIcs; $('dPack').onclick = exportFmRegister;
 }
 function keyDates() {
@@ -227,6 +234,25 @@ function editAsset(a) {
 }
 
 /* ================================================================ MAINTENANCE */
+// Start the maintenance schedule: every task without a due date is first due one interval after the start date
+// (normally practical completion), and the date can be saved as the project's practical completion at the same time.
+export function startSchedule() {
+  const T = fm().tasks.filter(t => !t.nextDue), p = S.project; if (!T.length) return toast('Every task already has a due date');
+  const g = {}; T.forEach(t => { const k = t.freqN ? t.freqN + '|' + t.freqUnit : '0|'; g[k] = (g[k] || 0) + 1; });
+  const rows = st => Object.entries(g).map(([k, n]) => { const [fn, fu] = k.split('|'); return `<tr><td>${n}</td><td>${fn === '0' ? 'One-off' : freqText({ freqN: +fn, freqUnit: fu })}</td><td>${st ? nzDate(fn === '0' ? st : addFreq(st, +fn, fu)) : ''}</td></tr>`; }).join('');
+  modal(`<h2>Start the maintenance schedule</h2><p>${T.length} task${T.length === 1 ? ' has' : 's have'} no due date. Each will be first due one interval after the start date. You can change any task afterwards.</p>
+  <label class="f">Start date (normally practical completion)<input type="date" id="usD" value="${esc(p.pcDate || '')}"></label>
+  ${can.admin() ? `<div class="opt"><input type="checkbox" id="usPc" ${p.pcDate ? '' : 'checked'}><label for="usPc">Save this as the practical completion date. Warranty expiry dates and the end of the defects notification period run from it.</label></div>` : ''}
+  <div class="opt"><input type="checkbox" id="usNow"><label for="usNow">Make every task first due on the start date instead</label></div>
+  <table class="t small"><tr><th>Tasks</th><th>Frequency</th><th>First due</th></tr><tbody id="usRows">${rows(p.pcDate)}</tbody></table>
+  <div class="act"><button id="usX">Cancel</button><button class="go" id="usOk">Start the schedule</button></div>`);
+  const upd = () => { const st = $('usD').value; $('usRows').innerHTML = $('usNow').checked && st ? Object.values(g).reduce((a, n) => a + n, 0) + ' tasks due ' + nzDate(st) : rows(st); };
+  $('usD').oninput = upd; $('usNow').onchange = upd; $('usX').onclick = closeModal;
+  $('usOk').onclick = async () => { const st = $('usD').value; if (!st) return toast('Choose the start date first'); const now = $('usNow').checked, b = busy('Scheduling…'); let n = 0;
+    try { if ($('usPc') && $('usPc').checked && st !== p.pcDate) { await S.store.updateProject(p.id, { pcDate: st }); p.pcDate = st; }
+      for (const t of fm().tasks.filter(t => !t.nextDue)) { b.set(`Scheduling ${++n} of ${T.length}…`); await S.store.patchItem(p.id, 'tasks', t.id, { nextDue: now || !t.freqN ? st : addFreq(st, t.freqN, t.freqUnit) }); }
+      b.done(); closeModal(); toast(`${n} tasks scheduled`, 4000); render(); } catch (e) { b.done(); toast('Stopped after ' + n + ': ' + e.message, 7000); } };
+}
 function maint() {
   if (F.reg) return maintRegister();
   const T = fm().tasks, q = F.q.toLowerCase(), win = F.win === 'all' ? 1e9 : +F.win;
@@ -234,17 +260,14 @@ function maint() {
   const groups = [['Overdue', t => days(t.nextDue) < 0], ['Next 30 days', t => days(t.nextDue) >= 0 && days(t.nextDue) <= 30], ['31 to 90 days', t => days(t.nextDue) > 30 && days(t.nextDue) <= 90], ['Later', t => days(t.nextDue) > 90], ['No date set', t => days(t.nextDue) == null]];
   const resp = [...new Set(T.map(t => t.responsible).filter(Boolean))].sort();
   $('fmView').innerHTML = `<div class="fbar"><h2>Maintenance</h2><input type="search" id="mQ" placeholder="Search tasks…" value="${esc(F.q)}"><select id="mW">${[['30', 'Due in 30 days'], ['90', 'Due in 90 days'], ['365', 'Due in 12 months'], ['all', 'All tasks']].map(([v, l]) => `<option value="${v}" ${F.win === v ? 'selected' : ''}>${l}</option>`).join('')}</select><select id="mC"><option value="">All categories</option>${TASK_CATS.map(c => `<option ${c === F.cat ? 'selected' : ''}>${c}</option>`).join('')}</select><select id="mS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="mR"><option value="">Anyone responsible</option>${resp.map(r => `<option ${r === F.resp ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>${can.edit() ? '<button class="btn2 go" id="mNew">+ Task</button>' : ''}${can.edit() && T.some(t => !t.nextDue) ? `<button class="btn2" id="mSch">Schedule ${T.filter(t => !t.nextDue).length} undated</button>` : ''}<button class="btn2" id="mReg" title="Every task by building system, to read or print">▤ Register</button><button class="btn2" id="mIcs">📅 .ics</button><button class="btn2" id="mX">⬇ Excel</button></div>
+  ${can.edit() && T.some(t => !t.nextDue) ? `<div class="fmwarn"><b>${T.filter(t => !t.nextDue).length} of ${T.length} tasks have no due date</b>, so nothing will come up as due or overdue. <button class="btn2 go sm" id="mSch2">Start the schedule</button></div>` : ''}
   ${T.length ? `<table class="ftable"><tr><th>Task</th><th class="hm">Building system</th><th>Frequency</th><th class="hm">Responsible</th><th class="hm">Last done</th><th>Next due</th><th></th></tr>
   ${groups.map(([g, fn]) => { const r = L.filter(fn); return r.length ? `<tr class="grp"><td colspan="7">${g} (${r.length})</td></tr>` + r.map(t => `<tr class="click" data-id="${esc(t.id)}"><td><b>${esc(t.title)}</b>${t.ss ? ` <span class="st st-info">${esc(t.ss)}</span>` : ''}<br><span class="muted small">${esc(t.category || '')}</span></td><td class="hm">${esc(sysShort(t.system))}</td><td>${esc(freqText(t))}</td><td class="hm">${esc(t.responsible || '')}</td><td class="hm">${t.lastDone ? nzDate(t.lastDone) : '-'}</td><td>${dueBadge(t.nextDue)}</td><td>${can.write() ? `<button class="btn2 sm teal" data-done="${esc(t.id)}">Done</button>` : ''}</td></tr>`).join('') : ''; }).join('')}</table>
   ${!L.length ? '<div class="empty2">Nothing due in this window. Choose "All tasks" to see everything.</div>' : ''}` : '<div class="empty2">No maintenance tasks yet. Add them here, or import the starter maintenance plan from ☰ > Import register.</div>'}`;
   $('mQ').oninput = e => { F.q = e.target.value; maint(); $('mQ').focus(); $('mQ').setSelectionRange(F.q.length, F.q.length); };
   $('mW').onchange = e => { F.win = e.target.value; maint(); }; $('mC').onchange = e => { F.cat = e.target.value; maint(); }; $('mS').onchange = e => { F.sys = e.target.value; maint(); }; $('mR').onchange = e => { F.resp = e.target.value; maint(); };
   if ($('mNew')) $('mNew').onclick = () => editTask(null);
-  if ($('mSch')) $('mSch').onclick = () => {
-    modal(`<h2>Schedule undated tasks</h2><p>Each task without a due date will be first due one interval after this start date (for example, a 6-monthly task starting 1 December is first due 1 June).</p><label class="f">Start date<input type="date" id="usD" value="${esc(S.project.pcDate || todayISO())}"></label><div class="opt"><input type="checkbox" id="usNow"><label for="usNow">Make every task first due on the start date instead</label></div><div class="act"><button id="usX">Cancel</button><button class="go" id="usOk">Schedule</button></div>`);
-    $('usX').onclick = closeModal;
-    $('usOk').onclick = async () => { const st = $('usD').value, now = $('usNow').checked, b = busy('Scheduling…'); try { for (const t of fm().tasks.filter(t => !t.nextDue)) await S.store.patchItem(S.project.id, 'tasks', t.id, { nextDue: now || !t.freqN ? st : addFreq(st, t.freqN, t.freqUnit) }); b.done(); closeModal(); toast('Scheduled'); } catch (e) { b.done(); toast(e.message, 6000); } };
-  };
+  if ($('mSch')) $('mSch').onclick = startSchedule; if ($('mSch2')) $('mSch2').onclick = startSchedule;
   $('mIcs').onclick = exportIcs; $('mX').onclick = exportFmRegister; $('mReg').onclick = () => { F.reg = true; maint(); };
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = e => { if (e.target.closest('[data-done]')) return; editTask(fm().tasks.find(t => t.id === r.dataset.id)); });
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = () => completeTask(fm().tasks.find(t => t.id === b.dataset.done)));
@@ -387,19 +410,19 @@ function docs() {
   if (q) L = L.map(d => ({ d, k: rank(d) - (hitMarks(d).length ? 0.5 : 0) })).sort((a, b) => a.k - b.k || natural(a.d.title, b.d.title)).map(x => x.d);
   const nChk = Dd.filter(AI.needsCheck).length, nProb = Dd.filter(d => (d.aiProblems || []).length).length;
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dDup" title="Find documents that are in the library more than once and remove the extra copies">🧹 Remove duplicates</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button>${can.edit() ? '<button class="btn2" id="dAi">✨ Read with AI</button>' : ''}</div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Documents</h2><input type="search" id="dQ" placeholder="Search documents…" value="${esc(F.q)}"><select id="dS">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="dT"><option value="">All types</option>${DOC_TYPES.map(t => `<option ${t === F.type ? 'selected' : ''}>${t}</option>`).join('')}</select>${can.write() ? '<button class="btn2 go" id="dUp">⬆ Upload files</button>' : ''}${can.edit() ? '<button class="btn2" id="dFold">🗂 Upload handover folder</button><button class="btn2" id="dDup" title="Find documents that are in the library more than once and remove the extra copies">🧹 Remove duplicates</button><button class="btn2" id="dLink">🔗 Add link</button>' : ''}${can.admin() ? `<button class="btn2" id="dRs" title="Credentials, bonds, guarantees and insurances: only admins and the people you list can open them">🔒 Restricted (${fm().docs.filter(d => d.restricted).length})</button>` : ''}<button class="btn2" id="dFind" title="Search the contract and specification in plain words">🔎 Find a clause</button><button class="btn2" id="dX">⬇ Index (Excel)</button>${can.edit() ? '<button class="btn2" id="dAi">✨ Read with AI</button>' : ''}</div>
   <div class="atab"><button id="dChk0" class="${F.chk || F.tpl ? '' : 'on'}">All documents</button><button id="dChk1" class="${F.chk ? 'on' : ''}">To check (${nChk})${nProb ? ' · ' + nProb + ' with problems' : ''}</button><button id="dTpl" class="${F.tpl ? 'on' : ''}" title="Blank forms for the project team. Never included in the handover export.">📋 Templates and blank forms (${fm().docs.filter(d => d.template).length})</button></div>${F.tpl ? '<p class="note">Blank forms for the project team to send out. Open one and press <b>Mark</b> to box what has to be filled in, then <b>⬇ With markup</b> gives a copy with those boxes and instructions. Templates are never included in the handover export.</p>' : ''}
   <p class="muted small">${L.length} of ${Dd.length} documents${q ? ' · most important first; matching boxes are listed under each document' : ''}</p>
   ${L.length ? `<table class="ftable"><tr><th>Document</th><th>Type</th><th class="hm">From</th><th class="hm">Expiry</th><th class="hm">Linked to</th><th></th></tr>
   ${L.map(d => { const g = !q && (d.system || '') !== last ? `<tr class="grp"><td colspan="6">${esc(d.system || 'Unsorted')}</td></tr>` : ''; last = d.system || ''; const hm = hitMarks(d).slice(0, 4), pc = AI.pendingCount(d), np = (d.aiProblems || []).length; const al = (d.assetIds || []).map(id => fm().assets.find(a => a.id === id)).filter(Boolean);
-    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.url && !d.link && !d.size ? ' <span class="st" style="background:#fde2e2;color:#a32222">empty file: upload again</span>' : ''}${d.link ? ' <span class="st st-info">link</span>' : ''}${(d.marks || []).length ? ` <span class="st st-info" title="Clauses marked in this document">▭ ${d.marks.length}</span>` : ''}${np ? ` <span class="st st-bad" title="${esc(d.aiProblems.join(' | '))}">⚠ ${np} problem${np > 1 ? 's' : ''}</span>` : ''}${pc ? ` <span class="st st-warn">✨ ${pc} to check</span>` : d.aiRead ? ' <span class="st st-ok" title="Read by AI and checked">✨ read</span>' : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}${F.chk && np ? '<br><span class="small" style="color:#a32222">' + d.aiProblems.map(esc).join('<br>') + '</span>' : ''}${hm.map(m => `<br><a href="#" class="small" data-mk="${esc(d.id)}|${esc(m.id)}">▭ p. ${m.page}: ${esc((m.period || m.text || m.kind || '').slice(0, 110))}</a>`).join('')}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">${DV.isPdf(d) ? 'View' : 'Open'}</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
+    return g + `<tr class="click" data-id="${esc(d.id)}"><td><b>${esc(d.title)}</b>${d.restricted ? ' <span class="st st-bad" title="Only admins and the people listed under Restricted can open it">🔒 Restricted</span>' : ''}${d.url && !d.link && !d.size ? ' <span class="st" style="background:#fde2e2;color:#a32222">empty file: upload again</span>' : ''}${d.link ? ' <span class="st st-info">link</span>' : ''}${(d.marks || []).length ? ` <span class="st st-info" title="Clauses marked in this document">▭ ${d.marks.length}</span>` : ''}${np ? ` <span class="st st-bad" title="${esc(d.aiProblems.join(' | '))}">⚠ ${np} problem${np > 1 ? 's' : ''}</span>` : ''}${pc ? ` <span class="st st-warn">✨ ${pc} to check</span>` : d.aiRead ? ' <span class="st st-ok" title="Read by AI and checked">✨ read</span>' : ''}${d.size ? ` <span class="muted small">${(d.size / 1e6).toFixed(1)} MB</span>` : ''}${F.chk && np ? '<br><span class="small" style="color:#a32222">' + d.aiProblems.map(esc).join('<br>') + '</span>' : ''}${hm.map(m => `<br><a href="#" class="small" data-mk="${esc(d.id)}|${esc(m.id)}">▭ p. ${m.page}: ${esc((m.period || m.text || m.kind || '').slice(0, 110))}</a>`).join('')}</td><td class="small">${esc(d.type || '')}</td><td class="hm">${esc(d.party || '')}</td><td class="hm">${d.expiry ? dueBadge(d.expiry) : ''}</td><td class="hm small">${al.map(a => esc(a.element)).join(', ')}</td><td><button class="btn2 sm" data-open="${esc(d.id)}">${DV.isPdf(d) ? 'View' : 'Open'}</button></td></tr>`; }).join('')}</table>` : `<div class="empty2">${Dd.length ? 'No documents match.' : 'No documents yet. Upload the handover pack folder to bring everything in at once, filed by system and type.'}</div>`}`;
   $('dQ').oninput = e => { F.q = e.target.value; docs(); $('dQ').focus(); $('dQ').setSelectionRange(F.q.length, F.q.length); };
   $('dS').onchange = e => { F.sys = e.target.value; docs(); }; $('dT').onchange = e => { F.type = e.target.value; docs(); };
   if ($('dUp')) $('dUp').onclick = () => pickDocs({ system: F.sys });
   if ($('dFold')) $('dFold').onclick = () => $('fFolder').click();
   if ($('dDup')) $('dDup').onclick = removeDuplicates;
   if ($('dLink')) $('dLink').onclick = () => editDoc(null);
-  $('dFind').onclick = () => DV.findClause({});
+  $('dFind').onclick = () => DV.findClause({}); if ($('dRs')) $('dRs').onclick = restrictDialog;
   $('dChk0').onclick = () => { F.chk = false; F.tpl = false; docs(); }; $('dChk1').onclick = () => { F.chk = true; F.tpl = false; docs(); }; $('dTpl').onclick = () => { F.tpl = true; F.chk = false; docs(); };
   if ($('dAi')) $('dAi').onclick = aiReadDialog;
   document.querySelectorAll('[data-mk]').forEach(a => a.onclick = e => { e.preventDefault(); e.stopPropagation(); const [id, mk] = a.dataset.mk.split('|'), d = fm().docs.find(x => x.id === id); if (d) DV.open(d, { markId: mk }); });
@@ -417,17 +440,55 @@ function editDoc(d) {
     ${sel('Type', 'oY', opts(DOC_TYPES, d.type))}${sel('Building system', 'oS', sysOpts(d.system, 1))}
     ${field('From (company)', 'oP', d.party)}${field('Issued', 'oI', d.issued, 'type="date"')}
     <div class="opt full"><input type="checkbox" id="oTpl" ${d.template ? 'checked' : ''}><label for="oTpl">Template or blank form (for the project team; never in the handover export)</label></div>
+    ${can.admin() && !isNew && d.url ? `<div class="opt full"><input type="checkbox" id="oRs" ${d.restricted ? 'checked' : ''}><label for="oRs">🔒 Restricted: only admins${(S.project.restrictedTo || []).length ? ' and ' + esc(S.project.restrictedTo.join(', ')) : ''} can open it. Contractors and consultants never see it.</label></div>` : ''}
     ${field('Expiry (if any)', 'oE', d.expiry, 'type="date"')}${sel('Audience', 'oA', opts(['FM', 'Home user', 'Both'], d.audience || 'FM'))}
     ${/warrant|deed/i.test(d.type || '') ? `<p class="note full">Leave Expiry blank for a warranty that runs from practical completion. Its expiry is worked out on the linked asset from the PC date and the warranty period, and fills in automatically once PC is ${pcDate() ? 'set (currently ' + esc(nzDate(pcDate())) + ')' : 'certified and the date is entered under Dashboard > Key dates'}. Only enter a date here if one is printed on the document.</p>` : ''}
     ${d.url ? `<p class="full"><button class="btn2 go" id="oView">${DV.isPdf(d) ? '👁 View the document' : '↗ Open the file'}</button></p><p class="full small muted">File: ${esc(d.fileName || '')} ${d.size ? '(' + (d.size / 1e6).toFixed(1) + ' MB)' : ''}${d.srcPath ? '<br>From: ' + esc(d.srcPath) : ''}</p>` : field('Link (SharePoint, Procore or any web address)', 'oL', d.link, 'placeholder="https://…"', true)}
   </div><h3 class="sec">Linked assets</h3><div class="chips" id="oC">${chips()}</div>
   ${ro ? '' : `<label class="f" style="margin-top:8px">Link to an asset<select id="oAdd"><option value="">Choose…</option>${A.map(a => `<option value="${esc(a.id)}">${esc(sysShort(a.system) + ' · ' + a.element)}</option>`).join('')}</select></label>`}`,
-  { ro, onSave: async () => { const o = { ...d, title: val('oT'), type: val('oY'), system: val('oS'), party: val('oP'), issued: val('oI'), expiry: val('oE'), audience: val('oA'), template: !!($('oTpl') && $('oTpl').checked), updated: nowISO() }; if ($('oL')) o.link = val('oL'); if (!o.title) { toast('Enter a title'); return false; } if (isNew) { o.created = nowISO(); o.createdBy = S.user.email; } await S.store.saveItem(S.project.id, 'docs', o);
+  { ro, onSave: async () => { const o = { ...d, title: val('oT'), type: val('oY'), system: val('oS'), party: val('oP'), issued: val('oI'), expiry: val('oE'), audience: val('oA'), template: !!($('oTpl') && $('oTpl').checked), updated: nowISO() }; if ($('oL')) o.link = val('oL'); if (!o.title) { toast('Enter a title'); return false; } if (isNew) { o.created = nowISO(); o.createdBy = S.user.email; } const rsOn = $('oRs') ? $('oRs').checked : !!d.restricted; delete o.restricted; await S.store.saveItem(S.project.id, 'docs', o);
+      if (rsOn !== !!d.restricted) { const b = busy(rsOn ? 'Moving it to the restricted folder…' : 'Opening it up…'); try { await setRestricted({ ...o, restricted: !!d.restricted }, rsOn); b.done(); toast(rsOn ? 'Restricted' : 'No longer restricted'); } catch (e) { b.done(); toast('Could not change: ' + e.message, 7000); } }
       if (o.assetIds && o.assetIds.length) for (const id of o.assetIds) { const a = fm().assets.find(x => x.id === id); if (a && a.status === 'Not received') await S.store.patchItem(S.project.id, 'assets', id, { status: 'Partial' }); } },
     onDelete: isNew ? null : async () => { await S.store.deleteItem(S.project.id, 'docs', d.id); if (d.path) S.store.deleteFile(d.path); } });
   if ($('oView')) $('oView').onclick = async () => { const cur = fm().docs.find(x => x.id === d.id) || d; if (!DV.isPdf(cur)) return openDoc(cur); await tryCloseSheet(); if ($('sheet2').classList.contains('show')) return; DV.open(cur, { ret: () => { const x = fm().docs.find(q => q.id === d.id); if (x) editDoc(x); } }); };
   const wireChips = () => document.querySelectorAll('#oC [data-rm]').forEach(b => b.onclick = () => { d.assetIds = d.assetIds.filter(x => x !== b.dataset.rm); $('oC').innerHTML = chips(); wireChips(); });
   wireChips(); if ($('oAdd')) $('oAdd').onchange = e => { if (e.target.value && !d.assetIds.includes(e.target.value)) d.assetIds.push(e.target.value); e.target.value = ''; $('oC').innerHTML = chips(); wireChips(); };
+}
+
+/* ================================================================ RESTRICTED DOCUMENTS */
+// Credentials, bonds, guarantees and insurances live in their own collection (rdocs) and storage folder (restricted/), which only
+// admins and the addresses or email domains in the project's restrictedTo can read. Moving a document uploads its file to the
+// restricted folder and deletes the old copy, so any link to the old copy stops working.
+let RIDS = new Set();
+const RESTRICT_RX = /cctv access|password|passcode|credential|log ?in details|access codes?\b|alarm codes?\b|\bbonds?\b|bank guarantee|parent company guarantee|performance guarantee|insurances?\b|indemnity|surety/i;
+export async function setRestricted(d, on) {
+  const pid = S.project.id, rec = { ...d }; delete rec.restricted;
+  if (d.path && d.url && !d.link) { const bytes = await X.getBytes(d.url); const np = `projects/${pid}/${on ? 'restricted' : 'docs'}/${d.id}/${safeName(d.fileName || 'file')}`;
+    rec.url = await S.store.putFile(np, new Blob([bytes], { type: d.mime || 'application/octet-stream' }), true); rec.path = np; }
+  if (on) { rec.restrictedAt = nowISO(); rec.restrictedBy = S.user.email; await S.store.saveItem(pid, 'rdocs', rec); await S.store.deleteItem(pid, 'docs', d.id); RIDS.add(d.id); }
+  else { RIDS.delete(d.id); delete rec.restrictedAt; delete rec.restrictedBy; await S.store.saveItem(pid, 'docs', rec); await S.store.deleteItem(pid, 'rdocs', d.id); }
+  if (d.path && d.path !== rec.path) { try { await S.store.deleteFile(d.path); } catch (e) {} }
+}
+export function restrictDialog() {
+  if (!can.admin()) return;
+  const D = fm().docs.filter(d => !d.template), cur = D.filter(d => d.restricted), cand = D.filter(d => !d.restricted && RESTRICT_RX.test([d.title, d.fileName, d.type].join(' ')));
+  const row = (d, on, note) => `<label class="opt"><input type="checkbox" data-rs="${esc(d.id)}" ${on ? 'checked' : ''}> <span><b>${esc(d.title)}</b> <span class="muted small">${esc(d.type || '')}${note ? ' · ' + note : ''}</span></span></label>`;
+  modal(`<h2>🔒 Restricted documents</h2><p>Only project admins and the people or email domains listed below can open restricted documents. Contractors and consultants never see them. In the handover pack they go into a separate Restricted folder.</p>
+  <label class="f">Also allowed to open them (email domains or addresses, separated by commas)<input id="rsTo" value="${esc((S.project.restrictedTo || []).join(', '))}" placeholder="e.g. clientcompany.co.nz"></label>
+  ${cur.length ? `<h3 class="sec">Restricted now (${cur.length})</h3><p class="note">Untick one to open it up again.</p>${cur.map(d => row(d, true)).join('')}` : ''}
+  <h3 class="sec">Suggested from their names (${cand.length})</h3>${cand.length ? '<p class="note">Credentials, bonds, guarantees and insurances. Untick anything that should stay open to the project team.</p>' + cand.map(d => row(d, true, d.submitted ? 'submitted by the contractor, who will no longer see it' : '')).join('') : '<p class="muted">Nothing else found. Open any document and tick Restricted to add it.</p>'}
+  <p class="note">Moving a document uploads its file to a locked folder and deletes the old copy, so any old link to it stops working.</p>
+  <div class="act"><button id="rsX">Cancel</button><button class="go" id="rsGo">Apply</button></div>`, true);
+  $('rsX').onclick = closeModal;
+  $('rsGo').onclick = async () => {
+    const to = [...new Set($('rsTo').value.split(/[,;\s]+/).map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$|^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(x)))];
+    const want = {}; document.querySelectorAll('[data-rs]').forEach(c => want[c.dataset.rs] = c.checked);
+    const jobs = D.filter(d => d.id in want && want[d.id] !== !!d.restricted); closeModal(); const b = busy('Saving…'), fail = []; let n = 0;
+    try { if (to.join(',') !== (S.project.restrictedTo || []).join(',')) { await S.store.updateProject(S.project.id, { restrictedTo: to }); S.project.restrictedTo = to; }
+      for (const d of jobs) { b.set(`${want[d.id] ? 'Restricting' : 'Opening up'} ${++n} of ${jobs.length}: ${d.title}`); try { await setRestricted(d, want[d.id]); } catch (e) { fail.push(d.title + ': ' + e.message); } }
+      b.done(); toast(fail.length ? `${jobs.length - fail.length} changed. Could not change: ${fail.join('; ')}` : `${jobs.length} document${jobs.length === 1 ? '' : 's'} changed`, fail.length ? 12000 : 4000); render();
+    } catch (e) { b.done(); toast('Could not save: ' + e.message, 8000); }
+  };
 }
 
 /* ================================================================ CONTACTS DIRECTORY */

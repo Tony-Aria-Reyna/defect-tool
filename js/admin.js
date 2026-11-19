@@ -92,7 +92,8 @@ function accTag(p, email, role) {
   const per = ((((p.access || {}).people) || {})[String(email).toLowerCase()] || {}).sections || [], o = orgOf(p, domOf(email));
   const l = per.length ? per : o.sections, bits = [];
   if (l.length) bits.push(l.map(k => SECTIONS[k]).join(', ') + (per.length ? ' (set for this person)' : ''));
-  if (o.sources.length && ['editor', 'viewer'].includes(role)) bits.push('items from ' + o.sources.join(', '));
+  const perSrc = ((((p.access || {}).people) || {})[String(email).toLowerCase()] || {}).sources || [], src = perSrc.length ? perSrc : o.sources;
+  if (src.length && ['editor', 'viewer'].includes(role)) bits.push('items from ' + src.join(', ') + (perSrc.length ? ' (set for this person)' : ''));
   return bits.length ? `<br><span class="small" style="color:var(--teal)">🔒 ${esc(bits.join('; '))}</span>` : '';
 }
 const SEC_IC = { dash: '◫', defects: '⚑', assets: '▤', maint: '⟳', comp: '✓', docs: '🗀', contacts: '☎', guide: '📖' };
@@ -120,7 +121,7 @@ async function accessDialog(p, inv) {
   wireTg(); $('acX').onclick = () => usersDialog();
   if ($('acGo')) $('acGo').onclick = () => {
     const orgs = {}; let bad = '';
-    document.querySelectorAll('[data-dom]').forEach((el, i) => { const sections = onList('as' + i), sources = $(`[name="ar${i}"]`) ? onList('ar' + i) : [];
+    document.querySelectorAll('[data-dom]').forEach((el, i) => { const sections = onList('as' + i), sources = document.querySelector(`[name="ar${i}"]`) ? onList('ar' + i) : [];
       if (!sections) bad = bad || el.dataset.dom + ' needs at least one section switched on'; else if (!sources) bad = bad || el.dataset.dom + ' needs at least one defect register switched on';
       else if (sections.length || sources.length) orgs[el.dataset.dom] = { sections, sources }; });
     if (bad) return toast(bad, 5000);
@@ -130,19 +131,21 @@ async function accessDialog(p, inv) {
 // Person level: overrides the organisation's sections for one person
 function personAccess(p, email) {
   email = String(email).toLowerCase(); const d = domOf(email), o = orgOf(p, d);
-  const per = ((((p.access || {}).people) || {})[email] || {}).sections || [];
+  const pp = (((p.access || {}).people) || {})[email] || {}, per = pp.sections || [], perSrc = pp.sources || [], own0 = per.length || perSrc.length;
   modal(`<h2>${esc(email)}</h2><p class="note">${o.sections.length ? `${esc(d)} can use: <b>${esc(o.sections.map(k => SECTIONS[k]).join(', '))}</b>.` : `${esc(d)} has no section limit.`}</p>
-  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="org" ${per.length ? '' : 'checked'}> Same as their organisation</label>
-  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="own" ${per.length ? 'checked' : ''}> Only these sections for this person:</label>
-  <div id="paL" class="${per.length ? '' : 'dim'}">${secBoxes(per.length ? per : o.sections, 'ps')}</div>
+  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="org" ${own0 ? '' : 'checked'}> Same as their organisation</label>
+  <label style="display:block;margin:8px 0"><input type="radio" name="paM" value="own" ${own0 ? 'checked' : ''}> Set for this person:</label>
+  <div id="paL" class="${own0 ? '' : 'dim'}"><p class="lbl">Sections</p>${secBoxes(per.length ? per : o.sections, 'ps')}
+  ${(p.sources || []).length ? `<p class="lbl" style="margin-top:10px">Defect registers they can see and add to (editors and viewers)</p>${togList(p.sources.map(x => [x, x, '⚑']), perSrc.length ? perSrc : o.sources, 'pr')}<p class="note">For example, a village manager who only raises and follows up residents' issues.</p>` : ''}</div>
   <p class="note">Admins are never limited, whatever is set here.</p>
   <div class="act"><button id="paX">Back</button><button class="go" id="paGo">Save</button></div>`, true);
   wireTg(); document.querySelectorAll('[name="paM"]').forEach(r => r.onchange = () => $('paL').classList.toggle('dim', r.value === 'org' && r.checked));
   $('paX').onclick = () => usersDialog();
   $('paGo').onclick = () => {
-    const own = document.querySelector('input[name="paM"]:checked').value === 'own', l = onList('ps');
+    const own = document.querySelector('input[name="paM"]:checked').value === 'own', l = onList('ps'), r = document.querySelector('[name="pr"]') ? onList('pr') : [];
     if (own && !l) return toast('Switch on at least one section, or choose "Same as their organisation"');
-    const people = { ...(((p.access || {}).people) || {}) }; if (own) people[email] = { sections: l }; else delete people[email];
+    if (own && !r) return toast('Switch on at least one defect register, or choose "Same as their organisation"');
+    const people = { ...(((p.access || {}).people) || {}) }; if (own && (l.length || r.length)) people[email] = { sections: l, sources: r }; else delete people[email];
     saveAccess(p, { ...(p.access || {}), people }, usersDialog);
   };
 }
@@ -1208,7 +1211,7 @@ async function saveImported(out) {
 }
 function mapStatus(s) { s = String(s || '').toLowerCase(); if (/closed|complete|resolved|done/.test(s)) return 'Closed'; if (/ready|review/.test(s)) return 'Ready for review'; if (/progress|rectif|underway/.test(s)) return 'In progress'; if (/disput/.test(s)) return 'Disputed'; return 'Open'; }
 function parseLoc(s) { const o = { block: '', unit: '', room: '' }; if (!s) return o; const b = /block\s*([A-Z0-9]+)/i.exec(s); if (b) o.block = b[1].toUpperCase(); const u = /unit\s*([A-Z]?\d+[A-Z]?)/i.exec(s); if (u) o.unit = u[1]; const rest = s.replace(/block\s*[A-Z0-9]+/ig, '').replace(/unit\s*[A-Z]?\d+[A-Z]?/ig, '').replace(/^[\s,-]+|[\s,-]+$/g, '').replace(/\s*-\s*/g, ' '); if (rest && !/^block/i.test(rest)) o.room = rest.trim(); return o; }
-function toISO(v) { if (!v) return ''; const d = new Date(v); if (!isNaN(d) && /\d{4}/.test(v)) return d.toISOString().slice(0, 10); const m = /(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/.exec(v); if (m) return `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; return ''; }
+function toISO(v) { if (!v) return ''; if (/^\d{4}-\d{2}-\d{2}/.test(String(v))) return String(v).slice(0, 10); const d = new Date(v); if (!isNaN(d) && /\d{4}/.test(v)) return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); const m = /(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/.exec(v); if (m) return `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; return ''; }
 const TRADE_RX = [[/liqui|membrane|wrap|flashing|cavity|cladding|soffit/i, 'Cladding & envelope'], [/brick/i, 'Brick veneer'], [/joinery|window|glaz|sill/i, 'Windows & glazing'], [/roof|gutter|spouting|downpipe|butyl/i, 'Roofing & rainwater'], [/fire|passive|penetration|intumescent|sprinkler/i, 'Fire protection'], [/balustrade|handrail|stair/i, 'Balustrades & stairs'], [/electric|light|switch|power/i, 'Electrical'], [/plumb|drain|pipe|waste|shower|tap/i, 'Plumbing & drainage'], [/paint|stopping/i, 'Painting & finishes'], [/door|hardware|lock/i, 'Doors & hardware'], [/floor|vinyl|carpet|tile/i, 'Floor coverings'], [/gib|plasterboard|lining|ceiling/i, 'Linings & ceilings'], [/deck|concrete|slab|steel|timber|framing|structural|bracing/i, 'Structure'], [/landscap|paving|fence|retaining/i, 'External works'], [/vent|fan|heat pump|mechanical/i, 'Mechanical & ventilation']];
 function guessTrade(s) { for (const [re, t] of TRADE_RX) if (re.test(s) && S.project.trades.includes(t)) return t; return S.project.trades[0]; }
 
@@ -1219,6 +1222,7 @@ export function aiSettings(msg) {
   <h3 class="sec">For everyone on this project${a ? '' : ' (set by the project admin)'}</h3>
   <p class="note">Recommended: a Google Apps Script helper holds the Gemini key, so it is never on anyone's device (see helper/Code.gs in the GitHub repo). Only project members can read these two values.</p>
   <div class="grid"><label class="f">Helper web address<input id="aiU" value="${esc(h.helperUrl || '')}" ${a ? '' : 'disabled'} placeholder="https://script.google.com/macros/s/…/exec"></label><label class="f">Helper key<input id="aiK" type="password" value="${esc(h.helperKey || '')}" ${a ? '' : 'disabled'}></label></div>
+  ${a ? `<div class="grid"><label class="f">Admin key (admins only)<input id="aiAK" type="password" value="${esc((S.aiAdmin || {}).adminKey || '')}" placeholder="the ADMIN_KEY script property"></label><p class="note" style="margin:22px 0 0">Needed for the helper's admin jobs: linking the register sheet, summary and digest emails, sending invitations. Contractors' devices never receive it.</p></div>` : ''}
   <h3 class="sec">Which AI${a ? '' : ' (set by the project admin)'}</h3>
   <div class="grid"><label class="f">Model<select id="aiMod" ${a ? '' : 'disabled'}>${[['', 'Default (Claude Opus 5.5)'], ['claude-opus-5-5', 'Claude Opus 5.5 (most capable)'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (balanced)'], ['claude-haiku-5-5', 'Claude Haiku 5.5 (fastest, cheapest)'], ['gemini', 'Gemini only']].map(o => `<option value="${o[0]}" ${(h.model || '') === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select></label>
   <label class="f">Effort<select id="aiEff" ${a ? '' : 'disabled'}>${[['', 'Model default'], ['low', 'Low (quickest)'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Maximum (slowest)']].map(o => `<option value="${o[0]}" ${(h.effort || '') === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select></label></div>
@@ -1227,7 +1231,7 @@ export function aiSettings(msg) {
   <div class="grid"><label class="f">Personal Gemini API key (used only if no helper is set)<input id="aiP" type="password" value="${esc(S.local.geminiKey || '')}" placeholder="AIza…"></label><label class="f">Model<input id="aiM" value="${esc(S.local.geminiModel || 'gemini-3.6-flash')}"></label></div>
   <div class="opt"><input type="checkbox" id="aiA" ${S.local.autoAI === false ? '' : 'checked'}><label for="aiA">Interpret automatically when I stop dictating</label></div>
   <div class="act"><button id="aiT">Test</button><button id="aiX">Close</button><button class="go" id="aiOk">Save</button></div>`);
-  const grab = async () => { S.local.geminiKey = $('aiP').value.trim(); S.local.geminiModel = $('aiM').value.trim() || 'gemini-3.6-flash'; S.local.autoAI = $('aiA').checked; saveLocal(); if (a) { const v = { helperUrl: $('aiU').value.trim(), helperKey: $('aiK').value.trim(), model: $('aiMod').value, effort: $('aiEff').value }; await S.store.setPrivate(S.project.id, v); S.ai = v; } };
+  const grab = async () => { S.local.geminiKey = $('aiP').value.trim(); S.local.geminiModel = $('aiM').value.trim() || 'gemini-3.6-flash'; S.local.autoAI = $('aiA').checked; saveLocal(); if (a) { const v = { helperUrl: $('aiU').value.trim(), helperKey: $('aiK').value.trim(), model: $('aiMod').value, effort: $('aiEff').value }; await S.store.setPrivate(S.project.id, v); S.ai = v; if ($('aiAK')) { const ak = { adminKey: $('aiAK').value.trim() }; await S.store.setPrivate(S.project.id, ak, 'admin'); S.aiAdmin = ak; } } };
   $('aiX').onclick = closeModal;
   $('aiOk').onclick = async () => { try { await grab(); closeModal(); toast('Saved'); } catch (e) { toast(e.message); } };
   $('aiT').onclick = async () => { try { await grab(); toast('Testing…'); const t = await aiCall('Reply with JSON {"ok":true}'); toast(/ok/.test(t) ? 'Working: answered by ' + (aiCall.last && aiCall.last.via === 'claude' ? 'Claude (' + aiCall.last.model + (aiCall.last.effort ? ', effort ' + aiCall.last.effort : '') + ')' : 'Gemini' + (aiCall.last && aiCall.last.fallback ? ', because Claude said: ' + aiCall.last.fallback.slice(0, 80) : '')) : 'Unexpected reply: ' + String(t).slice(0, 80), 6000); } catch (e) { toast(e.message === 'nokey' ? 'Add a helper or a personal key first' : e.message, 5000); } };

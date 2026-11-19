@@ -1,9 +1,24 @@
+// Project Settings > Script properties > add GEMINI_KEY = your key from aistudio.google.com >
+// Deploy > New deployment > Web app > Execute as: Me, Who has access: Anyone > copy the /exec address.
+// In the app: menu > Gemini > Helper web address = that address, Helper key = the KEY below.
+const KEY = 'change-me-to-a-long-random-code';
 function doPost(e) {
   const out = o => ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
   let b; try { b = JSON.parse(e.postData.contents); } catch (x) { return out({ error: 'bad request' }); }
   if (b.key !== KEY) return out({ error: 'not allowed · helper key ends ' + KEY.slice(-4) });
   const props = PropertiesService.getScriptProperties();
-  if (b.action === 'ping') return out({ ok: true, hasKey: !!(props.getProperty('CLAUDE_KEY') || props.getProperty('GEMINI_KEY')), claude: !!props.getProperty('CLAUDE_KEY'), gemini: !!props.getProperty('GEMINI_KEY') });
+  // Jobs that change settings or send email need the admin key as well. Only project admins hold it; contractors' devices never get it.
+  // Until ADMIN_KEY is set in the Script properties, the everyday key still opens them (so nothing stops working before the switch).
+  const ADMIN_ACTIONS = ['sheetLink', 'summaryGet', 'summarySet', 'summaryTest', 'digestGet', 'digestSet', 'digestTest', 'mail'];
+  if (ADMIN_ACTIONS.indexOf(b.action) >= 0) { const ak = props.getProperty('ADMIN_KEY'); if (ak && b.adminKey !== ak) return out({ error: 'This needs the admin key (menu > AI > Admin key). Only project admins can do it.' }); }
+  if (b.action === 'ping') return out({ ok: true, version: HELPER_VERSION, adminKey: !!props.getProperty('ADMIN_KEY'), hasKey: !!(props.getProperty('CLAUDE_KEY') || props.getProperty('GEMINI_KEY')), claude: !!props.getProperty('CLAUDE_KEY'), gemini: !!props.getProperty('GEMINI_KEY') });
+  // ---- digest emails built from the project's own data (see the Digest section below) ----
+  if (b.action === 'digestGet') { try { return out({ ok: true, cfg: digestConfig_(b.pid) }); } catch (x) { return out({ error: 'Digest settings could not be read: ' + x.message }); } }
+  if (b.action === 'digestSet') { try { return out({ ok: true, cfg: digestSet_(b) }); } catch (x) { return out({ error: 'Could not save the digest settings: ' + x.message }); } }
+  if (b.action === 'digestTest') { try { return out({ ok: true, sent: digestTest_(b) }); } catch (x) { return out({ error: 'Could not send the test: ' + x.message }); } }
+  // ---- an email from the app, for example an invitation (admins only, at most 5 recipients) ----
+  if (b.action === 'mail') { try { const to = (b.to || []).map(x => String(x).trim()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 5); if (!to.length) return out({ error: 'No valid address' });
+      MailApp.sendEmail({ to: to.join(','), subject: String(b.subject || 'Resero Site').slice(0, 200), htmlBody: String(b.html || ''), name: 'Resero Site', replyTo: String(b.replyTo || '') || undefined }); return out({ ok: true, sent: to.length }); } catch (x) { return out({ error: 'Could not send: ' + x.message }); } }
   // ---- contractor's register kept as a Google Sheet (columns Unit | Description | Contractor | Interior/Exterior? | Completed) ----
   // The sheet is fixed by the first link (Script property REGISTER_SHEET); to point at another sheet, change that property here.
   if (b.action === 'sheetLink') {
@@ -79,7 +94,8 @@ function claudeCall_(key, model, b) {
 // Run sendSummaryTest once (goes to SUMMARY_TEST_TO only), then setupDailySummary to switch on the daily email.
 const SUMMARY_TZ = 'Pacific/Auckland';
 const APP_URL = 'https://tony-aria-reyna.github.io/defect-tool/';
-const ALL_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request'];
+const ALL_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/datastore'];
+const HELPER_VERSION = 3;
 // Who gets the summary and when is set from the app (menu > Update the contractor's spreadsheet > Daily summary email) and kept in Script properties.
 function summaryConfig_() { const p = PropertiesService.getScriptProperties(); let to = []; try { to = JSON.parse(p.getProperty('SUMMARY_TO') || '[]'); } catch (e) {} return { to: to, hour: parseInt(p.getProperty('SUMMARY_HOUR') || '16', 10), days: summaryDays_(), on: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailySummary') }; }
 function summarySet_(b) { const p = PropertiesService.getScriptProperties(); const to = (b.to || []).map(x => String(x).trim().toLowerCase()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 20); const hour = Math.max(0, Math.min(23, parseInt(b.hour == null ? 16 : b.hour, 10) || 0)); p.setProperty('SUMMARY_TO', JSON.stringify(to)); p.setProperty('SUMMARY_HOUR', String(hour)); if (b.days) { const dd = b.days.map(Number).filter(x => x >= 1 && x <= 7); p.setProperty('SUMMARY_DAYS', JSON.stringify(dd.length ? dd : [1, 2, 3, 4, 5])); } ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailySummary').forEach(t => ScriptApp.deleteTrigger(t)); if (b.on && to.length) ScriptApp.newTrigger('dailySummary').timeBased().everyDays(1).atHour(hour).nearMinute(0).inTimezone(SUMMARY_TZ).create(); return summaryConfig_(); }
@@ -131,7 +147,7 @@ function buildSummary_(rows, prev, opt) { const sp = (opt && opt.span) || 'today
     + (plan.length ? h2('Where to start') + '<ul style="margin:0;padding-left:18px;line-height:1.5;font-size:14px">' + plan.slice(0, 4).map(p => '<li>' + p + '</li>').join('') + '</ul>' : '')
     + h2('Open by subcontractor') + '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%"><tr><th ' + th + '>Subcontractor</th><th ' + thr + '>Open</th><th ' + th + '></th><th ' + thr + '>Inside</th><th ' + thr + '>Outside</th><th ' + thr + '>Units</th></tr>' + subList.map(s => '<tr><td ' + td + '>' + (s.name === 'Not assigned' ? '<i>Not assigned</i>' : link(appSub(s.name), '<b>' + esc(s.name) + '</b>')) + '</td><td ' + tdr + '><b>' + s.n + '</b></td><td ' + td + '>' + bar(s.n) + '</td><td ' + tdr + '>' + s.int + '</td><td ' + tdr + '>' + s.ext + '</td><td ' + tdr + '>' + s.units.length + '</td></tr>').join('') + '</table>'
     + (prev && closed.length ? h2('Completed ' + sp + ' · ' + closed.length) + list(closed, 8) : '') + (prev && added.length ? h2('Added ' + sp + ' · ' + added.length) + list(added, 8) : '') + (prev && reopened.length ? h2('Reopened · ' + reopened.length) + list(reopened, 8) : '')
-    + '<p style="margin-top:20px;font-size:13px">' + link(opt.app || '#', 'Open Resero Defects') + ' &nbsp;·&nbsp; ' + link(opt.url || '#', 'Open the register') + '</p>'
+    + '<p style="margin-top:20px;font-size:13px">' + link(opt.app || '#', 'Open Resero Site') + ' &nbsp;·&nbsp; ' + link(opt.url || '#', 'Open the register') + '</p>'
     + '<p style="font-size:11px;color:#889;margin:6px 0 0">A subcontractor name opens their open items in the app. An item opens its row in the register. Shared items (for example "MCL / TGW") count under both firms.' + (prev ? '' : ' Today counts start from the next summary.') + '</p></div>';
   return { subject: (opt.test ? 'TEST: ' : '') + (opt.title || 'Register summary') + ': ' + open.length + ' open' + (prev ? ', ' + closed.length + ' completed ' + sp + ', ' + added.length + ' added' : ''), html: html, snapshot: snapshot, stats: { open: open.length, done: done.length, added: added.length, closed: closed.length, reopened: reopened.length, subs: subList.length } };
 }
@@ -141,7 +157,7 @@ function summaryRun_(to, test) {
   let prev = null; try { const parts = []; for (let i = 0; i < 20; i++) { const p = props.getProperty('SNAP_' + i); if (p == null) break; parts.push(p); } if (parts.length) prev = JSON.parse(parts.join('')); } catch (e) { prev = null; }
   const out = buildSummary_(rows, prev, { title: (props.getProperty('SUMMARY_TITLE') || 'Miles register') + ': daily summary', dateText: Utilities.formatDate(new Date(), SUMMARY_TZ, 'EEEE d MMMM yyyy'), span: summarySpan_(props.getProperty('SUMMARY_LAST')), url: ss.getUrl(), gid: sh.getSheetId(), name: ss.getName(), app: APP_URL, test: test });
   if (!to || !to.length) throw new Error('No one is set to receive the summary yet.');
-  MailApp.sendEmail({ to: to.join(','), subject: out.subject, htmlBody: out.html, name: 'Resero Defects' });
+  MailApp.sendEmail({ to: to.join(','), subject: out.subject, htmlBody: out.html, name: 'Resero Site' });
   if (!test) { props.setProperty('SUMMARY_LAST', String(Date.now())); const s = JSON.stringify(out.snapshot); for (let i = 0; i < 20; i++) props.deleteProperty('SNAP_' + i); for (let i = 0, k = 0; i < s.length; i += 8000, k++) props.setProperty('SNAP_' + k, s.slice(i, i + 8000)); }
   return out.stats;
 }
@@ -150,4 +166,85 @@ function summaryDays_() { try { const d = JSON.parse(PropertiesService.getScript
 function summarySpan_(last) { const t = parseInt(last || '0', 10); if (!t || Date.now() - t < 30 * 3600 * 1000) return 'today'; return 'since ' + Utilities.formatDate(new Date(t), SUMMARY_TZ, 'EEE d MMM'); }
 function dailySummary() { const cfg = summaryConfig_(), day = parseInt(Utilities.formatDate(new Date(), SUMMARY_TZ, 'u'), 10); if (cfg.days.indexOf(day) < 0) return; summaryRun_(cfg.to, false); }
 // Run this once from the editor after any update to this script, so Google asks for every permission the helper needs.
-function authoriseHelper() { ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, ALL_SCOPES); Logger.log('All permissions are in place. Daily summary: ' + JSON.stringify(summaryConfig_())); }
+function authoriseHelper() { ScriptApp.requireScopes(ScriptApp.AuthMode.FULL, ALL_SCOPES); ensureDigestTrigger_(); Logger.log('All permissions are in place. Daily summary: ' + JSON.stringify(summaryConfig_()) + ' Digests: ' + JSON.stringify(digestAll_().map(c => ({ pid: c.pid, people: (c.recipients || []).length })))); }
+
+// ================= Digest emails from the project's own data =================
+// Each morning (7am New Zealand time) the helper reads the project from Firestore with the script owner's Google access and emails:
+//  - inspectors (daily): items in their registers newly marked ready for review, each linked straight to the item;
+//  - contractors (daily): items sent back, items added, items past their due date, open items by subcontractor;
+//  - admins (weekly, Mondays): the week's movement, what is overdue, warranty submissions waiting, maintenance coming up;
+//  - the client (monthly, first weekday): what is overdue, due this month and in the next three months.
+// Who gets what is set in the app (menu > Email digests) and kept in Script properties (DIGEST_<project id>).
+const FS_PROJECT = 'resero-site-tools';
+function fsVal_(v) { if (!v) return null; if ('stringValue' in v) return v.stringValue; if ('integerValue' in v) return Number(v.integerValue); if ('doubleValue' in v) return v.doubleValue; if ('booleanValue' in v) return v.booleanValue; if ('nullValue' in v) return null; if ('timestampValue' in v) return v.timestampValue; if ('arrayValue' in v) return (v.arrayValue.values || []).map(fsVal_); if ('mapValue' in v) { const o = {}; Object.keys(v.mapValue.fields || {}).forEach(k => { o[k] = fsVal_(v.mapValue.fields[k]); }); return o; } return null; }
+function fsFetch_(url) { const r = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }); if (r.getResponseCode() !== 200) throw new Error('Reading the project failed (' + r.getResponseCode() + '): ' + r.getContentText().slice(0, 160)); return JSON.parse(r.getContentText()); }
+const FS_BASE = () => 'https://firestore.googleapis.com/v1/projects/' + FS_PROJECT + '/databases/(default)/documents/';
+function fsGet_(path) { const d = fsFetch_(FS_BASE() + path); return Object.assign(fsVal_({ mapValue: { fields: d.fields || {} } }), { id: d.name.split('/').pop() }); }
+function fsList_(path) { const out = []; let tok = ''; do { const j = fsFetch_(FS_BASE() + path + '?pageSize=300' + (tok ? '&pageToken=' + encodeURIComponent(tok) : '')); (j.documents || []).forEach(d => out.push(Object.assign(fsVal_({ mapValue: { fields: d.fields || {} } }), { id: d.name.split('/').pop() }))); tok = j.nextPageToken || ''; } while (tok); return out; }
+function digestAll_() { const p = PropertiesService.getScriptProperties().getProperties(); return Object.keys(p).filter(k => /^DIGEST_/.test(k)).map(k => { try { return JSON.parse(p[k]); } catch (e) { return null; } }).filter(Boolean); }
+function digestConfig_(pid) { const v = PropertiesService.getScriptProperties().getProperty('DIGEST_' + pid); return v ? JSON.parse(v) : { pid: pid, recipients: [] }; }
+function digestSet_(b) { if (!b.pid) throw new Error('No project'); const rec = (b.recipients || []).filter(r => r && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.email || '')).slice(0, 40).map(r => ({ email: String(r.email).toLowerCase(), name: String(r.name || ''), kind: ['inspector', 'contractor', 'admin', 'client'].indexOf(r.kind) >= 0 ? r.kind : 'contractor', freq: ['daily', 'weekly', 'monthly', 'off'].indexOf(r.freq) >= 0 ? r.freq : 'daily', registers: (r.registers || []).map(String).slice(0, 20) }));
+  const cfg = { pid: String(b.pid), name: String(b.name || ''), app: String(b.app || APP_URL), recipients: rec }; PropertiesService.getScriptProperties().setProperty('DIGEST_' + cfg.pid, JSON.stringify(cfg)); ensureDigestTrigger_(); return cfg; }
+function ensureDigestTrigger_() { if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'digestDaily')) ScriptApp.newTrigger('digestDaily').timeBased().everyDays(1).atHour(7).inTimezone(SUMMARY_TZ).create(); }
+function digestTest_(b) { const cfg = digestConfig_(b.pid), r = (cfg.recipients || []).find(x => x.email === String(b.email || '').toLowerCase()); if (!r) throw new Error('That person is not on the digest list yet. Save the list first.');
+  const to = String(b.to || '').trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) throw new Error('No address to send the test to'); const data = digestData_(cfg.pid), m = digestBuild_(cfg, r, data, true); MailApp.sendEmail({ to: to, subject: 'TEST: ' + m.subject, htmlBody: m.html, name: 'Resero Site' }); return to; }
+function digestDaily() { const now = new Date(), dow = parseInt(Utilities.formatDate(now, SUMMARY_TZ, 'u'), 10), dom = parseInt(Utilities.formatDate(now, SUMMARY_TZ, 'd'), 10); if (dow > 5) return;
+  const firstWeekday = dom <= 3 && (dom === 1 || dow === 1);
+  digestAll_().forEach(cfg => { let data = null; (cfg.recipients || []).forEach(r => { const due = r.freq === 'daily' || (r.freq === 'weekly' && dow === 1) || (r.freq === 'monthly' && firstWeekday); if (!due) return;
+    try { data = data || digestData_(cfg.pid); const m = digestBuild_(cfg, r, data, false); if (m.skip) return; MailApp.sendEmail({ to: r.email, subject: m.subject, htmlBody: m.html, name: 'Resero Site' }); PropertiesService.getScriptProperties().setProperty('DLAST_' + cfg.pid + '_' + r.email, String(Date.now())); } catch (e) { console.warn('digest ' + r.email + ': ' + e.message); } }); }); }
+function digestData_(pid) { const p = fsGet_('projects/' + pid); return { p: p, D: fsList_('projects/' + pid + '/defects'), docs: (() => { try { return fsList_('projects/' + pid + '/docs'); } catch (e) { return []; } })(), T: (() => { try { return fsList_('projects/' + pid + '/tasks'); } catch (e) { return []; } })(), A: (() => { try { return fsList_('projects/' + pid + '/assets'); } catch (e) { return []; } })() }; }
+const dIso_ = d => Utilities.formatDate(d, SUMMARY_TZ, 'yyyy-MM-dd');
+const dNz_ = iso => { if (!iso) return ''; const d = new Date(String(iso).slice(0, 10) + 'T00:00:00'); return Utilities.formatDate(d, SUMMARY_TZ, 'd MMM yyyy'); };
+const addM_ = (iso, n) => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00'); d.setMonth(d.getMonth() + n); return dIso_(d); };
+const esc_ = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function digestBuild_(cfg, r, data, test) {
+  const props = PropertiesService.getScriptProperties(), last = parseInt(props.getProperty('DLAST_' + cfg.pid + '_' + r.email) || '0', 10);
+  const span = r.freq === 'weekly' ? 7 : r.freq === 'monthly' ? 31 : 1, since = new Date(last && !test ? last : Date.now() - span * 864e5).toISOString(), today = dIso_(new Date());
+  const app = cfg.app || APP_URL, link = (id, t) => '<a href="' + app + '#id=' + encodeURIComponent(id) + '" style="color:#1f5fa8">' + esc_(t || id) + '</a>';
+  const D = data.D, inReg = d => !(r.registers || []).length || (r.registers || []).indexOf(d.source || '') >= 0, open = d => d.status !== 'Closed';
+  const moved = (d, rx) => (d.history || []).some(h => String(h.t || '') > since && (rx.test(String(h.txt || '')) || (h.st && rx.test(String(h.st[1] || '')))));
+  const H = (t, n) => '<h3 style="font:600 15px Arial;margin:18px 0 6px;color:#011c35">' + esc_(t) + (n != null ? ' <span style="color:#556">(' + n + ')</span>' : '') + '</h3>';
+  const ul = (L, max) => '<ul style="margin:0;padding-left:18px;font:14px Arial">' + L.slice(0, max || 25).map(x => '<li style="margin:2px 0">' + x + '</li>').join('') + (L.length > (max || 25) ? '<li>and ' + (L.length - (max || 25)) + ' more in the app</li>' : '') + '</ul>';
+  const box = (n, l, c) => '<td style="padding:10px 14px;border:1px solid #dde3ea;border-radius:8px;text-align:center"><div style="font:700 22px Arial;color:' + (c || '#011c35') + '">' + n + '</div><div style="font:12px Arial;color:#556">' + esc_(l) + '</div></td>';
+  const tiles = L => '<table cellspacing="6" style="margin:8px 0"><tr>' + L.map(x => box(x[0], x[1], x[2])).join('') + '</tr></table>';
+  const item = d => link(d.id, d.id) + ' ' + esc_((d.title || d.desc || '').slice(0, 80)) + (d.unit ? ' · Unit ' + esc_(d.unit) : '');
+  let title = '', body = '', skip = false;
+  if (r.kind === 'inspector') {
+    const mine = D.filter(inReg), wait = mine.filter(d => d.status === 'Ready for review'), fresh = wait.filter(d => moved(d, /^Ready for (inspection|review)/i));
+    title = fresh.length + ' new to inspect, ' + wait.length + ' waiting'; skip = !test && !wait.length;
+    body = tiles([[fresh.length, 'newly ready for review', '#2f78c4'], [wait.length, 'waiting for you in total'], [mine.filter(d => d.status === 'Open').length, 'open with the contractor']])
+      + (fresh.length ? H('Newly ready for review', fresh.length) + ul(fresh.map(item)) : '<p style="font:14px Arial">Nothing new since the last email.</p>')
+      + '<p style="font:14px Arial;margin-top:14px"><a href="' + app + '#inspect=1" style="color:#1f5fa8;font-weight:600">Open everything waiting for you</a></p>';
+  } else if (r.kind === 'contractor') {
+    const mine = D.filter(inReg), back = mine.filter(d => open(d) && moved(d, /^Reopened|sent back/i)), added = mine.filter(d => String(d.created || '') > since), over = mine.filter(d => open(d) && d.status !== 'Ready for review' && d.targetDate && d.targetDate < today);
+    const subs = {}; mine.filter(d => d.status === 'Open' || d.status === 'In progress').forEach(d => { const k = d.subcontractor || 'No subcontractor named'; subs[k] = (subs[k] || 0) + 1; });
+    title = back.length + ' sent back, ' + added.length + ' new, ' + over.length + ' overdue';
+    body = tiles([[mine.filter(d => d.status === 'Open').length, 'open', '#d64545'], [mine.filter(d => d.status === 'In progress').length, 'in progress', '#e39b1b'], [mine.filter(d => d.status === 'Ready for review').length, 'waiting for inspection', '#2f78c4'], [over.length, 'past due date', over.length ? '#d64545' : '#2e9b5f']])
+      + (back.length ? H('Sent back to you', back.length) + ul(back.map(item)) : '') + (added.length ? H('New items', added.length) + ul(added.map(item)) : '') + (over.length ? H('Past their due date', over.length) + ul(over.sort((a, b) => String(a.targetDate).localeCompare(String(b.targetDate))).map(d => item(d) + ' · due ' + dNz_(d.targetDate)), 15) : '')
+      + H('Open items by subcontractor') + ul(Object.keys(subs).sort((a, b) => subs[b] - subs[a]).map(k => esc_(k) + ': ' + subs[k]), 12);
+  } else if (r.kind === 'admin') {
+    const wk = d => (d.history || []).filter(h => String(h.t || '') > since), raised = D.filter(d => String(d.created || '') > since), closed = D.filter(d => d.status === 'Closed' && moved(d, /Closed|Accepted and closed|Completed and closed/i)), rfr = D.filter(d => moved(d, /^Ready for (inspection|review)/i)), reo = D.filter(d => moved(d, /^Reopened/i));
+    const over = D.filter(d => open(d) && d.targetDate && d.targetDate < today), byReg = {}; D.filter(open).forEach(d => { byReg[d.source || 'Other'] = (byReg[d.source || 'Other'] || 0) + 1; });
+    const subs = data.docs.filter(x => x.sub && x.sub.status === 'Awaiting review').length, tDue = data.T.filter(t => t.nextDue && t.nextDue >= today && t.nextDue <= addM_(today, 1)).length, tOver = data.T.filter(t => t.nextDue && t.nextDue < today).length;
+    title = 'Week: ' + raised.length + ' raised, ' + closed.length + ' closed, ' + D.filter(open).length + ' still open';
+    body = tiles([[raised.length, 'raised'], [closed.length, 'closed', '#2e9b5f'], [rfr.length, 'marked ready for review', '#2f78c4'], [reo.length, 'sent back', '#d64545']])
+      + H('Open by register') + ul(Object.keys(byReg).sort().map(k => esc_(k) + ': ' + byReg[k])) + (over.length ? H('Past their due date', over.length) + ul(over.map(item), 15) : '')
+      + H('Handover and maintenance') + ul([subs + ' warranty submission' + (subs === 1 ? '' : 's') + ' waiting for your review', tOver + ' maintenance task' + (tOver === 1 ? '' : 's') + ' overdue, ' + tDue + ' due in the next month']);
+  } else {
+    const p = data.p, pc = p.pcDate || '', items = [];
+    data.T.forEach(t => { if (t.nextDue) items.push({ d: t.nextDue, t: 'Maintenance: ' + (t.title || '') + (t.responsible ? ' (' + t.responsible + ')' : '') }); });
+    if (pc) data.A.forEach(a => (a.warranties || []).forEach(w => { if (w && w.months) items.push({ d: addM_(w.start || pc, +w.months), t: 'Warranty ends: ' + (a.element || '') + (w.party ? ' (' + w.party + ')' : '') }); }));
+    if (p.bwofDue) items.push({ d: p.bwofDue, t: 'Building warrant of fitness due, with the IQP Form 12A certificates' });
+    if (pc) { const end = addM_(pc, +(p.dnpMonths || 12)); items.push({ d: end, t: 'Defects notification period ends: defects must be notified before this date' }); items.push({ d: addM_(end, -1), t: 'Final defects walk-through, before the period ends' }); }
+    D.filter(d => open(d) && inReg(d) && d.targetDate).forEach(d => items.push({ d: d.targetDate, t: 'Defect ' + d.id + ': ' + (d.title || '').slice(0, 60) }));
+    const due3 = addM_(today, 3), monthEnd = addM_(today, 1), over = items.filter(x => x.d < today), now = items.filter(x => x.d >= today && x.d <= monthEnd), soon = items.filter(x => x.d > monthEnd && x.d <= due3);
+    const row = x => esc_(dNz_(x.d)) + ': ' + esc_(x.t), srt = L => L.sort((a, b) => a.d.localeCompare(b.d));
+    title = over.length + ' overdue, ' + now.length + ' due this month';
+    body = tiles([[over.length, 'overdue', over.length ? '#d64545' : '#2e9b5f'], [now.length, 'due this month', '#e39b1b'], [soon.length, 'in the next three months']])
+      + (over.length ? H('Overdue', over.length) + ul(srt(over).map(row)) : '') + H('Due this month', now.length) + (now.length ? ul(srt(now).map(row)) : '<p style="font:14px Arial">Nothing due.</p>') + H('Next three months', soon.length) + (soon.length ? ul(srt(soon).map(row)) : '<p style="font:14px Arial">Nothing due.</p>');
+  }
+  const html = '<div style="max-width:640px;font:14px Arial;color:#1d2733"><div style="background:#011c35;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font:600 16px Arial">' + esc_(cfg.name || data.p.name || 'Resero Site') + '</div><div style="padding:6px 18px 18px;border:1px solid #dde3ea;border-top:0;border-radius:0 0 8px 8px">'
+    + '<p style="font:14px Arial;color:#556">' + esc_(r.name ? 'Kia ora ' + r.name.split(' ')[0] + ',' : 'Kia ora,') + ' here is your ' + esc_(r.freq) + ' update.</p>' + body
+    + '<p style="margin-top:18px;font:13px Arial"><a href="' + app + '" style="color:#1f5fa8">Open Resero Site</a></p><p style="font:11px Arial;color:#889">Sent by Resero Site for ' + esc_(cfg.name || '') + '. Ask the project admin to change how often you get this.</p></div></div>';
+  return { subject: (cfg.name || 'Resero Site') + ': ' + title, html: html, skip: skip };
+}

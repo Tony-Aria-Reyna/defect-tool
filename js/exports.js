@@ -199,7 +199,7 @@ export async function buildPdf(L, o, ctx, st = () => {}) {
       const ents = (d.history || []).slice().sort((a, b) => String(a.t || '').localeCompare(String(b.t || '')));
       for (const h of ents) {
         const head = [String(h.t || '').slice(0, 16).replace('T', ' '), h.who || ''].filter(Boolean).join('  ·  ') + (h.st && h.st[1] ? '   [' + (h.st[0] ? h.st[0] + ' -> ' : '') + h.st[1] + ']' : '');
-        const body = wrap(h.txt || '', f, 9, W - 2 * M - 20); if ((h.photos || []).length) body.push('(' + h.photos.length + ' photo' + (h.photos.length === 1 ? '' : 's') + ' attached, shown in the photo pages)');
+        const body = wrap(h.txt || '', f, 9, W - 2 * M - 20); if (h.was != null || h.now != null) { const cut = x => { x = String(x || ''); return x.length > 400 ? x.slice(0, 400) + '...' : (x || '(blank)'); }; body.push(...wrap('Before: ' + cut(h.was), f, 9, W - 2 * M - 20), ...wrap('After: ' + cut(h.now), f, 9, W - 2 * M - 20)); } if ((h.photos || []).length) body.push('(' + h.photos.length + ' photo' + (h.photos.length === 1 ? '' : 's') + ' attached, shown in the photo pages)');
         const need = 14 + body.length * 11 + 8; if (yy - need < BOT) { hp = newPage('Full history (continued)'); yy = TOPY; }
         if (h.st && h.st[1]) hp.drawRectangle({ x: M, y: yy - need + 12, width: 3, height: need - 4, color: hex(SCOL[h.st[1]] || '#3bafbe') });
         txt(hp, head, M + 10, yy, 9, fb, NAVY); yy -= 12; body.forEach(l => { txt(hp, l, M + 10, yy, 9); yy -= 11; }); yy -= 8;

@@ -26,10 +26,13 @@ export function mySections() {
   const l = per && per.length ? per : orgAccess(S.project, domainOf(myMail())).sections;
   return l.length ? l : null;
 }
+// Restricted documents (credentials, bonds, guarantees, insurances): admins, plus the addresses or email domains the project lists.
+export const canRestricted = () => !!(S.sup || S.role === 'admin' || (S.project && (S.project.restrictedTo || []).some(x => x && (x === myMail() || x === domainOf(myMail())))));
 export const mayUse = sec => { const l = mySections(); return !l || l.includes(sec); };
 export function myScope() {
   if (S.sup || !S.project || !['editor', 'viewer'].includes(S.role)) return null;
-  const l = orgAccess(S.project, domainOf(myMail())).sources;
+  const per = (((S.project.access || {}).people || {})[myMail()] || {}).sources;   // a person's own register limit wins over their company's
+  const l = per && per.length ? per : orgAccess(S.project, domainOf(myMail())).sources;
   return l.length ? l : null;
 }
 export const can = {

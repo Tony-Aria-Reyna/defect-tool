@@ -135,9 +135,9 @@ export async function compare(file) {
   return { file, buf, ...matchRows(rowsFrom(cell)(rng.s.r, rng.e.r)) };
 }
 /* ---- the register as a Google Sheet, read and written through the project's Google helper script: works from any device ---- */
-async function gsCall(action, extra) {
+export async function gsCall(action, extra) {
   const h = S.ai || {}; if (!h.helperUrl) throw new Error('The Google helper is not set up for this project (menu, Gemini).');
-  let t; try { const r = await fetch(h.helperUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: h.helperKey || '', action, ...(extra || {}) }), redirect: 'follow' }); t = await r.text(); } catch (e) { throw new Error('Could not reach the Google helper. Check the internet and try again.'); }
+  let t; try { const r = await fetch(h.helperUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: h.helperKey || '', adminKey: (S.aiAdmin || {}).adminKey || '', action, ...(extra || {}) }), redirect: 'follow' }); t = await r.text(); } catch (e) { throw new Error('Could not reach the Google helper. Check the internet and try again.'); }
   let j; try { j = JSON.parse(t); } catch (e) { throw new Error('The Google helper has not been updated for spreadsheets yet (it sent back something unexpected).'); }
   if (j.error) throw new Error(j.error === 'nosheet' ? 'No Google Sheet is linked in the helper yet.' : j.error === 'nokey' || /bad request/.test(j.error) ? 'The Google helper needs updating to the new version before it can read the sheet.' : j.error);
   if (/^summary/.test(action) && j.ok && !j.cfg && !j.stats) throw new Error('The Google helper needs updating to the new version before it can send summaries (deploy a new version of the script).');

@@ -88,8 +88,9 @@ async function Writer(o) {
 
 /* ------------------------------------------------------------ document targets */
 // In "zip" mode the manuals link to files inside the zip (relative paths); otherwise to the online copies.
-export function docPath(d) { const ext = (/\.[a-z0-9]{2,5}$/i.exec(d.fileName || '') || [''])[0] || '.pdf'; return `Documents/${safeName(d.system || 'General').slice(0, 60)}/${safeName(d.type || 'Other').replace(/[()]/g, '').slice(0, 40)}/${safeName(d.title).slice(0, 110)}${ext}`; }
-const target = (d, mode) => d.link ? d.link : mode === 'zip' ? (d.url ? docPath(d) : '') : (d.url || '');
+export function docPath(d) { const ext = (/\.[a-z0-9]{2,5}$/i.exec(d.fileName || '') || [''])[0] || '.pdf'; return `${d.restricted ? 'Restricted' : 'Documents'}/${safeName(d.system || 'General').slice(0, 60)}/${safeName(d.type || 'Other').replace(/[()]/g, '').slice(0, 40)}/${safeName(d.title).slice(0, 110)}${ext}`; }
+// restricted documents are never linked online: only the copy in the pack's Restricted folder
+const target = (d, mode) => d.link ? d.link : mode === 'zip' ? (d.url ? docPath(d) : '') : (d.restricted ? '' : d.url || '');
 const contacts = aud => (S.project.contacts || []).filter(c => !aud || !c.audience || c.audience === 'Both' || c.audience === aud);
 
 /* ------------------------------------------------------------ FM Manual */
@@ -171,7 +172,7 @@ export async function buildHomeGuide(mode, st = () => {}) {
 /* ------------------------------------------------------------ the offline front page: one HTML file that opens in any browser */
 function indexHtml(mode, files) {
   const p = S.project, { assets: A, tasks: T } = X.fm(), D = (S.defects || []), Dd = X.fm().docs.filter(d => !d.template && !d.superseded);
-  const link = d => d.link ? d.link : mode === 'zip' && d.url ? encodeURI(docPath(d)).replace(/#/g, '%23') : (d.url || '');
+  const link = d => d.link ? d.link : mode === 'zip' && d.url ? encodeURI(docPath(d)).replace(/#/g, '%23') : (d.restricted ? '' : d.url || '');
   const e = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const exp = a => (a.warranties || []).map(w => ({ w, d: X.warrantyExpiry(w) })).filter(x => x.d).sort((x, y) => x.d.localeCompare(y.d));
   const byAsset = id => Dd.filter(d => (d.assetIds || []).includes(id));

@@ -7,6 +7,10 @@ import { firebaseConfig } from './config.js';
 
 const lower = s => String(s || '').trim().toLowerCase();
 const emailKey = e => lower(e).replace(/[^a-z0-9@._+-]/g, '');
+// Some records live in a second collection (restricted documents in rdocs). The FM module sets route.fn so a write to 'docs'
+// for one of those goes to its own collection; everything else passes through unchanged.
+export const route = { fn: null };
+const R = (c, id) => (route.fn ? route.fn(c, id) : c);
 export const isDemo = () => /[?&]demo\b/.test(location.search) || !firebaseConfig || !firebaseConfig.apiKey;
 
 /* ------------------------------------------------------------------ Firebase */
@@ -30,6 +34,16 @@ async function firebaseStore() {
   // later rejection (for example a permission problem) as a sync warning.
   const delay = ms => new Promise(r => setTimeout(r, ms));
   const syncWarn = e => { console.warn('sync', e); try { dispatchEvent(new CustomEvent('rd-sync-error', { detail: e })); } catch (x) {} };
+  // The change log: one entry per change in projects/{pid}/log, stamped by the server with its own time and the signed-in user.
+  // The security rules refuse any other time or name and never let an entry be changed or removed, so it stands as the record
+  // even if an item's own history is edited. Written on its own (not batched) so a refused log entry never blocks the work itself.
+  const LOG_SKIP = ['updated', 'updatedBy', 'history', 'memberInfo', 'seq'];
+  const brief = v => { let x = typeof v === 'string' ? v : JSON.stringify(v); x = x == null ? '' : String(x); return x.length > 300 ? x.slice(0, 300) + '…' : x; };
+  const logIt = (pid, coll, id, op, patch, hist) => { try { if (!user || !pid) return; const f = Object.keys(patch || {}).filter(k => !LOG_SKIP.includes(k));
+    if (op === 'update' && !f.length && !(hist || []).length) return;
+    const plain = JSON.parse(JSON.stringify({ uid: user.uid, email: lower(user.email), name: user.displayName || '', clientAt: new Date().toISOString(), coll, id: String(id), op, fields: f.slice(0, 40),
+      values: Object.fromEntries(f.slice(0, 12).map(k => [k.replace(/[.~*\/\[\]]/g, '_'), brief(patch[k])])), notes: (hist || []).map(h => brief(h && (h.txt || h.notes) || '')).slice(0, 5) }));
+    F.addDoc(C('projects', pid, 'log'), { ...plain, at: F.serverTimestamp() }).catch(() => {}); } catch (e) {} };
   const localWrite = async p => { p.catch(syncWarn); await Promise.race([p, delay(navigator.onLine ? 2500 : 50)]); };
   // Reads: server if it answers quickly, else the local cache (and the cache straight away when offline).
   const readDoc = async ref => { if (!navigator.onLine) { try { return await F.getDocFromCache(ref); } catch (e) { return await F.getDoc(ref); } } const r = await Promise.race([F.getDoc(ref), delay(4000).then(() => 'slow')]); if (r !== 'slow') return r; try { return await F.getDocFromCache(ref); } catch (e) { return await F.getDoc(ref); } };
@@ -87,12 +101,12 @@ async function firebaseStore() {
       await F.setDoc(ref, { ...data, seq: 0, members: { [m.uid]: 'admin' }, memberUids: [m.uid], memberInfo: { [m.uid]: { name: m.name, email: m.email } }, created: new Date().toISOString(), createdBy: m.email });
       return ref.id;
     },
-    async updateProject(pid, patch) { await localWrite(F.updateDoc(D('projects', pid), patch)); },
+    async updateProject(pid, patch) { await localWrite(F.updateDoc(D('projects', pid), patch)); logIt(pid, 'project', pid, 'update', patch); },
     async setMember(pid, uid, role, who) {
       const p = await api.getProject(pid);
       const members = { ...(p.members || {}) }, info = { ...(p.memberInfo || {}) };
       if (role) { members[uid] = role; if (who && !info[uid]) info[uid] = who; } else { delete members[uid]; delete info[uid]; }
-      await F.updateDoc(D('projects', pid), { members, memberInfo: info, memberUids: Object.keys(members) });
+      await F.updateDoc(D('projects', pid), { members, memberInfo: info, memberUids: Object.keys(members) }); logIt(pid, 'members', uid, role ? 'set' : 'remove', { role: role || 'removed', email: (who && who.email) || ((p.memberInfo || {})[uid] || {}).email || '' });
     },
     // Invitations live in a top-level collection, id = <projectId>_<email>, so a new user can find theirs.
     async listInvites(pid) { const s = await F.getDocs(F.query(C('invites'), F.where('pid', '==', pid))); return s.docs.map(d => ({ id: d.id, ...d.data() })); },
@@ -148,15 +162,15 @@ async function firebaseStore() {
       }
       return F.onSnapshot(C('projects', pid, 'defects'), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id })), s.metadata), e => onErr && onErr(e));
     },
-    async createDefect(pid, d) { const { id, ...rest } = d; await localWrite(F.setDoc(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest)))); },
+    async createDefect(pid, d) { const { id, ...rest } = d; await localWrite(F.setDoc(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest)))); logIt(pid, 'defects', id, 'create', { status: rest.status, source: rest.source, title: rest.title, unit: rest.unit }, rest.history); },
     // Only the changed fields are written, and history entries are appended, so two people editing
     // the same item do not overwrite each other's comments.
     async updateDefect(pid, id, patch, newHistory) {
       const p = { ...patch }; delete p.id; delete p.history;
       if (newHistory && newHistory.length) p.history = F.arrayUnion(...newHistory);
-      await localWrite(F.updateDoc(D('projects', pid, 'defects', id), p));
+      await localWrite(F.updateDoc(D('projects', pid, 'defects', id), p)); logIt(pid, 'defects', id, 'update', patch, newHistory);
     },
-    async deleteDefect(pid, id) { await localWrite(F.deleteDoc(D('projects', pid, 'defects', id))); },
+    async deleteDefect(pid, id) { await localWrite(F.deleteDoc(D('projects', pid, 'defects', id))); logIt(pid, 'defects', id, 'delete', { deleted: true }); },
     // a deleted defect that was the latest number hands that number back, so the next one does not leave a gap
     async releaseRef(pid, n, highestLeft) { try { await Promise.race([F.runTransaction(db, async t => { const s = await t.get(D('projects', pid)); if ((s.data().seq || 0) === n) t.update(D('projects', pid), { seq: highestLeft }); }), delay(5000)]); } catch (e) {} },
     async nextRef(pid, prefix, localNext) {
@@ -167,20 +181,24 @@ async function firebaseStore() {
         return n ? (prefix || 'D') + '-' + String(n).padStart(3, '0') : offline();
       } catch (e) { return offline(); }
     },
-    async getPrivate(pid) { try { const s = await readDoc(D('projects', pid, 'private', 'ai')); return s.exists() ? s.data() : {}; } catch (e) { return {}; } },
-    async setPrivate(pid, data) { await F.setDoc(D('projects', pid, 'private', 'ai'), data, { merge: true }); },
+    // private/ai: the AI helper's address and everyday key (everyone who writes); private/admin: the admin key (admins only)
+    async getPrivate(pid, which) { try { const s = await readDoc(D('projects', pid, 'private', which || 'ai')); return s.exists() ? s.data() : {}; } catch (e) { return {}; } },
+    async setPrivate(pid, data, which) { await F.setDoc(D('projects', pid, 'private', which || 'ai'), data, { merge: true }); },
     // generic project collections used by the FM modules (assets, docs, tasks, systems)
     watchColl(pid, coll, cb, onErr) { return F.onSnapshot(C('projects', pid, coll), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => onErr && onErr(e)); },
-    async saveItem(pid, coll, o) { const { id, ...rest } = o; await localWrite(F.setDoc(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest)))); },
-    async patchItem(pid, coll, id, patch, newHistory) { const p = { ...patch }; delete p.id; if (newHistory && newHistory.length) p.history = F.arrayUnion(...newHistory); await localWrite(F.updateDoc(D('projects', pid, coll, id), p)); },
-    async deleteItem(pid, coll, id) { await localWrite(F.deleteDoc(D('projects', pid, coll, id))); },
-    async bulkSave(pid, coll, list, onProgress) { for (let i = 0; i < list.length; i += 400) { const b = F.writeBatch(db); list.slice(i, i + 400).forEach(o => { const { id, ...rest } = o; b.set(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest))); }); await b.commit(); onProgress && onProgress(Math.min(i + 400, list.length)); } },
+    async saveItem(pid, coll, o) { const { id, ...rest } = o; coll = R(coll, id); await localWrite(F.setDoc(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest)))); logIt(pid, coll, id, 'save', rest); },
+    async patchItem(pid, coll, id, patch, newHistory) { coll = R(coll, id); const p = { ...patch }; delete p.id; if (newHistory && newHistory.length) p.history = F.arrayUnion(...newHistory); await localWrite(F.updateDoc(D('projects', pid, coll, id), p)); logIt(pid, coll, id, 'update', patch, newHistory); },
+    async deleteItem(pid, coll, id) { coll = R(coll, id); await localWrite(F.deleteDoc(D('projects', pid, coll, id))); logIt(pid, coll, id, 'delete', { deleted: true }); },
+    // the server-stamped change log (admins only): one item's entries, or the whole project's
+    async listLog(pid, id) { const q = id ? F.query(C('projects', pid, 'log'), F.where('id', '==', String(id))) : C('projects', pid, 'log'); const s = await F.getDocs(q); return s.docs.map(d => { const x = d.data(); return { ...x, at: x.at && x.at.toDate ? x.at.toDate().toISOString() : '' }; }).sort((a, b) => String(b.at || b.clientAt).localeCompare(String(a.at || a.clientAt))); },
+    async bulkSave(pid, coll, list, onProgress) { for (let i = 0; i < list.length; i += 400) { const b = F.writeBatch(db); list.slice(i, i + 400).forEach(o => { const { id, ...rest } = o; b.set(D('projects', pid, coll, id), JSON.parse(JSON.stringify(rest))); }); await b.commit(); onProgress && onProgress(Math.min(i + 400, list.length)); } logIt(pid, coll, '(bulk)', 'bulk', { count: list.length }); },
     async bulkCreate(pid, list, onProgress) {
       for (let i = 0; i < list.length; i += 400) {
         const b = F.writeBatch(db);
         list.slice(i, i + 400).forEach(d => { const { id, ...rest } = d; b.set(D('projects', pid, 'defects', id), JSON.parse(JSON.stringify(rest))); });
         await b.commit(); onProgress && onProgress(Math.min(i + 400, list.length));
       }
+      logIt(pid, 'defects', '(import)', 'bulk', { count: list.length });
     },
   };
   // finish a redirect sign-in if one is in progress
@@ -238,12 +256,13 @@ async function localStore(dbName, asUser) {
     async deleteDefect(pid, id) { await del(`projects/${pid}/defects/${id}`); emit(pid); },
     async releaseRef(pid, n, highestLeft) { const p = await get('projects/' + pid); if ((p.seq || 0) === n) { p.seq = highestLeft; await put('projects/' + pid, p); } },
     async nextRef(pid, prefix) { const p = await get('projects/' + pid); p.seq = (p.seq || 0) + 1; await put('projects/' + pid, p); return (prefix || 'D') + '-' + String(p.seq).padStart(3, '0'); },
-    async getPrivate(pid) { return (await get(`projects/${pid}/private/ai`)) || {}; },
-    async setPrivate(pid, data) { const k = `projects/${pid}/private/ai`; await put(k, { ...((await get(k)) || {}), ...data }); },
+    async getPrivate(pid, which) { return (await get(`projects/${pid}/private/${which || 'ai'}`)) || {}; },
+    async setPrivate(pid, data, which) { const k = `projects/${pid}/private/${which || 'ai'}`; await put(k, { ...((await get(k)) || {}), ...data }); },
     watchColl(pid, coll, cb) { const k = pid + '/' + coll; (watchers[k] = watchers[k] || []).push(cb); emitC(pid, coll); return () => { watchers[k] = (watchers[k] || []).filter(x => x !== cb); }; },
-    async saveItem(pid, coll, o) { const { id, ...rest } = o; await put(`projects/${pid}/${coll}/${id}`, rest); emitC(pid, coll); },
-    async patchItem(pid, coll, id, patch, newHistory) { const k = `projects/${pid}/${coll}/${id}`; const d = (await get(k)) || {}; const p = { ...patch }; delete p.id; if (newHistory && newHistory.length) p.history = (d.history || []).concat(newHistory); await put(k, { ...d, ...p }); emitC(pid, coll); },
-    async deleteItem(pid, coll, id) { await del(`projects/${pid}/${coll}/${id}`); emitC(pid, coll); },
+    async saveItem(pid, coll, o) { const { id, ...rest } = o; coll = R(coll, id); await put(`projects/${pid}/${coll}/${id}`, rest); emitC(pid, coll); },
+    async patchItem(pid, coll, id, patch, newHistory) { coll = R(coll, id); const k = `projects/${pid}/${coll}/${id}`; const d = (await get(k)) || {}; const p = { ...patch }; delete p.id; if (newHistory && newHistory.length) p.history = (d.history || []).concat(newHistory); await put(k, { ...d, ...p }); emitC(pid, coll); },
+    async deleteItem(pid, coll, id) { coll = R(coll, id); await del(`projects/${pid}/${coll}/${id}`); emitC(pid, coll); },
+    async listLog() { return []; },
     async bulkSave(pid, coll, list, onProgress) { for (let i = 0; i < list.length; i++) { const { id, ...rest } = list[i]; await put(`projects/${pid}/${coll}/${id}`, rest); if (i % 20 === 0) onProgress && onProgress(i); } emitC(pid, coll); },
     async bulkCreate(pid, list, onProgress) { for (let i = 0; i < list.length; i++) { const { id, ...rest } = list[i]; await put(`projects/${pid}/defects/${id}`, rest); if (i % 20 === 0) onProgress && onProgress(i); } emit(pid); },
   };

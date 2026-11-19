@@ -2,7 +2,7 @@
 import { createStore, createSandbox, isDemo } from './store.js';
 import * as Faces from './faces.js';
 import { APP, STATUS_COLOURS as SCOL, ROLES } from './config.js';
-import { S, can, myScope, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
+import { S, can, myScope, domainOf, withDefaults, unitList, saveLocal, sevLabel, isMajor, sevDefault, sevMatch, sevCode, selfClose } from './state.js';
 import { autoFitAll, $, esc, toast, modal, closeModal, busy, confirmBox, compressImage, opts, uid, todayISO, nzDate, nzDT, stamp, isMobile, natural, safeName, deliver, loadImage, locate, dismissModal, askDiscard, saveImage } from './util.js';
 import { PlanView } from './planview.js';
 import { dictate, stopDictation, holdToTalk, aiCall, aiPrompt, tooVerbatim } from './ai.js';
@@ -182,7 +182,7 @@ export async function openProject(pid, quiet) {
     ActiveTime.start(pid);
     try { const ls = ((p.memberInfo || {})[S.user.uid] || {}).lastSeen; if (S.store.touch && navigator.onLine && (!ls || Date.now() - Date.parse(ls) > 30 * 60000)) S.store.touch(pid); } catch (e) {}
     S.plans = await S.store.listPlans(pid);
-    S.ai = can.write() ? await S.store.getPrivate(pid) : {};
+    S.ai = can.write() ? await S.store.getPrivate(pid) : {}; S.aiAdmin = can.realAdmin() ? await S.store.getPrivate(pid, 'admin') : {};
     S.curPlan = S.plans[0] ? S.plans[0].id : null;
     show('scrWork'); applyProjectChrome(); initFilters(); renderPlanTabs();
     await showPlan(S.curPlan);
@@ -241,9 +241,16 @@ function initFilters() {
   { const by = [...new Set(D.map(d => d.source).filter(Boolean))].sort(); fillSel('fBy', 'All raised by (company)', by, F.by); $('fBy').style.display = by.length > 1 ? '' : 'none'; } { const subs = subList(); fillSel('fSub', 'All subcontractors', subs, F.sub); $('fSub').style.display = subs.length ? '' : 'none'; } fillSel('fResp', 'All responsible', [...new Set([...p.responsible, ...D.map(d => d.responsible).filter(Boolean)])], F.resp);
 }
 let filtersDirty = true;
+// Items waiting for this person to inspect: ones they raised, ones in their company's registers (by register limit, or a register
+// named after their company, e.g. "Maynard Marks" for maynardmarks.co.nz), or everything for admins. Imported items have no creator,
+// so going by the creator alone hid a consultant's whole queue.
+const FREE_MAIL = /^(gmail|googlemail|hotmail|outlook|live|yahoo|icloud|xtra|me)$/;
+const squash = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+export function ownsRegister(src) { const sc = myScope(); if (sc && sc.includes(src)) return true; const dom = domainOf(S.user && S.user.email).split('.')[0]; return dom.length >= 4 && !FREE_MAIL.test(dom) && squash(src).includes(dom); }
+export const mineToInspect = d => d.status === 'Ready for review' && !can.contractor() && (can.admin() || d.createdBy === S.user.email || ownsRegister(d.source));
 export function filtered() {
   const F = S.F, q = F.q.trim().toLowerCase();
-  const r = S.defects.filter(d => (F.toReview ? (d.status === 'Ready for review' && (d.createdBy === S.user.email || can.admin())) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && mHas(F.block, d.block) && mHas(F.level, d.level) && (!F.unit || mv(F.unit).some(u => u === '-' ? !d.unit : String(d.unit) === u)) && mHas(F.sev, d.severity) && mHas(F.trade, d.trade) && mHas(F.resp, d.responsible) && mHas(F.sub, d.subcontractor) && mHas(F.by, d.source || '') && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
+  const r = S.defects.filter(d => (F.toReview ? mineToInspect(d) : F.review ? (d.aiReview || d.aiPending) : F.status.has(d.status)) && mHas(F.block, d.block) && mHas(F.level, d.level) && (!F.unit || mv(F.unit).some(u => u === '-' ? !d.unit : String(d.unit) === u)) && mHas(F.sev, d.severity) && mHas(F.trade, d.trade) && mHas(F.resp, d.responsible) && mHas(F.sub, d.subcontractor) && mHas(F.by, d.source || '') && (!q || Search.hit(q, d, [d.id, d.title, d.desc, d.element, d.room, 'unit ' + d.unit, d.trade, d.action, d.extRef, d.responsible, d.subcontractor, d.item, d.status].join(' '))));
   const ns = (a, b) => natural(a.id, b.id), pre = S.project.idPrefix + '-';
   if (F.sort === 'upd') r.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
   else if (F.sort === 'loc') r.sort((a, b) => natural(a.block || 'z', b.block || 'z') || (a.level || '').localeCompare(b.level || '') || natural(a.unit || 'zzz', b.unit || 'zzz') || ns(a, b));
@@ -256,7 +263,7 @@ export async function render() {
   if (filtersDirty) { initFilters(); filtersDirty = false; }
   const D = S.defects, c = {}; S.project.statuses.forEach(s => c[s] = 0); D.forEach(d => c[d.status] = (c[d.status] || 0) + 1);
   const maj = D.filter(d => d.status !== 'Closed' && isMajor(d)).length, codes = S.project.severities.map(sevCode), coded = codes.every(Boolean), byCat = coded ? S.project.severities.map((s, i) => [codes[i], D.filter(d => d.status !== 'Closed' && d.severity === s).length, s]) : null, tri = D.filter(d => d.status !== 'Closed' && d.severity === 'To triage').length;
-  const pend = D.filter(d => d.aiPending).length, rev = D.filter(d => d.aiReview).length, toRev = D.filter(d => d.status === 'Ready for review' && !can.contractor() && (d.createdBy === S.user.email || can.admin())).length;
+  const pend = D.filter(d => d.aiPending).length, rev = D.filter(d => d.aiReview).length, toRev = D.filter(mineToInspect).length;
   $('counts').innerHTML = S.project.statuses.map(s => `<button class="cnt ${S.F.status.has(s) ? 'on' : ''}" data-s="${s}"><i style="background:${SCOL[s]}"></i>${s} <b>${c[s]}</b></button>`).join('') + `<span class="cnt cats" title="Open items by ${esc(sevLabel(S.project).toLowerCase())}. Tap a letter to show only those."><em>${esc(sevLabel(S.project))}</em>${byCat ? byCat.map(c => `<button class="catb ${S.F.sev === c[2] ? 'on' : ''}" data-sev="${esc(c[2])}" title="${esc(c[2])}">${esc(c[0])} <b>${c[1]}</b></button>`).join('') : `Major <b>${maj}</b>`}${tri ? ` · To triage <b>${tri}</b>` : ''}</span>` + (rev || pend || S.F.review ? `<button class="cnt chk ${S.F.review ? 'on' : ''}" data-r="1">✨ To check <b>${rev}</b>${pend ? ` · 📵 Waiting for coverage <b>${pend}</b>` : ''}</button>` : '') + (toRev || S.F.toReview ? `<button class="cnt chk ${S.F.toReview ? 'on' : ''}" data-tr="1">🔎 For me to inspect <b>${toRev}</b></button>` : '');
   $('counts').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.dataset.sev) { S.F.sev = S.F.sev === b.dataset.sev ? '' : b.dataset.sev; render(); return; } if (b.dataset.r) { S.F.review = !S.F.review; render(); return; } if (b.dataset.tr) { S.F.toReview = !S.F.toReview; render(); return; } const s = b.dataset.s; S.F.status.has(s) ? S.F.status.delete(s) : S.F.status.add(s); render(); });
   const L = filtered();
@@ -412,15 +419,24 @@ export async function gallery(photos, i, title) {
 }
 // History: every entry shows who and when; a change of status shows the old and new status in their own colours.
 const WF_TO = [[/^Ready for inspection/i, 'Ready for review'], [/^(Accepted and closed|Completed and closed)/i, 'Closed'], [/^Reopened/i, 'Open'], [/^In progress/i, 'In progress'], [/^Ticked on the site sheet|^Marked "/i, null]];
+// The server-stamped change log for one item (admins): when, who, what. Entries cannot be edited or removed.
+async function serverLog(id) {
+  const b = busy('Reading the server log…'); let L = [];
+  try { L = await S.store.listLog(S.project.id, id); } catch (e) { b.done(); return toast('Could not read the log: ' + e.message, 6000); } b.done();
+  modal(`<h2>Server log: ${esc(id)}</h2><p class="note">Every change saved since the log was switched on (v2.96), stamped by the server with its own time and the signed-in person. Nobody can edit or delete an entry. Earlier changes are in the History.</p>
+  ${L.length ? `<table class="t small"><tr><th>When (server time)</th><th>Who</th><th>What</th></tr>${L.map(x => `<tr><td>${esc(nzDT(x.at || x.clientAt))}</td><td>${esc(x.name || '')}<br><span class="muted">${esc(x.email || '')}</span></td><td><b>${esc(x.op || '')}</b> ${esc((x.fields || []).join(', '))}${(x.notes || []).filter(Boolean).length ? '<br>' + x.notes.filter(Boolean).map(esc).join('<br>') : ''}${Object.keys(x.values || {}).length ? `<details><summary>Values</summary>${Object.entries(x.values).map(([k, v]) => `<div><b>${esc(k)}</b>: ${esc(v)}</div>`).join('')}</details>` : ''}</td></tr>`).join('')}</table>` : '<p class="muted">No entries yet for this item.</p>'}
+  <div class="act"><button id="slX">Close</button></div>`, true);
+  $('slX').onclick = closeModal;
+}
 function histHtml(h) {
   const txt = String(h.txt || ''); let from = h.st && h.st[0], to = h.st && h.st[1];
   if (!to) { const m = txt.match(/status ([^→;.]+?) → ([^;.]+)/i); if (m) { from = m[1].trim(); to = m[2].trim(); } }
   if (!to) { const w = WF_TO.find(x => x[0].test(txt)); if (w && w[1]) to = w[1]; }
   const raised = /^Raised|^Imported|^Added from/i.test(txt); if (!to && raised) { const m = txt.match(/Status ([^.]+)\./); if (m) to = m[1].trim(); }
   const pill = s => `<span class="pill" style="background:${SCOL[s] || '#888'}">${esc(s)}</span>`;
-  const sys = /^(Changed |Raised|Imported|Added from|Pin placed|Unit |Filled in|Site note|Status |Ticked|Marked|Handwritten|Resolution note)/i.test(txt) || to;
+  const sys = /^(Changed |Raised|Imported|Added from|Pin placed|Unit |Filled in|Site note|Status |Ticked|Marked|Handwritten|Resolution note|Description edited|Action required edited)/i.test(txt) || to;
   let body = esc(txt).replace(/status [^→;.]+? → [^;.]+(; |\.)?/i, '').replace(/(^|; |Changed )([a-z ]+?) ([^;→]+?) → ([^;.]+)/gi, (m0, pre, k, a, b) => `${pre}<b>${k}</b> <s>${a}</s> → <b>${b}</b>`).replace(/^Changed \.?$/, '').trim();
-  return `<div class="h ${sys ? 'sys' : 'cm'}" style="--c:${to ? (SCOL[to] || '#888') : sys ? '#c9ced6' : '#2f6fd0'}"><div class="hh"><b>${esc(nzDT(h.t))}</b> · ${esc(h.who || '')}${raised ? ' <span class="hk">raised</span>' : !sys ? ' <span class="hk c">comment</span>' : ''}</div>${to ? `<div class="hs">${from ? pill(from) + ' <span class="ar">→</span> ' : '<span class="ar">now</span> '}${pill(to)}</div>` : ''}${body ? `<div class="ht">${body}</div>` : ''}${(h.photos || []).length ? `<div class="hph">${h.photos.map(p => `<figure><img data-hp="${esc(p.id)}" alt="${esc(p.name || 'Photo with this comment')}"><figcaption>${esc(p.name || '')}</figcaption></figure>`).join('')}</div>` : ''}</div>`;
+  return `<div class="h ${sys ? 'sys' : 'cm'}" style="--c:${to ? (SCOL[to] || '#888') : sys ? '#c9ced6' : '#2f6fd0'}"><div class="hh"><b>${esc(nzDT(h.t))}</b> · ${esc(h.who || '')}${raised ? ' <span class="hk">raised</span>' : !sys ? ' <span class="hk c">comment</span>' : ''}</div>${to ? `<div class="hs">${from ? pill(from) + ' <span class="ar">→</span> ' : '<span class="ar">now</span> '}${pill(to)}</div>` : ''}${body ? `<div class="ht">${body}</div>` : ''}${h.was != null || h.now != null ? `<div class="hdiff"><div><span>Before</span>${esc(h.was || '') || '<i>blank</i>'}</div><div><span>After</span>${esc(h.now || '') || '<i>blank</i>'}</div></div>` : ''}${(h.photos || []).length ? `<div class="hph">${h.photos.map(p => `<figure><img data-hp="${esc(p.id)}" alt="${esc(p.name || 'Photo with this comment')}"><figcaption>${esc(p.name || '')}</figcaption></figure>`).join('')}</div>` : ''}</div>`;
 }
 // On the plan, say when a filter is hiding pins, and offer to clear it there and then.
 const DEF_STATUS = ['Open', 'In progress', 'Ready for review', 'Disputed'];
@@ -741,7 +757,7 @@ export function openEditor(d, isNew, isDraft) {
   <h3 class="sec">Attachments</h3>
   <div class="files" id="fls">${(w.files || []).map((f, i) => `<div class="file"><a href="#" data-f="${i}">📎 ${esc(f.name)}</a><span class="muted small"> · ${esc(f.by || '')} ${esc(nzDate((f.t || '').slice(0, 10)))}${f.pending ? ' · waiting to upload' : ''}</span>${!ro && (can.edit() || f.isNew) ? ` <button data-fx="${i}" class="small">✕</button>` : ''}</div>`).join('')}${!ro ? `<div class="flbtns"><button id="addfile" class="small">📎 Attach PDF or file</button>${((S.fm || {}).docs || []).length ? '<button id="findDoc" class="small">🔎 Find a project document</button>' : ''}</div>` : ''}</div>
   ${!ro ? `<div id="cmtBox"><h3 class="sec">${con ? 'Your response' : 'Add a comment'}</h3><label class="f"><textarea id="cmt" style="min-height:44px" placeholder="${con ? 'Your response: what was done, when, and anything the reviewer should know' : 'Add a comment (saved with your name and the time)'}"></textarea></label>${!con && can.edit() ? `<label class="f small">On behalf of (when relaying an email or a verbal response)<select id="cmtFor"><option value="">Myself</option>${peopleList().map(n => `<option>${esc(n)}</option>`).join('')}</select></label>` : ''}</div>` : ''}
-  <h3 class="sec" id="hHist">History <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">newest first</span></h3>
+  <h3 class="sec" id="hHist">History <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:400">newest first</span>${can.realAdmin() && w.id && !w.isNew ? ` <a href="#" id="hLog" class="small" style="text-transform:none;letter-spacing:0;font-weight:400" title="Every change to this item, stamped by the server with the time and the signed-in person. It cannot be edited.">Server log</a>` : ''}</h3>
   <div class="hist">${(w.history || []).slice().sort((a, b) => String(b.t || '').localeCompare(String(a.t || ''))).map(histHtml).join('') || '<div>No history yet.</div>'}</div>
   ${w.ext ? `<details class="ext"><summary>Original record (${esc(w.extRef || w.source)})</summary>${Object.entries(w.ext).filter(e => e[1]).map(([k, v]) => `<p><b>${esc(k)}:</b> ${esc(v)}</p>`).join('')}</details>` : ''}`;
   const body = $('edBody');
@@ -836,6 +852,7 @@ function stageGate() {
 async function renderPhotos() {
   const w = ED.d, ro = !can.write(); stageGate();
   wireLastPhotos($('edBody'), w);
+  if ($('hLog')) $('hLog').onclick = e => { e.preventDefault(); serverLog(w.id); };
   // photos that were attached to comments in the history: tap to view, with the others of the same comment
   $('edBody').querySelectorAll('img[data-hp]').forEach(async im => { const h = (w.history || []).find(x => (x.photos || []).some(p => p.id === im.dataset.hp)); if (!h) return; const i = h.photos.findIndex(p => p.id === im.dataset.hp); peekable(im); im.src = await photoSrc(h.photos[i]); im.onclick = () => gallery(h.photos, i, (w.id || '') + ' comment by ' + (h.who || '')); });
   $('phs').innerHTML = (w.photos || []).map((p, i) => `<div class="ph"><img data-i="${i}" alt="">${!ro && (can.edit() || p.isNew || !limited(w, ED.isNew)) ? `<button data-x="${i}">✕</button>` : ''}${p.pending ? '<span class="pend">waiting</span>' : ''}${p.t && w.created && String(p.t).slice(0, 10) > String(w.created).slice(0, 10) ? `<span class="phnew">New ${esc(nzDate(String(p.t).slice(0, 10)))}</span>` : ''}</div>`).join('') + (!ro ? '<div class="addph" id="addph">📷🖼<span>Add photo</span></div>' : '');
@@ -944,13 +961,15 @@ async function saveEditor() {
       if (E.wfLabel) { ch.push(E.wfLabel.toLowerCase()); }
       if (o.aiReview && !lim) { patch.aiReview = false; ch.push('checked'); }
       keys.forEach(k => { if ((o[k] ?? '') !== (d[k] ?? '')) patch[k] = d[k] ?? null; });
-      const LBL = { severity: 'category', source: 'raised by' }; ['status', 'severity', 'type', 'source', 'trade', 'element', 'responsible', 'subcontractor', 'targetDate', 'block', 'level', 'unit', 'room', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : (LBL[k] || k) + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
+      const LBL = { severity: 'category', source: 'raised by', dateRaised: 'date raised' }; ['status', 'severity', 'type', 'source', 'trade', 'element', 'responsible', 'subcontractor', 'targetDate', 'block', 'level', 'unit', 'room', 'surface', 'item', 'dateRaised', 'title'].forEach(k => { if (k in patch) ch.push(k === 'targetDate' ? 'target date ' + (nzDate(d[k]) || 'cleared') : k === 'dateRaised' ? 'date raised ' + (nzDate(o[k]) || '-') + ' → ' + (nzDate(d[k]) || '-') : (LBL[k] || k) + ' ' + (o[k] || '-') + ' → ' + (d[k] || '-')); });
       if ('plan' in patch || 'x' in patch) ch.push('pin ' + (d.plan ? 'moved' : 'removed'));
       const ph = clean(d).photos; if (JSON.stringify(ph) !== JSON.stringify(o.photos || [])) { patch.photos = ph; ch.push('photos ' + (o.photos || []).length + ' → ' + ph.length); }
       const fl = clean(d).files; if (JSON.stringify(fl) !== JSON.stringify(o.files || [])) { patch.files = fl; ch.push('attachments ' + (o.files || []).length + ' → ' + fl.length); }
       if (E.wfLabel) { newH.push({ t, who, txt: E.wfLabel + (cm ? ': ' + cm : '.'), ...(cmPh.length ? { photos: cmPh } : {}) }); const rest = ch.filter(x => x !== E.wfLabel.toLowerCase() && !/^status /.test(x)); if (rest.length) newH.push({ t, who, txt: 'Changed ' + rest.join('; ') + '.' }); }
       else { if (ch.length) newH.push({ t, who, txt: 'Changed ' + ch.join('; ') + '.' }); if (cm) newH.push({ t, who, txt: cm, ...(cmPh.length ? { photos: cmPh } : {}) }); }
       if ('status' in patch && newH.length && o.status) newH[0].st = [o.status, d.status];
+      // the wording of the description and action is kept, before and after, so nothing changes without a trace
+      [['desc', 'Description edited.'], ['action', 'Action required edited.']].forEach(([k, l]) => { if (k in patch) newH.push({ t, who, txt: l, was: String(o[k] || ''), now: String(d[k] || '') }); });
       if (!Object.keys(patch).length && !newH.length) { b.done(); return; }
       patch.updated = t; patch.updatedBy = S.user.email;
       await S.store.updateDefect(pid, d.id, patch, newH);
