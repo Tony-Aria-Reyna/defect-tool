@@ -201,6 +201,41 @@ export function bulk(files) {
   };
 }
 
+/* ================================================================ link what is already in the library: no upload, the document becomes a submission and is checked */
+const libCands = () => fm().docs.filter(d => !d.submitted && DV.isPdf(d) && !/(^|\/)Superseded\//i.test(d.srcPath || '') && !/superseded/i.test(d.title || ''));
+const isWarr = d => /warrant|deed|guarant/i.test([d.type, d.title, d.fileName].join(' '));
+const kindOf = d => /schedule 13|sch 13|deed/i.test([d.type, d.title].join(' ')) ? 'deed' : isWarr(d) ? 'product' : 'other';
+async function convert(d, a, k) {
+  const sub = { kind: k, status: 'Checking', by: S.user.email, byName: S.user.name, at: now(), note: 'Linked from the document library.', replaces: '', history: [{ t: now(), who: S.user.name, txt: 'Linked from the document library and submitted for checking.' }] };
+  const patch = plain({ submitted: true, source: false, assetIds: [...new Set([a.id, ...(d.assetIds || [])])], type: typeOf(k, d.type), system: d.system || a.system || '', sub });
+  await S.store.patchItem(S.project.id, 'docs', d.id, patch); const r = { ...d, ...patch }; enqueue(r); return r;
+}
+export function linkExisting(a) {
+  const W = words([a.installer, a.element, a.product].join(' ')), score = d => { const h = words([d.title, d.party, d.fileName].join(' ')); return W.filter(w => h.some(x => x.startsWith(w) || w.startsWith(x))).length + ((d.assetIds || []).includes(a.id) ? 5 : 0) + (isWarr(d) ? 1 : 0); };
+  const L = libCands().map(d => ({ d, sc: score(d) })).sort((x, y) => y.sc - x.sc || natural(x.d.title, y.d.title));
+  modal(`<h2>🔗 Link a document to ${esc(a.ref || '')} ${esc(a.element)}</h2><p class="note">Choose a document already in the library. It is checked the same way as an upload. The best matches are at the top.</p>
+  <input type="search" id="lkQ" placeholder="Search the library…" style="width:100%;margin-bottom:8px"><div class="lkl" id="lkL"></div>
+  <div class="act"><button id="lkX">Cancel</button></div>`, true);
+  const draw = () => { const q = $('lkQ').value.toLowerCase().trim(); $('lkL').innerHTML = L.filter(x => !q || q.split(' ').every(w => [x.d.title, x.d.fileName, x.d.system].join(' ').toLowerCase().includes(w))).slice(0, 60).map(({ d, sc }) => `<div class="lkr"><div><b>${esc(d.title)}</b><br><span class="muted small">${esc(d.system || '')} · ${esc(d.type || '')}${(d.assetIds || []).includes(a.id) ? ' · already linked to this element' : ''}</span></div><select data-lk="${esc(d.id)}"><option value="">Link as…</option><option value="deed" ${kindOf(d) === 'deed' && sc ? 'selected' : ''}>Sch 13 deed</option><option value="product" ${kindOf(d) === 'product' && sc ? 'selected' : ''}>Product warranty</option><option value="other">Supporting</option></select><button class="btn2 sm" data-lkgo="${esc(d.id)}">Link</button></div>`).join('') || '<p class="muted">No documents match.</p>';
+    document.querySelectorAll('[data-lkgo]').forEach(b => b.onclick = async () => { const d = fm().docs.find(x => x.id === b.dataset.lkgo), k = document.querySelector(`[data-lk="${b.dataset.lkgo}"]`).value || kindOf(d); closeModal(); try { await convert(d, a, k); toast('Linked. Checking in the background.', 4000); refresh(); } catch (e) { toast('Could not link: ' + e.message, 6000); } }); };
+  $('lkQ').oninput = draw; $('lkX').onclick = closeModal; draw(); $('lkQ').focus();
+}
+// Every warranty already in the library, matched to its element in one go
+export function matchLibrary() {
+  const L = libCands().filter(isWarr); if (!L.length) return toast('No unlinked warranties in the library');
+  const A = fm().assets.filter(a => a.status !== 'Not applicable').sort((a, b) => natural(a.system, b.system) || natural(a.ref || '', b.ref || ''));
+  const rows = L.map(d => { const lk = (d.assetIds || []).map(id => A.find(a => a.id === id)).filter(Boolean); const g = guess([d.title, d.party, d.fileName].join(' ')); return { d, a: lk[0] || g.a, sure: !!lk[0] || g.sure, k: kindOf(d) }; }).sort((x, y) => natural(x.d.system || '', y.d.system || '') || natural(x.d.title, y.d.title));
+  const opt = id => `<option value="">Skip</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element)}</option>`).join('');
+  modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. Set any wrong match, or "Skip" to leave it out, then link them. They are checked in the background, a few at a time.</p>
+  <table class="ftable bkt"><tr><th>Document</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')}${r.sure ? '' : ' · <i>check this match</i>'}</span></td><td><select id="mlA${i}">${opt(r.a && r.a.id)}</select></td><td><select id="mlK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
+  <div class="act"><button id="mlX">Cancel</button><button class="go" id="mlGo">Link and check</button></div>`, true);
+  $('mlX').onclick = closeModal;
+  $('mlGo').onclick = async () => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === $('mlA' + i).value), k: $('mlK' + i).value })).filter(x => x.a);
+    if (!go.length) return toast('Nothing chosen'); closeModal(); const b = busy('Linking…'); let n = 0;
+    try { for (const x of go) { b.set(`Linking ${++n} of ${go.length}…`); await convert(x.d, x.a, x.k); } b.done(); toast(`${go.length} linked. Checking in the background: results appear as they finish.`, 6000); } catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
+    refresh(); };
+}
+
 /* ================================================================ submit */
 export function submitDialog(a, replaces) {
   const k0 = replaces ? replaces.sub.kind : 'deed';
@@ -392,18 +427,20 @@ export function view(tabs) {
   const rows = A.map(a => ({ a, ...state(a) })).filter(({ a, L, review, fix, acc }) => a.status !== 'Not applicable' && (!VF.sys || a.system === VF.sys) && (!q || [a.ref, a.element, a.product, a.installer].join(' ').toLowerCase().includes(q))
     && (!VF.st || (VF.st === 'out' ? !['Received'].includes(a.status) && !review : VF.st === 'review' ? review : VF.st === 'fix' ? fix : VF.st === 'acc' ? acc : true)));
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="btn2 go" id="svRev">${can.edit() ? '▶ Review next (' + C.review + ')' : '▶ Fix next (' + C.fix + ')'}</button>${can.edit() ? `<button class="btn2" id="svZip" title="Accepted documents, named to the convention, in the handover folder structure">📦 Accepted, ready to file${toFile(false).length ? ' (' + toFile(false).length + ' new)' : ''}</button>` : ''}</div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select>${can.edit() ? `<button class="btn2" id="svLib">🔗 Match library warranties (${libCands().filter(isWarr).length})</button>` : ''}<button class="btn2 go" id="svRev">${can.edit() ? '▶ Review next (' + C.review + ')' : '▶ Fix next (' + C.fix + ')'}</button>${can.edit() ? `<button class="btn2" id="svZip" title="Accepted documents, named to the convention, in the handover folder structure">📦 Accepted, ready to file${toFile(false).length ? ' (' + toFile(false).length + ' new)' : ''}</button>` : ''}</div>
   ${tabs}
   <div class="sbdrop">⬇ Drop warranty PDFs anywhere on this page. Each one is matched to its element and checked in the background. You can drop many at once.</div>
   <p class="muted small">${can.edit() ? `${C.review} awaiting your review · ${C.fix} with the contractor to fix · ${C.accepted} accepted.` : `Submit each warranty against the element it covers. It is checked straight away so you can fix anything before it is reviewed. ${C.fix} need fixing · ${C.review} with the reviewer · ${C.accepted} accepted.`}</p>
   ${rows.length ? `<table class="ftable sbt"><tr><th>Ref</th><th>Element</th><th class="hm">Required</th><th>Status</th><th>Submitted</th><th></th></tr>
   ${rows.map(({ a, L }) => { const g = a.system !== last ? `<tr class="grp"><td colspan="6">${esc(a.system)}</td></tr>` : ''; last = a.system;
-    return g + `<tr><td>${esc(a.ref || '')}</td><td><b>${esc(a.element || '')}</b><br><span class="muted small">${esc([a.installer, a.product].filter(Boolean).join(' · '))}</span></td><td class="hm small">${esc([a.instWarranty && 'Installer: ' + a.instWarranty, a.mfrWarranty && a.mfrWarranty !== '-' && 'Manufacturer: ' + a.mfrWarranty].filter(Boolean).join(' · '))}</td><td><span class="st ${a.status === 'Received' ? 'st-ok' : a.status === 'Not received' ? 'st-bad' : 'st-warn'}">${esc(a.status || '')}</span></td><td>${L.map(d => `<a href="#" class="sbchip" data-sd="${esc(d.id)}" title="${esc(d.title)}">${chip(d.sub.status)}<small>${esc(d.sub.kind === 'deed' ? 'Deed' : d.sub.kind === 'product' ? 'Product' : 'Supporting')} · ${esc(dt(d.sub.at))}</small></a>`).join('') || '<span class="muted small">Nothing yet</span>'}</td><td>${wr ? `<button class="btn2 sm" data-sub="${esc(a.id)}">⬆ Submit</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">Nothing matches. Change the filter to see more.</div>'}`;
+    return g + `<tr><td>${esc(a.ref || '')}</td><td><b>${esc(a.element || '')}</b><br><span class="muted small">${esc([a.installer, a.product].filter(Boolean).join(' · '))}</span></td><td class="hm small">${esc([a.instWarranty && 'Installer: ' + a.instWarranty, a.mfrWarranty && a.mfrWarranty !== '-' && 'Manufacturer: ' + a.mfrWarranty].filter(Boolean).join(' · '))}</td><td><span class="st ${a.status === 'Received' ? 'st-ok' : a.status === 'Not received' ? 'st-bad' : 'st-warn'}">${esc(a.status || '')}</span></td><td>${L.map(d => `<a href="#" class="sbchip" data-sd="${esc(d.id)}" title="${esc(d.title)}">${chip(d.sub.status)}<small>${esc(d.sub.kind === 'deed' ? 'Deed' : d.sub.kind === 'product' ? 'Product' : 'Supporting')} · ${esc(dt(d.sub.at))}</small></a>`).join('') || '<span class="muted small">Nothing yet</span>'}</td><td class="sbbtns">${wr ? `<button class="btn2 sm" data-sub="${esc(a.id)}">⬆ Submit</button>` : ''}${can.edit() ? `<button class="btn2 sm" data-lnk="${esc(a.id)}" title="Link a document already in the library">🔗 Link</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">Nothing matches. Change the filter to see more.</div>'}`;
   $('svQ').oninput = e => { VF.q = e.target.value; X.render(); const i = $('svQ'); if (i) { i.focus(); i.setSelectionRange(VF.q.length, VF.q.length); } };
   if ($('svZip')) $('svZip').onclick = filingPack;
   $('svS').onchange = e => { VF.sys = e.target.value; X.render(); }; $('svT').onchange = e => { VF.st = e.target.value; X.render(); };
   document.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => submitDialog(fm().assets.find(a => a.id === b.dataset.sub)));
   document.querySelectorAll('[data-sd]').forEach(l => l.onclick = e => { e.preventDefault(); const d = fm().docs.find(x => x.id === l.dataset.sd); if (!d) return; DV.isPdf(d) ? DV.open(d) : detail(d); });
+  document.querySelectorAll('[data-lnk]').forEach(b => b.onclick = () => linkExisting(fm().assets.find(a => a.id === b.dataset.lnk)));
+  if ($('svLib')) $('svLib').onclick = matchLibrary;
   if ($('svRev')) $('svRev').onclick = () => { const L = queueFor(); if (!L.length) return toast(can.edit() ? 'Nothing is waiting for review' : 'Nothing needs fixing'); DV.open(L[0]); };
   resume();
 }

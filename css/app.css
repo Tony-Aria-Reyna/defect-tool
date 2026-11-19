@@ -677,3 +677,5 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .sbdrop{border:2px dashed #b9c6d3;border-radius:10px;padding:10px 14px;margin:8px 0;color:#4f5d6b;font-size:13.5px;background:#f8fafc}
 .sbv{border:1px solid #cfd8e1;border-radius:10px;padding:10px;margin:8px 0;background:#fff}.sbvh{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}.sbv .sbact{margin:10px 0 6px}.sbv .btn2{padding:6px 10px;font-size:13px}
 .bkt select{width:100%;max-width:360px}.bkt td{vertical-align:top}
+.lkl{max-height:55vh;overflow:auto;border:1px solid var(--line);border-radius:8px}.lkr{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 10px;border-top:1px solid #eef1f4}.lkr:first-child{border-top:0}
+.sbbtns{white-space:nowrap}.sbbtns .btn2{margin:2px}
