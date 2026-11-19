@@ -923,7 +923,7 @@ async function saveEditor() {
   const cm = $('cmt') ? $('cmt').value.trim() : '', E = ED; const b = bgSave(E.isNew ? 'new item' : d.id);
   // Work through the list: once saved, the next item in the current list opens straight away (switch off in the editor header)
   let nx = null; if (!E.isNew && autoNext()) { const L = filtered(), i = L.findIndex(x => x.id === E.d.id); nx = i > -1 ? (L[i + 1] || L[i - 1]) : null; }
-  closeEditor(); if (nx) setTimeout(() => { const n = S.defects.find(x => x.id === nx.id) || nx; S.sel = n.id; openEditor(n); renderPins(); toast('Saved ' + E.d.id + '. Now on ' + n.id, 2500); }, 60);
+  closeEditor(); if (nx) setTimeout(() => { const n = S.defects.find(x => x.id === nx.id) || nx; goItem(n); toast('Saved ' + E.d.id + '. Now on ' + n.id, 2500); }, 60);
   try {
     if (E.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
     d.photos = await uploadPhotos(pid, d.id, d.photos || []);
@@ -966,6 +966,8 @@ async function deleteDefect() {
     toast(msg, 4000); } catch (e) { toast('Could not delete: ' + friendly(e)); }
 }
 const edSnap = () => JSON.stringify([FIELDS.map(f => { const el = $('edBody').querySelector(`[name=${f}]`); return el ? el.value : ''; }), (ED.d.photos || []).map(p => p.id || p.path), ED.d.plan, ED.d.x, ED.d.y]);
+// Same as tapping the item in the list: plan moves to its pin, list highlights and scrolls to it, editor opens
+function goItem(d) { S.sel = d.id; if (d.plan && !isMobile()) showPlan(d.plan, d); render(); openEditor(d); requestAnimationFrame(() => { const c = $('list').querySelector(`.card[data-id="${CSS.escape(d.id)}"]`); if (c) c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }); }
 const autoNext = () => { try { return localStorage.getItem('autoNext') !== '0'; } catch (e) { return true; } };
 // Keyboard: Alt+Right / Alt+Left (or Page Down / Page Up outside a text box) moves through the list; Ctrl+Enter saves
 document.addEventListener('keydown', e => { if (!ED || ED.isNew || document.querySelector('.modal.show, .mpop')) return; const typing = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.target.isContentEditable;
@@ -976,7 +978,7 @@ async function step(dir) {
   if (!ED || ED.isNew) return; const L = filtered(); const i = L.findIndex(x => x.id === ED.d.id); const n = L[i + dir];
   if (!n) { toast(dir > 0 ? 'That is the last item in this list' : 'That is the first item in this list'); return; }
   if (ED.snap && ED.snap !== edSnap() && !(await confirmBox('Leave this item without saving your changes?', 'Leave'))) return;
-  const b = $('edBody'); b.classList.add(dir > 0 ? 'outl' : 'outr'); setTimeout(() => { b.classList.remove('outl', 'outr'); S.sel = n.id; openEditor(n); renderPins(); b.classList.add(dir > 0 ? 'inr' : 'inl'); setTimeout(() => b.classList.remove('inr', 'inl'), 220); }, 110);
+  const b = $('edBody'); b.classList.add(dir > 0 ? 'outl' : 'outr'); setTimeout(() => { b.classList.remove('outl', 'outr'); goItem(n); b.classList.add(dir > 0 ? 'inr' : 'inl'); setTimeout(() => b.classList.remove('inr', 'inl'), 220); }, 110);
 }
 // Swipe left or right on a record to move through the items in the current list.
 function swipeWire(el) {
