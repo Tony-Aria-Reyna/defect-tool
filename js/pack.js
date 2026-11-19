@@ -1,7 +1,9 @@
 // Handover pack generator: FM Manual (property team), Home User Guide (residents), and a zip with every document linked.
 import { S } from './state.js';
 import { APP } from './config.js';
-import { $, esc, toast, modal, closeModal, busy, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript, confirmBox } from './util.js';
+import { can } from './state.js';
+import { buildPdf, buildXlsx } from './exports.js';
 
 let X = {};
 export function init(ctx) { X = ctx; }   // ctx: { fm(), getBytes(url), addFreq, warrantyExpiry, freqText, SYSTEMS }
@@ -166,6 +168,66 @@ export async function buildHomeGuide(mode, st = () => {}) {
   return w.finish();
 }
 
+/* ------------------------------------------------------------ the offline front page: one HTML file that opens in any browser */
+function indexHtml(mode, files) {
+  const p = S.project, { assets: A, tasks: T } = X.fm(), D = (S.defects || []), Dd = X.fm().docs.filter(d => !d.template && !d.superseded);
+  const link = d => d.link ? d.link : mode === 'zip' && d.url ? encodeURI(docPath(d)).replace(/#/g, '%23') : (d.url || '');
+  const e = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const exp = a => (a.warranties || []).map(w => ({ w, d: X.warrantyExpiry(w) })).filter(x => x.d).sort((x, y) => x.d.localeCompare(y.d));
+  const byAsset = id => Dd.filter(d => (d.assetIds || []).includes(id));
+  const sec = (id, h, body) => `<section id="${id}"><h2>${h}</h2>${body}</section>`;
+  const assets = A.slice().sort((a, b) => natural(a.system || '', b.system || '') || natural(a.ref || '', b.ref || ''));
+  const rowsA = assets.map(a => { const ex = exp(a); return `<tr data-s="${e([a.ref, a.element, a.product, a.installer, a.system].join(' ').toLowerCase())}"><td>${e(a.ref)}</td><td><b>${e(a.element)}</b><br><small>${e([a.product, a.installer].filter(Boolean).join(' · '))}</small></td><td>${e((a.system || '').replace(/^\d\d /, ''))}</td><td>${ex.length ? ex.map(x => `${e(x.w.label || 'Warranty')}: ${e(nzDate(x.d))}`).join('<br>') : (a.warranties || []).length ? '<small>runs from practical completion</small>' : '-'}</td><td>${byAsset(a.id).map(d => `<a href="${e(link(d))}" target="_blank">${e(d.title)}</a>`).join('<br>') || '-'}</td></tr>`; }).join('');
+  const tasks = T.slice().sort((a, b) => (a.nextDue || '9').localeCompare(b.nextDue || '9'));
+  const rowsT = tasks.map(t => `<tr data-s="${e([t.title, t.system, t.responsible].join(' ').toLowerCase())}"><td><b>${e(t.title)}</b><br><small>${e(t.instructions || '').slice(0, 300)}</small></td><td>${e(X.freqText(t))}</td><td>${e(t.responsible || '')}</td><td>${e(t.nextDue ? nzDate(t.nextDue) : '')}</td></tr>`).join('');
+  const docsS = Dd.slice().sort((a, b) => natural(a.system || 'zz', b.system || 'zz') || natural(a.title, b.title)); let last = '';
+  const rowsD = docsS.map(d => { const g = (d.system || 'General') !== last ? `<tr class="g"><td colspan="3">${e(d.system || 'General')}</td></tr>` : ''; last = d.system || 'General'; return g + `<tr data-s="${e([d.title, d.type, d.party, d.system].join(' ').toLowerCase())}"><td><a href="${e(link(d))}" target="_blank">${e(d.title)}</a></td><td>${e(d.type || '')}</td><td>${e(d.party || '')}</td></tr>`; }).join('');
+  const open = D.filter(d => d.status !== 'Closed'), cnt = s => D.filter(d => d.status === s).length;
+  const rowsF = open.slice().sort((a, b) => natural(a.id, b.id)).map(d => `<tr data-s="${e([d.id, d.title, d.unit, d.room, d.responsible].join(' ').toLowerCase())}"><td>${e(d.id)}</td><td><b>${e(d.title)}</b><br><small>${e([d.block && 'Block ' + d.block, d.level, d.unit && 'Unit ' + d.unit, d.room].filter(Boolean).join(', '))}</small></td><td>${e(d.status)}</td><td>${e(d.responsible || '')}</td></tr>`).join('');
+  const contacts = (p.directory || []).filter(c => (c.audience || 'FM') !== 'Not shown');
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(p.name)} - handover</title><style>
+body{font:15px/1.45 system-ui,Segoe UI,Arial,sans-serif;margin:0;color:#18232f;background:#f4f6f8}header{background:#011c35;color:#fff;padding:20px 28px}header h1{margin:0;font-size:24px}header p{margin:4px 0 0;opacity:.85}
+nav{position:sticky;top:0;background:#fff;border-bottom:1px solid #dde3e9;padding:8px 28px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;z-index:2}nav a{color:#245d97;text-decoration:none;font-weight:600}nav input{margin-left:auto;padding:7px 10px;border:1px solid #c9d0d8;border-radius:8px;min-width:240px}
+main{padding:10px 28px 40px;max-width:1300px}section{background:#fff;border:1px solid #dde3e9;border-radius:10px;padding:14px 18px;margin:16px 0}h2{margin:0 0 10px;font-size:18px;color:#011c35}
+table{width:100%;border-collapse:collapse}th{text-align:left;font-size:12px;text-transform:uppercase;color:#5b6672;border-bottom:2px solid #dde3e9;padding:6px}td{padding:6px;border-bottom:1px solid #eef1f4;vertical-align:top}small{color:#5b6672}tr.g td{background:#f2f5f8;font-weight:700;color:#011c35}a{color:#245d97}
+.k{display:flex;gap:12px;flex-wrap:wrap}.k div{background:#f2f5f8;border-radius:8px;padding:10px 14px}.k b{display:block;font-size:20px}.note{color:#5b6672;font-size:13px}@media print{nav{display:none}}
+</style></head><body><header><h1>${e(p.name)}</h1><p>${e([p.address, p.client].filter(Boolean).join(' · '))}</p><p>Handover record prepared by ${e(APP.company)} on ${e(nzDate(todayISO()))}. This page works offline: keep it in the same folder as the Documents folder.</p></header>
+<nav><a href="#keys">Key dates</a><a href="#assets">Assets and warranties</a><a href="#maint">Maintenance</a><a href="#docs">Documents</a><a href="#defects">Defects</a><a href="#contacts">Contacts</a><input id="q" type="search" placeholder="Search everything…"></nav><main>
+${sec('keys', 'Key dates', `<div class="k">${[['Practical completion', p.pcDate], ['Defects period ends', p.pcDate ? X.addFreq(p.pcDate, +(p.dnpMonths || 12), 'months') : ''], ['Building warrant of fitness due', p.bwofDue], ['Code compliance certificate', p.cccDate]].map(([l, v]) => `<div><small>${l}</small><b>${v ? e(nzDate(v)) : 'not set'}</b></div>`).join('')}</div><p class="note">Warranty expiry dates run from practical completion unless the warranty states otherwise.</p>`)}
+${sec('assets', `Assets and warranties (${A.length})`, `<table><tr><th>Ref</th><th>Element</th><th>System</th><th>Warranty to</th><th>Documents</th></tr>${rowsA}</table>`)}
+${sec('maint', `Maintenance (${T.length})`, tasks.length ? `<table><tr><th>Task</th><th>How often</th><th>Who</th><th>Next due</th></tr>${rowsT}</table><p class="note">Many warranties depend on this maintenance being done and recorded.</p>` : '<p class="note">No maintenance tasks recorded.</p>')}
+${sec('docs', `Documents (${Dd.length})`, `<table><tr><th>Document</th><th>Type</th><th>From</th></tr>${rowsD}</table>${mode === 'zip' ? '' : '<p class="note">Links open the online copies.</p>'}`)}
+${sec('defects', 'Defects', `<div class="k">${['Open', 'In progress', 'Ready for review', 'Disputed', 'Closed'].map(s => `<div><small>${s}</small><b>${cnt(s)}</b></div>`).join('')}</div>${open.length ? `<h3>Not closed at the time of handover (${open.length})</h3><table><tr><th>ID</th><th>Defect</th><th>Status</th><th>Responsible</th></tr>${rowsF}</table>` : '<p>All defects were closed at the time of handover.</p>'}<p class="note">The full register with history is in the Defects Register files beside this page.</p>`)}
+${sec('contacts', 'Contacts', contacts.length ? `<table><tr><th>Company</th><th>Trade</th><th>Contact</th><th>Phone</th><th>Email</th></tr>${contacts.map(c => `<tr data-s="${e([c.company, c.trade, c.name].join(' ').toLowerCase())}"><td><b>${e(c.legal || c.company)}</b></td><td>${e(c.trade || '')}</td><td>${e(c.name || '')}</td><td>${e(c.phone || '')}${c.afterHours ? '<br><small>After hours ' + e(c.afterHours) + '</small>' : ''}</td><td>${c.email ? `<a href="mailto:${e(c.email)}">${e(c.email)}</a>` : ''}</td></tr>`).join('')}</table>` : '<p class="note">No contacts recorded.</p>')}
+</main><script>document.getElementById('q').oninput=function(){var q=this.value.toLowerCase().trim().split(/\\s+/).filter(Boolean);document.querySelectorAll('tr[data-s]').forEach(function(r){r.style.display=!q.length||q.every(function(w){return r.getAttribute('data-s').indexOf(w)>-1})?'':'none'})}</script></body></html>`;
+}
+// Everything in the project as one data file, kept with the record so the project can be read back later
+function dataJson() {
+  const p = { ...S.project }; delete p.memberInfo; delete p.members; delete p.memberUids; delete p.access;
+  const f = X.fm(), strip = L => (L || []).map(x => JSON.parse(JSON.stringify(x)));
+  return new Blob([JSON.stringify({ app: APP.name, type: 'project-archive', version: 1, exported: new Date().toISOString(), project: p, plans: strip(S.plans).map(x => ({ ...x })), defects: strip(S.defects), assets: strip(f.assets), docs: strip(f.docs), tasks: strip(f.tasks), systems: strip(f.systems), guide: strip(f.guide), actions: strip(f.actions) }, null, 1)], { type: 'application/json' });
+}
+
+/* ------------------------------------------------------------ after handover: free the cloud storage, keep the records */
+export async function archiveDialog() {
+  if (!can.admin()) return toast('Only project admins can archive a project');
+  const p = S.project, Dd = X.fm().docs.filter(d => d.path && d.url), ph = (S.defects || []).flatMap(d => (d.photos || []).filter(x => x.path)), mb = Dd.reduce((a, d) => a + (d.size || 0), 0) / 1e6;
+  if (!p.handoverExported) return toast('Generate and download the handover pack (with the documents bundled) first. Archiving removes the files from the cloud.', 8000);
+  modal(`<h2>Archive ${esc(p.name)}</h2><p>The handover pack was downloaded on <b>${esc(nzDate(String(p.handoverExported).slice(0, 10)))}</b>. Archiving:</p>
+  <ul><li>removes ${Dd.length} document files (about ${mb.toFixed(0)} MB) and ${ph.length} defect photos from cloud storage;</li><li>keeps every record (defects, histories, assets, warranties, maintenance), so the project's track record stays;</li><li>hides the project from everyone except system administrators.</li></ul>
+  <p class="note">This cannot be undone from the app. Check the downloaded pack opens and is stored in the client's system and your own records first.</p>
+  <label class="f">Type the project name to confirm<input id="arN" placeholder="${esc(p.name)}"></label>
+  <div class="act"><button id="arX">Cancel</button><button class="go warn" id="arGo">Archive</button></div>`);
+  $('arX').onclick = closeModal;
+  $('arGo').onclick = async () => { if ($('arN').value.trim() !== p.name) return toast('Type the project name exactly to confirm');
+    if (!(await confirmBox(`Remove ${Dd.length + ph.length} files from cloud storage and archive ${p.name}? This cannot be undone.`, 'Archive now'))) return;
+    const b = busy('Archiving…'); let n = 0;
+    try { for (const d of Dd) { b.set(`Removing files ${++n} of ${Dd.length + ph.length}…`); try { await S.store.deleteFile(d.path); } catch (e) {} await S.store.patchItem(p.id, 'docs', d.id, { url: '', fileArchived: new Date().toISOString() }); }
+      for (const x of ph) { b.set(`Removing files ${++n} of ${Dd.length + ph.length}…`); try { await S.store.deleteFile(x.path); } catch (e) {} }
+      await S.store.updateProject(p.id, { archived: true, archivedAt: new Date().toISOString(), archivedBy: S.user.email }); b.done(); toast('Archived. The records are kept; the files are removed from the cloud.', 8000); }
+    catch (e) { b.done(); toast(`Stopped after ${n} files: ${e.message}. Run it again to carry on.`, 9000); } };
+}
+
 /* ------------------------------------------------------------ dialog */
 export function packDialog() {
   const Dd = X.fm().docs.filter(d => !d.template && !d.superseded); const files = Dd.filter(d => d.url && !d.link); const mb = files.reduce((a, d) => a + (d.size || 0), 0) / 1e6;
@@ -173,13 +235,17 @@ export function packDialog() {
   <div class="opt"><input type="checkbox" id="hpF" checked><label for="hpF"><b>Facility Management Manual</b>: key dates, contacts, compliance schedule and BWoF, maintenance schedule, assets and warranties, document index, open defects</label></div>
   <div class="opt"><input type="checkbox" id="hpH" checked><label for="hpH"><b>Home User Guide</b> for residents: large clear type, how to look after the home, fire safety, who to call</label></div>
   <div class="opt"><input type="checkbox" id="hpR" checked><label for="hpR"><b>FM register</b> (Excel) and maintenance calendar (.ics)</label></div>
+  <div class="opt"><input type="checkbox" id="hpI" checked><label for="hpI"><b>Front page</b> (Open me first.html): assets, warranties with expiry dates, maintenance, every document and open defects, searchable, opens offline in any browser</label></div>
+  <div class="opt"><input type="checkbox" id="hpD" checked><label for="hpD"><b>Defects register at handover</b>: Excel of every defect, and a PDF with each item's full history</label></div>
+  <div class="opt" style="margin-left:24px"><input type="checkbox" id="hpDp"><label for="hpDp">Include photos and plan locations in the defects PDF (much larger and slower)</label></div>
+  <div class="opt"><input type="checkbox" id="hpJ" checked><label for="hpJ"><b>Data file</b> (JSON): every record, kept with the pack so the project can be read back into Resero Site later</label></div>
   <h3 class="sec">Documents</h3>
   <label class="opt"><input type="radio" name="hpM" value="zip" checked> Bundle every document into one zip, filed by building system and type, with the manuals linking to the files (${files.length} files, about ${mb.toFixed(0)} MB). Best for SharePoint and long-term records.</label>
   <label class="opt"><input type="radio" name="hpM" value="online"> Manuals only, linking to the online copies (small and quick)</label>
   <p class="note">Links to files inside the zip work in Adobe Acrobat Reader and most desktop PDF readers once the zip is extracted. Browser PDF viewers may not follow them.</p>
   <p class="note" id="hpSt"></p>
-  <div class="act"><button id="hpX">Close</button><button class="go" id="hpGo">Generate</button></div>`);
-  $('hpX').onclick = closeModal;
+  <div class="act">${can.admin() ? '<button id="hpAr" class="warn" style="margin-right:auto">Archive after handover…</button>' : ''}<button id="hpX">Close</button><button class="go" id="hpGo">Generate</button></div>`);
+  $('hpX').onclick = closeModal; if ($('hpAr')) $('hpAr').onclick = archiveDialog;
   $('hpGo').onclick = async () => {
     const mode = document.querySelector('[name=hpM]:checked').value, st = t => $('hpSt').textContent = t, nm = safeName(S.project.name), n = stamp();
     $('hpGo').disabled = true;
@@ -188,6 +254,11 @@ export function packDialog() {
       if ($('hpF').checked) { st('Building the FM Manual…'); out.push([`${nm} - Facility Management Manual - ${n}.pdf`, await buildFmManual(mode, st)]); }
       if ($('hpH').checked) { st('Building the Home User Guide…'); out.push([`${nm} - Home User Guide - ${n}.pdf`, await buildHomeGuide(mode, st)]); }
       if ($('hpR').checked) { st('Building the FM register…'); const r = await X.registerBlob(); if (r) out.push([`${nm} - FM Register - ${n}.xlsx`, r]); out.push([`${nm} - Maintenance calendar - ${n}.ics`, X.icsBlob()]); }
+      if ($('hpD').checked) { const L = (S.defects || []).slice().sort((a, b) => natural(a.id, b.id)), ctx = { project: S.project, plans: S.plans, getBytes: X.getBytes, logoResero: 'img/resero-navy.png', me: S.user.name };
+        st('Building the defects register (Excel)…'); out.push([`${nm} - Defects Register at handover - ${n}.xlsx`, await buildXlsx(L, ctx)]);
+        st('Building the defects register (PDF)…'); out.push([`${nm} - Defects Register at handover - ${n}.pdf`, await buildPdf(L, { title: 'Defects register at handover', sub: 'All defects', intro: 'Every defect recorded on the project, with its status and full history, as at handover.', team: true, comments: true, photos: $('hpDp').checked, plans: false, sig: false }, ctx, st)]); }
+      if ($('hpJ').checked) out.push([`${nm} - Resero Site data - ${n}.json`, dataJson()]);
+      if ($('hpI').checked) out.push(['Open me first.html', new Blob([indexHtml(mode, files)], { type: 'text/html' })]);
       if (mode === 'online' && out.length === 1) { deliver(out[0][1], out[0][0], 'Handover document'); st(''); return; }
       if (!window.JSZip) await loadScript('lib/jszip.min.js');
       const z = new JSZip(), root = `${nm} - Handover Pack - ${n}/`;
@@ -196,6 +267,7 @@ export function packDialog() {
       z.file(root + 'Read me.txt', `${S.project.name} handover pack, prepared by ${APP.company}${S.project.client ? ' for ' + S.project.client : ''} on ${nzDate(todayISO())}.\r\n\r\nStart with the Facility Management Manual. Keep this folder together: the manuals link to the files in the Documents folder.\r\nThe Home User Guide is written for residents and can be printed or emailed on its own.\r\n`);
       st('Zipping…'); const blob = await z.generateAsync({ type: 'blob' }, m => st(`Zipping… ${m.percent.toFixed(0)}%`));
       deliver(blob, `${nm} - Handover Pack - ${n}.zip`, 'Handover pack'); st('');
+      if (mode === 'zip') { try { await S.store.updateProject(S.project.id, { handoverExported: new Date().toISOString() }); S.project.handoverExported = new Date().toISOString(); } catch (e) {} }
     } catch (e) { console.error(e); st(''); toast('Could not build the pack: ' + e.message, 7000); }
     finally { $('hpGo').disabled = false; }
   };
