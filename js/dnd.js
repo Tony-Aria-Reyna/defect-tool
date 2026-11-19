@@ -30,10 +30,14 @@ function where() {
   if ($('sheet').classList.contains('show') && X.editorOpen()) return 'defect';
   if (X.FM.assetDropTarget()) return 'asset';
   if ($('modal').classList.contains('show') && $('plUp')) return 'plans';
-  return X.FM.currentModule() === 'defects' ? 'defects' : 'fm';
+  const m = X.FM.currentModule();
+  if (m === 'defects') return 'defects';
+  if (m === 'assets') return 'subs';
+  if (m === 'docs') return 'fm';
+  return 'none';
 }
 function hint() {
-  return { defect: 'Photos and PDFs will be added to this defect', asset: 'Files will be uploaded and linked to this asset', plans: 'PDFs and images will be added as plans', defects: 'Import files (.json, Excel, CSV) or plan PDFs', fm: 'Files and folders will be filed in Documents by system and type' }[where()];
+  return { defect: 'Photos and PDFs will be added to this defect', asset: 'Files will be uploaded and linked to this asset', plans: 'PDFs and images will be added as plans', defects: 'Import files (.json, Excel, CSV) or plan PDFs', fm: 'Files and folders will be filed in Documents by system and type', subs: 'Warranties: each one is matched to its element, then checked', none: 'Files cannot be dropped here. Open Defects, Assets & warranties or Documents first.' }[where()];
 }
 // When a drop cannot be read (Windows or OneDrive refuses it), offer the folder picker instead of failing silently.
 function dropFailed(why) {
@@ -66,6 +70,8 @@ async function route(files) {
   if (X.noteDropOpen && X.noteDropOpen()) return X.noteDrop(files);   // a comment or response is being written: the files become its appendix
   if (w === 'defect') { const im = files.filter(isImg), docs = files.filter(f => !isImg(f)); if (im.length) await X.addPhotos(im); if (docs.length) await X.addFiles(docs); return; }
   if (w === 'asset') return X.FM.dropDocs(files, X.FM.assetDropTarget());
+  if (w === 'none') return toast('Nothing was uploaded. Drop files on the tab they belong to: Defects (photos, plans, imports), Assets & warranties (warranties to check) or Documents (anything for the library).', 9000);
+  if (w === 'subs') { if (folder) return toast('Drop the warranty PDFs themselves here, not a folder. Folders go on the Documents tab.', 8000); return X.Sub.bulk(files); }
   if (w === 'plans') { if (!can.admin()) return toast('Only project admins can add plans'); closeModal(); return X.Admin.uploadPlans(files.filter(f => ext(f) === 'pdf' || isImg(f))); }
   const json = files.filter(f => ext(f) === 'json'), sheets = files.filter(f => ['xlsx', 'xls', 'csv'].includes(ext(f)));
   if (!folder && json.length > 1 && json.length === files.length) return toast('Drop these .json files one at a time, so each one can show you what it will change. Nothing was loaded.', 9000);

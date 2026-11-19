@@ -21,8 +21,8 @@ let X = {}, unsubs = [], cur = 'defects';
 const F = { q: '', sys: '', st: '', type: '', cat: '', win: '90', resp: '' };
 export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads();
   Guide.init({ getBytes: ctx.getBytes, modal, closeModal, askDiscard });
-  Sub.init({ getBytes: ctx.getBytes, SYSTEMS, DOC_TYPES, render: () => render() });
-  DV.init({ subBox: Sub.boxHtml, getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
+  Sub.init({ getBytes: ctx.getBytes, SYSTEMS, DOC_TYPES, render: () => { if (cur === 'assets' || cur === 'dash') render(); } });
+  DV.init({ subBox: Sub.boxHtml, subWire: Sub.wireBox, getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
 const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] });
 export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] };
@@ -495,6 +495,9 @@ async function readContacts() {
 /* ---- uploads ---- */
 let pickCtx = {}, openAssetId = null, openAssetSys = '';
 export const currentModule = () => cur;
+export const assetsTab = () => F.atab || (can.contractor() ? 'subs' : 'reg');
+export function showSubs() { F.atab = 'subs'; setModule('assets'); }
+Sub.setShowSubs(showSubs);
 // files dropped onto an open asset sheet are uploaded as documents linked to that asset
 export function assetDropTarget() { return $('sheet2').classList.contains('show') && openAssetId ? { assetIds: [openAssetId], system: openAssetSys } : null; }
 export async function dropDocs(files, ctx) { const b = busy('Uploading…'); try { const ids = await uploadFiles(files, { ...ctx, onProgress: b.set }); b.done(); toast(`${ids.length} document${ids.length === 1 ? '' : 's'} uploaded`); closeSheet(); } catch (e) { b.done(); toast('Upload failed: ' + e.message, 6000); } }

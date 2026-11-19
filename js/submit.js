@@ -10,6 +10,7 @@ import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, nzDate, natura
 let X = {};
 const VF = { q: '', sys: '', st: '' };
 export function init(ctx) { X = ctx; }
+export function setShowSubs(f) { X.showSubs = f; }
 const fm = () => S.fm || { assets: [], docs: [] };
 const now = () => new Date().toISOString();
 const dt = t => t ? nzDate(String(t).slice(0, 10)) : '';
@@ -17,7 +18,7 @@ const plain = o => JSON.parse(JSON.stringify(o));
 
 export const STATUS = ['Checking', 'Failed check', 'Awaiting review', 'Sent back', 'Accepted', 'Superseded'];
 const ST_CLS = { 'Accepted': 'st-ok', 'Awaiting review': 'st-info', 'Failed check': 'st-bad', 'Sent back': 'st-bad', 'Checking': 'st-grey', 'Superseded': 'st-grey' };
-const chip = s => `<span class="st ${ST_CLS[s] || 'st-grey'}">${esc(s === 'Failed check' ? 'Failed check: fix and resubmit' : s || '')}</span>`;
+const chip = s => `<span class="st ${ST_CLS[s] || 'st-grey'}">${s === 'Checking' ? '<i class="sbspin"></i>' : ''}${esc(s === 'Failed check' ? 'Failed check: fix and resubmit' : s === 'Checking' ? 'Checking…' : s || '')}</span>`;
 const KIND = { deed: 'Schedule 13 deed (installer or subcontractor)', product: 'Manufacturer or product warranty', other: 'Supporting document (O&M manual, PS3, test record…)' };
 export const isSub = d => !!(d && d.submitted && d.sub);
 export const subsOf = id => fm().docs.filter(d => isSub(d) && (d.assetIds || []).includes(id)).sort((a, b) => String(b.sub.at || '').localeCompare(String(a.sub.at || '')));
@@ -117,7 +118,7 @@ export async function runCheck(d0, onProg = () => {}) {
       onProg('Looking at the signatures on page ' + ex + '…');
       take(parse(await aiCall(brief(p, a, execPoints(p), Q_BOX) + `\n\nThe picture is page ${ex} of ${n}: the execution (signature) page. Judge the signatures from what you can SEE in the picture, not from the typed names. Use "page":${ex}.`, await pageImage((await page(ex)).pg))), ex);
     };
-    await askFront(); await askExec();
+    await Promise.all([askFront(), askExec()]);
     const defs = kind === 'deed' ? [...deedPoints(p), ...execPoints(p)] : front;
     if (!defs.some(([k]) => found[k])) throw new Error('the AI answer could not be read');
     const items = defs.map(([k, label]) => { const r = found[k] || {}; return { k, label, ok: r.ok === true ? true : r.ok === false ? false : null, found: String(r.found || '').slice(0, 240), fix: r.ok === true ? '' : String(r.fix || '').slice(0, 300) }; });
@@ -137,6 +138,67 @@ export async function runCheck(d0, onProg = () => {}) {
     console.warn('submission check', e);
     return save('Awaiting review', { at: now(), error: e.message === 'offline' ? 'no connection at the time' : (e.message || 'the check did not run'), items: [] });
   } finally { try { pdf && pdf.destroy(); } catch (e) {} }
+}
+
+/* ================================================================ background checks: up to three at once, the page stays usable */
+const Q = [], RUN = new Set(); let running = 0;
+export const checking = id => RUN.has(id) || Q.some(d => d.id === id);
+export function enqueue(d) { if (checking(d.id)) return; Q.push(d); pump(); }
+function pump() {
+  while (running < 3 && Q.length) { const d = Q.shift(); running++; RUN.add(d.id); refresh();
+    runCheck(d).then(r => { const n = ((r.sub.check || {}).items || []).filter(i => i.ok === false).length; toast(`${r.title.split(' - ')[0]}: ${r.sub.check && r.sub.check.error ? 'could not be checked automatically' : n ? n + ' point' + (n === 1 ? '' : 's') + ' to fix' : 'passed the check'}`, 4000); })
+      .catch(e => console.warn('check', e)).finally(() => { running--; RUN.delete(d.id); refresh(); pump(); }); }
+}
+const refresh = () => { try { X.render(); } catch (e) {} try { if (DV.current() && RUN.size >= 0) DV.refreshSide(); } catch (e) {} };
+// a check left half way (page closed while it ran) is picked up again
+function resume() { if (!can.write()) return; fm().docs.filter(d => isSub(d) && d.sub.status === 'Checking' && !checking(d.id) && Date.now() - Date.parse(d.sub.at || 0) > 120000).slice(0, 10).forEach(enqueue); }
+
+async function upload(f, a, k, note, replaces, type) {
+  const pid = S.project.id, id = uid(), path = `projects/${pid}/docs/${id}/${safeName(f.name)}`, url = await S.store.putFile(path, f);
+  const d = { id, title: `${a.installer ? a.installer + ' - ' : ''}${k === 'deed' ? 'Schedule 13 Deed' : k === 'product' ? 'Product Warranty' : type} - ${a.element || ''}`.slice(0, 180), type, system: a.system || '', party: a.installer || '', assetIds: [a.id], url, path, fileName: f.name, size: f.size, mime: f.type || 'application/pdf', srcPath: '', taskId: '', audience: 'FM', created: now(), createdBy: S.user.email, submitted: true, source: false, marks: [],
+    sub: { kind: k, status: 'Checking', by: S.user.email, byName: S.user.name, at: now(), note, replaces: replaces ? replaces.id : '', history: [{ t: now(), who: S.user.name, txt: 'Submitted' + (replaces ? ' as a corrected version' : '') + (note ? ': ' + note : '') + '.' }] } };
+  await S.store.saveItem(pid, 'docs', plain(d));
+  if (replaces && replaces.sub.status !== 'Accepted') { try { await S.store.patchItem(pid, 'docs', replaces.id, { sub: plain({ ...replaces.sub, status: 'Superseded', history: [...(replaces.sub.history || []), { t: now(), who: S.user.name, txt: 'Replaced by a corrected version.' }] }) }); } catch (e) { console.warn('supersede', e); } }
+  return d;
+}
+const typeOf = (k, t) => k === 'deed' ? 'Warranty (Schedule 13 deed)' : k === 'product' ? 'Warranty (product)' : t;
+
+/* ================================================================ drop many at once: each file is matched to its element, you confirm, they upload and check in the background */
+const words = t => String(t || '').toLowerCase().replace(/\.pdf$/, '').split(/[^a-z0-9]+/).filter(w => w.length > 2 && !['the', 'and', 'ltd', 'limited', 'schedule', 'warranty', 'deed', 'signed', 'pdf', 'godley', 'road', 'for'].includes(w));
+function guess(name) {
+  const W = words(name); let best = null, bs = 0;
+  for (const a of fm().assets) { if (a.status === 'Not applicable') continue; const hay = words([a.installer, a.element, a.product].join(' ')); const sc = W.filter(w => hay.some(h => h.startsWith(w) || w.startsWith(h))).length; if (sc > bs) { bs = sc; best = a; } }
+  const k = /schedule\s*13|sch\s*13|deed/i.test(name) ? 'deed' : /warrant|guarant/i.test(name) ? 'product' : 'other';
+  return { a: bs ? best : null, k, sure: bs >= 2 };
+}
+async function aiGuess(f, rows) {
+  try { const L = await DV.pdfLib(), pdf = await L.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise; const pg = await pdf.getPage(1), t = (await pageRuns(L, pg)).map(r => r.s).join(' ').replace(/\s+/g, ' ').slice(0, 2500);
+    const list = fm().assets.filter(a => a.status !== 'Not applicable').map(a => `${a.ref} | ${a.element} | ${a.installer || ''} | ${a.product || ''}`).join('\n').slice(0, 9000);
+    const ask = `Match this construction warranty document to the one element it covers. Answer JSON only: {"ref":"the element ref from the list","kind":"deed" for a Schedule 13 / contractor warranty deed, "product" for a manufacturer or product warranty, "other" for anything else}.\n\nELEMENTS (ref | element | installer | product)\n${list}\n\nFILE NAME: ${f.name}\n`;
+    const j = parse(await aiCall(t.length > 150 ? ask + 'PAGE 1 TEXT: ' + t : ask + 'The picture is page 1.', t.length > 150 ? undefined : await pageImage(pg))); pdf.destroy();
+    return j && { a: fm().assets.find(a => String(a.ref) === String(j.ref)), k: ['deed', 'product', 'other'].includes(j.kind) ? j.kind : null };
+  } catch (e) { console.warn('match', e); return null; }
+}
+export function bulk(files) {
+  if (!can.write()) return toast('Your role cannot submit documents');
+  const L = files.filter(f => /\.pdf$/i.test(f.name)), skipped = files.length - L.length; if (!L.length) return toast('Drop PDF files here. Warranties must be PDFs.');
+  const A = fm().assets.filter(a => a.status !== 'Not applicable').sort((a, b) => natural(a.system, b.system) || natural(a.ref || '', b.ref || ''));
+  const opt = id => `<option value="">Choose the element…</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element + (a.installer ? ' (' + a.installer + ')' : ''))}</option>`).join('');
+  const rows = L.map(f => ({ f, ...guess(f.name) }));
+  modal(`<h2>⬆ Submit ${L.length} document${L.length === 1 ? '' : 's'}</h2><p class="note">Each file has been matched to the element it most likely covers${skipped ? ` (${skipped} non-PDF file${skipped === 1 ? '' : 's'} left out)` : ''}. Check the matches, then submit. They upload and are checked in the background, so you can carry on working.</p>
+  <table class="ftable bkt"><tr><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small">${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by name' : 'matching…'}</span></td><td><select id="bkA${i}">${opt(r.a && r.a.id)}</select></td><td><select id="bkK${i}">${Object.entries({ deed: 'Sch 13 deed', product: 'Product warranty', other: 'Supporting' }).map(([k, l]) => `<option value="${k}" ${k === r.k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table>
+  <div class="act"><button id="bkX">Cancel</button><button class="go" id="bkGo">Submit and check</button></div>`, true);
+  $('bkX').onclick = closeModal;
+  rows.forEach(async (r, i) => { if (r.sure) return; const g = await aiGuess(r.f); const sel = $('bkA' + i); if (!sel) return; if (g && g.a && !sel.dataset.touched) { sel.value = g.a.id; $('bkS' + i).textContent = 'matched by reading page 1'; } else $('bkS' + i).textContent = g && g.a ? '' : 'no match found: choose it'; if (g && g.k && !$('bkK' + i).dataset.touched) $('bkK' + i).value = g.k; });
+  L.forEach((_, i) => { $('bkA' + i).onchange = e => e.target.dataset.touched = 1; $('bkK' + i).onchange = e => e.target.dataset.touched = 1; });
+  $('bkGo').onclick = async () => {
+    const go = L.map((f, i) => ({ f, a: fm().assets.find(a => a.id === $('bkA' + i).value), k: $('bkK' + i).value }));
+    const miss = go.filter(x => !x.a).length; if (miss) return toast(`Choose the element for ${miss} file${miss === 1 ? '' : 's'}`);
+    closeModal(); const b = busy('Uploading…'); let n = 0;
+    try { for (const x of go) { b.set(`Uploading ${++n} of ${go.length}: ${x.f.name}`); enqueue(await upload(x.f, x.a, x.k, '', null, typeOf(x.k, 'Other'))); } b.done(); toast(`${go.length} uploaded. Checking in the background: the results appear in the list as they finish.`, 6000); }
+    catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
+    try { X.showSubs ? X.showSubs() : X.render(); } catch (e) {}
+  };
 }
 
 /* ================================================================ submit */
@@ -162,17 +224,9 @@ export function submitDialog(a, replaces) {
     if (f.size > 150e6) return toast('That file is over 150 MB');
     if (k !== 'other' && !/\.pdf$/i.test(f.name)) return toast('Warranties must be submitted as a PDF');
     const type = k === 'deed' ? 'Warranty (Schedule 13 deed)' : k === 'product' ? 'Warranty (product)' : $('sbT').value;
-    closeModal(); const b = busy('Uploading ' + f.name + '…'), pid = S.project.id, id = uid();
-    let d;
-    try {
-      const path = `projects/${pid}/docs/${id}/${safeName(f.name)}`, url = await S.store.putFile(path, f);
-      d = { id, title: `${a.installer ? a.installer + ' - ' : ''}${k === 'deed' ? 'Schedule 13 Deed' : k === 'product' ? 'Product Warranty' : type} - ${a.element || ''}`.slice(0, 180), type, system: a.system || '', party: a.installer || '', assetIds: [a.id], url, path, fileName: f.name, size: f.size, mime: f.type || 'application/pdf', srcPath: '', taskId: '', audience: 'FM', created: now(), createdBy: S.user.email, submitted: true, source: false, marks: [],
-        sub: { kind: k, status: 'Checking', by: S.user.email, byName: S.user.name, at: now(), note, replaces: replaces ? replaces.id : '', history: [{ t: now(), who: S.user.name, txt: 'Submitted' + (replaces ? ' as a corrected version' : '') + (note ? ': ' + note : '') + '.' }] } };
-      await S.store.saveItem(pid, 'docs', plain(d));
-      if (replaces && replaces.sub.status !== 'Accepted') { try { await S.store.patchItem(pid, 'docs', replaces.id, { sub: plain({ ...replaces.sub, status: 'Superseded', history: [...(replaces.sub.history || []), { t: now(), who: S.user.name, txt: 'Replaced by a corrected version.' }] }) }); } catch (e) { console.warn('supersede', e); } }
-    } catch (e) { b.done(); return toast(e.message === 'offline' ? 'No connection: the file was not uploaded. Try again when you are back online.' : 'Could not upload: ' + e.message, 8000); }
-    try { d = await runCheck(d, b.set); } catch (e) { console.warn(e); }
-    b.done(); try { X.render(); } catch (e) {} detail(d);
+    closeModal(); const b = busy('Uploading ' + f.name + '…'); let d;
+    try { d = await upload(f, a, k, note, replaces, type); } catch (e) { b.done(); return toast(e.message === 'offline' ? 'No connection: the file was not uploaded. Try again when you are back online.' : 'Could not upload: ' + e.message, 8000); }
+    b.done(); enqueue(d); toast('Uploaded. Checking in the background: the result appears in the list in about a minute.', 5000);
   };
 }
 
@@ -181,8 +235,24 @@ const ICON = { true: '✓', false: '✗', null: '?' };
 const checkHtml = c => !c ? '<p class="muted small">Not checked yet.</p>' : c.error ? `<p class="note">The automatic check could not run (${esc(c.error)}). It has gone to the reviewer as it is. Use “Check again” to retry.</p>` : c.skipped ? '<p class="muted small">Supporting document: no automatic check.</p>'
   : `<div class="ckl">${c.items.map(i => `<div class="ck ${i.ok === true ? 'ok' : i.ok === false ? 'bad' : 'unk'}"><i>${ICON[i.ok]}</i><div><b>${esc(i.label)}</b>${i.found ? `<small>Found: ${esc(i.found)}</small>` : ''}${i.ok === false && i.fix ? `<small class="fix">To fix: ${esc(i.fix)}</small>` : ''}${i.ok === null ? '<small>Could not be told from the document: the reviewer will check this.</small>' : ''}</div></div>`).join('')}</div>`;
 const handMarks = d => (d.marks || []).filter(m => !m.chk && (m.flag || m.note)).sort((x, y) => x.page - y.page || x.y - y.y);
-// shown in the document viewer's side panel
+// The document viewer's side panel is the review screen: the check, the actions, and the next one to review.
+const queueFor = () => { const ed = can.edit(), want = ed ? ['Awaiting review'] : ['Failed check', 'Sent back']; return fm().docs.filter(x => isSub(x) && want.includes(x.sub.status) && DV.isPdf(x)).sort((a, b) => String(a.sub.at || '').localeCompare(String(b.sub.at || ''))); };
+export function wireBox(d, openDoc) {
+  if (!isSub(d) || !$('sbvNx')) return; const cur = fm().docs.find(x => x.id === d.id) || d;
+  const next = () => { const L = queueFor().filter(x => x.id !== cur.id); if (!L.length) return toast(can.edit() ? 'Nothing else is waiting for review' : 'Nothing else needs fixing'); openDoc(L[0]); };
+  $('sbvNx').onclick = next;
+  if ($('sbvAcc')) $('sbvAcc').onclick = () => decide(cur, true, next); if ($('sbvBack')) $('sbvBack').onclick = () => decide(cur, false, next);
+  if ($('sbvMk')) $('sbvMk').onclick = () => markedPdf(cur); if ($('sbvDet')) $('sbvDet').onclick = () => detail(cur);
+}
 export function boxHtml(d) {
+  if (!isSub(d)) return ''; d = fm().docs.find(x => x.id === d.id) || d; const s = d.sub, a = assetOf(d), ed = can.edit(), n = queueFor().filter(x => x.id !== d.id).length;
+  return `<div class="sbv"><div class="sbvh"><b>${esc(a ? (a.ref || '') + ' ' + a.element : 'Submission')}</b>${chip(checking(d.id) ? 'Checking' : s.status)}</div>
+  ${s.review && s.review.note ? `<div class="sbrev ${s.review.accepted ? 'ok' : ''}">${esc(s.review.note).replace(/\n/g, '<br>')}</div>` : ''}
+  ${checking(d.id) || s.status === 'Checking' ? '<p class="muted small">Checking now. The result appears here when it finishes.</p>' : checkHtml(s.check)}
+  <div class="sbact">${ed && s.status !== 'Superseded' && s.status !== 'Accepted' ? '<button class="btn2 go" id="sbvAcc">✔ Accept</button>' : ''}${ed && s.status !== 'Superseded' ? '<button class="btn2 warn" id="sbvBack">↩ Send back</button>' : ''}<button class="btn2" id="sbvMk">⬇ With markup</button><button class="btn2" id="sbvDet">Details</button><button class="btn2" id="sbvNx">Next ›${n ? ' (' + n + ')' : ''}</button></div>
+  <p class="muted small">Press <b>Mark</b> and drag a box on the page to add your own point. It appears in the send-back note and the marked-up copy.</p></div>`;
+}
+function oldBoxHtml(d) {
   if (!isSub(d)) return ''; const s = d.sub, c = s.check, bad = c && c.items ? c.items.filter(i => i.ok === false) : [];
   return `<div class="dvctx"><b>Submission</b> ${chip(s.status)}<br><span class="small muted">Submitted ${esc(dt(s.at))} by ${esc(s.byName || s.by || '')}</span>${s.review && s.review.note ? `<br><span class="small" style="color:#a32222"><b>Reviewer:</b> ${esc(s.review.note).replace(/\n/g, '<br>')}</span>` : ''}${bad.length ? '<br><span class="small" style="color:#a32222"><b>To fix:</b><br>' + bad.map(i => '• ' + esc(i.fix || i.label)).join('<br>') + '</span>' : c && c.items && c.items.length ? '<br><span class="small" style="color:#1d6e43">Automatic check: all points passed.</span>' : ''}</div>`;
 }
@@ -209,7 +279,7 @@ export function detail(d0) {
   $('sdX').onclick = closeModal;
   $('sdOpen').onclick = () => { if (!DV.isPdf(d)) return openFile(d); closeModal(); DV.open(d, { ret: () => detail(d) }); };
   $('sdOrig').onclick = () => original(d); $('sdMk').onclick = () => markedPdf(d);
-  if ($('sdRe')) $('sdRe').onclick = async () => { closeModal(); const b = busy('Checking again…'); let r = d; try { r = await runCheck({ ...d, sub: { ...s, status: 'Checking' } }, b.set); } catch (e) { toast('Could not check: ' + e.message, 6000); } b.done(); detail(r); };
+  if ($('sdRe')) $('sdRe').onclick = () => { closeModal(); enqueue(d); toast('Checking again in the background', 3000); };
   if ($('sdNew')) $('sdNew').onclick = () => submitDialog(a, d);
   if ($('sdAny')) $('sdAny').onclick = () => noteBox('Send for review anyway', 'Tell the reviewer why the points above do not apply (optional)', 'Send for review', async note => { await setStatus(d, 'Awaiting review', 'Sent for review with check points outstanding' + (note ? ': ' + note : '') + '.', { note: [s.note, note].filter(Boolean).join(' | ') }); toast('Sent for review'); });
   if ($('sdRn')) $('sdRn').onclick = e => { e.preventDefault();
@@ -221,14 +291,14 @@ export function detail(d0) {
 }
 async function setStatus(d, status, txt, extra = {}) {
   const cur = fm().docs.find(x => x.id === d.id) || d, sub = plain({ ...cur.sub, ...extra, status, history: [...(cur.sub.history || []), { t: now(), who: S.user.name, txt }] });
-  const title = convName(cur, sub); await S.store.patchItem(S.project.id, 'docs', d.id, { sub, title }); const r = { ...cur, sub, title }; try { X.render(); } catch (e) {} detail(r); return r;
+  const title = convName(cur, sub); await S.store.patchItem(S.project.id, 'docs', d.id, { sub, title }); const r = { ...cur, sub, title }; try { X.render(); } catch (e) {} if (!DV.current()) detail(r); return r;
 }
 function noteBox(title, ask, btn, go) {
   modal(`<h2>${esc(title)}</h2><label class="f">${esc(ask)}<textarea id="nbT" rows="4"></textarea></label><div class="act"><button id="nbX">Cancel</button><button class="go" id="nbGo">${esc(btn)}</button></div>`);
   $('nbX').onclick = closeModal; $('nbGo').onclick = async () => { const v = $('nbT').value.trim(); try { await go(v); } catch (e) { toast('Could not save: ' + e.message, 7000); } };
 }
 // Accept, or send back with a list of what to change. The list starts from the failed check points and anything marked on the document.
-function decide(d0, accept) {
+function decide(d0, accept, after) {
   const d = fm().docs.find(x => x.id === d0.id) || d0, s = d.sub, a = assetOf(d), c = s.check;
   const fixes = [...((c && c.items) || []).filter(i => i.ok === false).map(i => i.fix || i.label), ...handMarks(d).map(m => `Page ${m.page}: ${m.flag || m.note}`)];
   const stOpts = accept ? ['Received', 'Partial', ''] : ['Revision required', ''];
@@ -238,7 +308,7 @@ function decide(d0, accept) {
   ${a ? `<label class="f">Set the asset's document status to<select id="dcS">${stOpts.map(o => `<option value="${o}">${o ? o + (o === 'Partial' ? ' (other documents still needed)' : o === 'Received' ? ' (everything for this element is in)' : '') : 'Leave as it is (' + esc(a.status || '') + ')'}</option>`).join('')}</select></label>` : ''}
   ${accept ? '' : '<p class="muted small">Tip: use “Open and mark up” first to draw a box around each thing that is wrong. The boxes appear here and in the contractor\'s marked-up copy.</p>'}
   <div class="act"><button id="dcX">Cancel</button><button class="go" id="dcGo">${accept ? 'Accept' : 'Send back'}</button></div>`);
-  $('dcX').onclick = () => detail(d);
+  $('dcX').onclick = () => after ? closeModal() : detail(d);
   $('dcGo').onclick = async () => {
     const note = $('dcN').value.trim(), st = $('dcS') ? $('dcS').value : ''; if (!accept && !note) return toast('Say what has to change, so the contractor knows what to fix');
     const b = busy('Saving…');
@@ -246,10 +316,10 @@ function decide(d0, accept) {
       const r = await setStatus(d, accept ? 'Accepted' : 'Sent back', (accept ? 'Accepted' : 'Sent back') + (note ? ': ' + note.replace(/\n+/g, ' ') : '') + '.', { review: { by: S.user.email, byName: S.user.name, at: now(), note, accepted: accept } });
       if (a && st && st !== a.status) await S.store.patchItem(S.project.id, 'assets', a.id, { status: st });
       b.done();
-      if (accept) return toast('Accepted');
+      if (accept) { toast('Accepted'); if (after) { closeModal(); after(); } return; }
       const link = location.origin + location.pathname, body = `${a ? (a.ref || '') + ' ' + (a.element || '') : d.title}\nDocument: ${d.fileName || d.title}\n\nThis has been sent back. What has to change:\n\n${note}\n\nOpen it in Resero Site (Assets & warranties > Warranty submissions) to see the marked-up copy and upload the corrected version:\n${link}`;
       modal(`<h2>Sent back</h2><p>${esc(s.byName || s.by || 'The contractor')} will see this under <b>Warranty submissions</b>, with your note and the boxes on the document.</p><p class="muted small">The app does not send emails by itself. Use the button to tell them now.</p><div class="act"><button id="sbD">Done</button><a class="sbmail" id="sbM" href="mailto:${esc(s.by || '')}?subject=${encodeURIComponent((S.project.name || '') + ': warranty sent back, ' + (a ? a.element : d.title))}&body=${encodeURIComponent(body)}">✉ Email ${esc(s.byName || s.by || 'them')}</a></div>`);
-      $('sbD').onclick = () => detail(r); $('sbM').onclick = () => setTimeout(() => detail(r), 400);
+      $('sbD').onclick = () => { if (after) { closeModal(); after(); } else detail(r); }; $('sbM').onclick = () => setTimeout(() => { if (after) { closeModal(); after(); } else detail(r); }, 400);
     } catch (e) { b.done(); toast('Could not save: ' + e.message, 7000); }
   };
 }
@@ -322,8 +392,9 @@ export function view(tabs) {
   const rows = A.map(a => ({ a, ...state(a) })).filter(({ a, L, review, fix, acc }) => a.status !== 'Not applicable' && (!VF.sys || a.system === VF.sys) && (!q || [a.ref, a.element, a.product, a.installer].join(' ').toLowerCase().includes(q))
     && (!VF.st || (VF.st === 'out' ? !['Received'].includes(a.status) && !review : VF.st === 'review' ? review : VF.st === 'fix' ? fix : VF.st === 'acc' ? acc : true)));
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select>${can.edit() ? `<button class="btn2" id="svZip" title="Accepted documents, named to the convention, in the handover folder structure">📦 Accepted, ready to file${toFile(false).length ? ' (' + toFile(false).length + ' new)' : ''}</button>` : ''}</div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="btn2 go" id="svRev">${can.edit() ? '▶ Review next (' + C.review + ')' : '▶ Fix next (' + C.fix + ')'}</button>${can.edit() ? `<button class="btn2" id="svZip" title="Accepted documents, named to the convention, in the handover folder structure">📦 Accepted, ready to file${toFile(false).length ? ' (' + toFile(false).length + ' new)' : ''}</button>` : ''}</div>
   ${tabs}
+  <div class="sbdrop">⬇ Drop warranty PDFs anywhere on this page. Each one is matched to its element and checked in the background. You can drop many at once.</div>
   <p class="muted small">${can.edit() ? `${C.review} awaiting your review · ${C.fix} with the contractor to fix · ${C.accepted} accepted.` : `Submit each warranty against the element it covers. It is checked straight away so you can fix anything before it is reviewed. ${C.fix} need fixing · ${C.review} with the reviewer · ${C.accepted} accepted.`}</p>
   ${rows.length ? `<table class="ftable sbt"><tr><th>Ref</th><th>Element</th><th class="hm">Required</th><th>Status</th><th>Submitted</th><th></th></tr>
   ${rows.map(({ a, L }) => { const g = a.system !== last ? `<tr class="grp"><td colspan="6">${esc(a.system)}</td></tr>` : ''; last = a.system;
@@ -332,5 +403,7 @@ export function view(tabs) {
   if ($('svZip')) $('svZip').onclick = filingPack;
   $('svS').onchange = e => { VF.sys = e.target.value; X.render(); }; $('svT').onchange = e => { VF.st = e.target.value; X.render(); };
   document.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => submitDialog(fm().assets.find(a => a.id === b.dataset.sub)));
-  document.querySelectorAll('[data-sd]').forEach(l => l.onclick = e => { e.preventDefault(); const d = fm().docs.find(x => x.id === l.dataset.sd); if (d) detail(d); });
+  document.querySelectorAll('[data-sd]').forEach(l => l.onclick = e => { e.preventDefault(); const d = fm().docs.find(x => x.id === l.dataset.sd); if (!d) return; DV.isPdf(d) ? DV.open(d) : detail(d); });
+  if ($('svRev')) $('svRev').onclick = () => { const L = queueFor(); if (!L.length) return toast(can.edit() ? 'Nothing is waiting for review' : 'Nothing needs fixing'); DV.open(L[0]); };
+  resume();
 }

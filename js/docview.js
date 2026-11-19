@@ -24,7 +24,10 @@ async function lib() { if (!pdfjs) { pdfjs = await import('../lib/pdfjs/pdf.min.
 async function loadPdf(d) {
   const L = await lib(); let u = ''; try { u = await S.store.resolveUrl(d.url); } catch (e) {}
   if (u) { try { return await L.getDocument({ url: u }).promise; } catch (e) { console.warn('pdf by url failed, reading the whole file', e); } }
-  return await L.getDocument({ data: await X.getBytes(d.url) }).promise;
+  const b = new Uint8Array(await X.getBytes(d.url));
+  if (!b.length) throw new Error('the stored file is empty. Upload it again.');
+  if (String.fromCharCode(...b.slice(0, 1024)).indexOf('%PDF') < 0) throw new Error(b[0] === 0x3c ? 'the file server sent back a web page instead of the PDF (sign in again, or check your connection).' : 'this file is not a PDF, or it is damaged. Download the original to check it.');
+  return await L.getDocument({ data: b }).promise;
 }
 /* ---------- text index: the words on each page, read once and kept beside the document ---------- */
 const idxCache = {};
@@ -92,6 +95,8 @@ function close(silent) {
   if (ret) ret();
 }
 // opts: {page, markId, query, all, asset (preselect when marking), ret (called after closing)}
+export const current = () => V && V.d;
+export function refreshSide() { if (V && V.side === 'home') home(); }
 export async function open(d, opts = {}) {
   if (!isPdf(d)) return toast('Only PDF documents open in the viewer');
   shell(); const fresh = !V;
@@ -184,16 +189,17 @@ const QUICK = [['Warranties', 'warranty guarantee'], ['Maintenance', 'maintenanc
 function home() {
   if (!V) return; V.side = 'home'; V.sel = null; const marks = (V.d.marks || []).slice().sort((a, b) => a.page - b.page || a.y - b.y);
   $('dvSide').innerHTML = `${V.asset ? `<div class="dvctx">Marking for: <b>${esc(V.asset.element)}</b><br><span class="muted small">Find the clause, press “Mark”, and drag a box around it.</span></div>` : ''}
-    <div class="dvsearch"><input type="search" id="dvQ" placeholder="Find a clause, e.g. roof warranty" value="${esc(V.q || '')}"><button class="go" id="dvGo">Search</button></div>
-    <div class="dvquick">${QUICK.map(([l, q]) => `<button data-q="${esc(q)}">${l}</button>`).join('')}</div>
-    <label class="dvall"><input type="checkbox" id="dvAll" ${V.all ? 'checked' : ''}> Search all contract and specification documents</label>
+    ${V.d.submitted && X.subBox ? X.subBox(V.d) : ''}
+    <div class="dvsearch" ${V.d.submitted ? 'hidden' : ''}><input type="search" id="dvQ" placeholder="Find a clause, e.g. roof warranty" value="${esc(V.q || '')}"><button class="go" id="dvGo">Search</button></div>
+    <div class="dvquick" ${V.d.submitted ? 'hidden' : ''}>${QUICK.map(([l, q]) => `<button data-q="${esc(q)}">${l}</button>`).join('')}</div>
+    <label class="dvall" ${V.d.submitted ? 'hidden' : ''}><input type="checkbox" id="dvAll" ${V.all ? 'checked' : ''}> Search all contract and specification documents</label>
     <div id="dvRes"></div>
-    ${X.subBox ? X.subBox(V.d) : ''}
     ${V.d.aiRead && !V.d.submitted ? `<div class="dvctx"><b>✨ Read by AI</b> ${esc(nzDate(String(V.d.aiRead).slice(0, 10)))}${V.d.aiSummary ? '<br><span class="small">' + esc(V.d.aiSummary) + '</span>' : ''}${(V.d.aiProblems || []).length ? '<br><span class="small" style="color:#a32222"><b>Problems found:</b><br>' + V.d.aiProblems.map(x => '• ' + esc(x)).join('<br>') + '</span>' : ''}${marks.some(m => m.pending) && can.edit() ? `<br><button class="mini" id="dvAcc">✔ Accept all ${marks.filter(m => m.pending).length} AI boxes</button>` : ''}</div>` : ''}
     ${can.edit() && V.d.size ? `<p><button class="mini" id="dvRead">✨ ${V.d.aiRead ? 'Read again with AI' : 'Read this document with AI'}</button></p>` : ''}
     <h4>Marked in this document (${marks.length})</h4>
     ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b>${m.flag ? ' <span class="st st-bad">problem</span>' : ''}${m.pending ? ' <span class="st st-warn">to check</span>' : ''} <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${V.d.submitted && canMark() ? 'Nothing marked yet. Press “Mark” and drag a box around anything that is wrong or needs explaining.' : can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
     ${can.edit() ? `<label class="dvall" style="margin-top:10px"><input type="checkbox" id="dvSrc" ${isSource(V.d) ? 'checked' : ''}> This is a requirement source (included in clause searches)</label>` : ''}`;
+  if (X.subWire) X.subWire(V.d, d => open(d));
   if ($('dvRead')) $('dvRead').onclick = () => window.dispatchEvent(new CustomEvent('rd-ai-read', { detail: V.d.id }));
   if ($('dvAcc')) $('dvAcc').onclick = async () => { await saveMarks((V.d.marks || []).map(m => m.pending ? { ...m, pending: false, checkedBy: S.user.email } : m)); toast('Accepted'); home(); };
   $('dvGo').onclick = runSearch; $('dvQ').onkeydown = e => { if (e.key === 'Enter') runSearch(); };

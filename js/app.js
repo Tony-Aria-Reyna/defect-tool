@@ -10,6 +10,7 @@ import { newPhoto, uploadPhotos, uploadFiles, flushOutbox, pendingUrl, markup, i
 import { buildPcReport, PC_SECTIONS, buildUnitSheets, buildRegisterXlsx, buildPdf, buildXlsx, buildCsv, buildZip, buildEvidenceXlsx, evidenceRefs, locText, pinLabel, setProjectCtx } from './exports.js';
 import * as Admin from './admin.js';
 import * as FM from './fm.js';
+import * as Sub from './submit.js';
 import { initDrop } from './dnd.js';
 import { COMMENT_SKILL } from './skills.js';
 import { pdfDigest } from './docview.js';
@@ -88,7 +89,7 @@ async function checkUpdate() {
 }
 export async function reloadApp() {
   try { const r = await navigator.serviceWorker.getRegistration(); if (r) { await r.update(); await new Promise(res => setTimeout(res, 1200)); } } catch (e) {}
-  try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('resero-defects') && k !== 'resero-defects-img').map(k => caches.delete(k))); } catch (e) {}
+  try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('resero-defects') && k !== 'resero-defects-img2').map(k => caches.delete(k))); } catch (e) {}
   location.reload();
 }
 /* ---- bulk actions: pick several items, then accept, reopen, set status or responsible with one comment ---- */
@@ -1271,7 +1272,7 @@ function wire() {
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
   document.addEventListener('keydown', e => { if (e.key !== 'Escape' || $('mk').classList.contains('show')) return; if ($('modal').classList.contains('show')) dismissModal(); else if (document.querySelector('.askov')) return; else if ($('sheet').classList.contains('show')) tryCloseEditor(); else if (placing) stopPlacing(); });
   document.addEventListener('pointerdown', e => { const b = e.target.closest && e.target.closest('button,.btn,.chip,label.opt,[data-p],[data-view],[data-el]'); if (!b || b.disabled) return; b.classList.add('tapped'); setTimeout(() => b.classList.remove('tapped'), 220); }, true);
-  initDrop({ Admin, FM, addPhotos, addFiles, noteDrop, noteDropOpen, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
+  initDrop({ Admin, FM, Sub, addPhotos, addFiles, noteDrop, noteDropOpen, editorOpen: () => !!ED && $('sheet').classList.contains('show') });
 }
 // Quick-pick a typical defect: fills title, description, action, trade, type, severity and element; keeps location and photos.
 // One-tap workflow: the responsible party marks it ready; the raiser (or an admin/editor) accepts or sends it back.

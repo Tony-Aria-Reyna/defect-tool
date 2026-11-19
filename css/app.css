@@ -673,3 +673,7 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .sbchip{display:inline-flex;flex-direction:column;gap:1px;margin:2px 8px 2px 0;text-decoration:none;vertical-align:top}.sbchip small{color:#5b6672;font-size:11px}
 .sbt td{vertical-align:top}.sbmail{display:inline-block;background:var(--navy,#011C35);color:#fff;border-radius:8px;padding:9px 14px;text-decoration:none;font-weight:600}
 #dvDlM{white-space:nowrap}@media(max-width:700px){#dvDlM{font-size:0}#dvDlM:before{content:'⬇▭';font-size:14px}}
+.sbspin{display:inline-block;width:9px;height:9px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:5px;vertical-align:-1px;animation:sbsp .8s linear infinite}@keyframes sbsp{to{transform:rotate(360deg)}}
+.sbdrop{border:2px dashed #b9c6d3;border-radius:10px;padding:10px 14px;margin:8px 0;color:#4f5d6b;font-size:13.5px;background:#f8fafc}
+.sbv{border:1px solid #cfd8e1;border-radius:10px;padding:10px;margin:8px 0;background:#fff}.sbvh{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}.sbv .sbact{margin:10px 0 6px}.sbv .btn2{padding:6px 10px;font-size:13px}
+.bkt select{width:100%;max-width:360px}.bkt td{vertical-align:top}
