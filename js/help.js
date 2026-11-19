@@ -71,7 +71,8 @@ Facility management (tabs under the header)
 
 Menu (☰)
 - Project settings, Users and access (invite by email, set roles), Plans, Room boundaries (draw units, rooms, common areas; duplicate a unit with its rooms), Import register, AI settings, Site check, Help.
-- Roles: Admin (everything), Editor (raise, edit, close), Contractor (raise new items and edit the items they raised; on items raised by others, respond, add photos and update status to In progress or Ready for review), Viewer (read and export).
+- Roles: Admin (everything), Editor (raise, edit, close), Inspector (raise items in its own register, comment, and accept or reopen items once they are marked ready), Contractor (raise new items and edit the items they raised; on items raised by others, respond, add photos and update status to In progress or Ready for review, or dispute with a reason), Client (the building owner's team: raise and follow up its own items such as residents' issues, comment and add photos on any item, mark maintenance done, record Form 12A certificates, upload service reports), Viewer (read and export). Any role except Admin can be limited to some registers and sections in Users and access.
+- What's due: the Dashboard starts with one list of everything with a date: maintenance, the BWoF and its Form 12A certificates, warranties ending, the final walk-through and the end of the defects period, close-out actions, and defects past their target date. It is grouped into overdue, the next 30 days, and 1 to 3 months. The owner's team sees what needs attention when they open the project, once a day.
 
 Offline
 - The register works without signal once it has loaded online. Plans show if viewed online before. Everything syncs when back online.
