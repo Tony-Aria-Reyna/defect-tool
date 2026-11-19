@@ -399,7 +399,9 @@ async function renderInto(el, d, token) {
   el.innerHTML = '<p class="muted small">Loading…</p>';
   try { const pdf = await DV.loadPdf(d); if (el.dataset.tok !== token) return; el.innerHTML = `<p class="muted small">${pdf.numPages} page${pdf.numPages === 1 ? '' : 's'}</p>`;
     for (let p = 1; p <= Math.min(pdf.numPages, 12); p++) { const pg = await pdf.getPage(p), base = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(2, 900 / base.width) }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; c.className = 'cmpg';
-      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; if (el.dataset.tok !== token) return; el.insertAdjacentHTML('beforeend', `<div class="cmppg">Page ${p} of ${pdf.numPages}</div>`); el.appendChild(c); }
+      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; if (el.dataset.tok !== token) return; const blank = isBlank(c);
+      el.insertAdjacentHTML('beforeend', `<div class="cmppg">Page ${p} of ${pdf.numPages}${blank ? ' <b class="cmpbl">blank page</b>' : ''}${can.edit() && pdf.numPages > 1 ? ` <button class="mini" data-rmpg="${p}">🗑 Remove this page</button>` : ''}</div>`); el.appendChild(c); }
+    el.querySelectorAll('[data-rmpg]').forEach(b => b.onclick = () => removePage(d, +b.dataset.rmpg, pdf.numPages, el));
     if (pdf.numPages > 12) el.insertAdjacentHTML('beforeend', '<p class="muted small">First 12 pages shown. Open it to see the rest.</p>'); pdf.destroy();
   } catch (e) { const gone = /40[34]|not.?found|unauthori/i.test(e.message || '');
     el.innerHTML = gone ? `<div class="cmpempty"><b>The file for this entry is missing from storage.</b><p>The library entry is here but its file could not be fetched (${esc(e.message)}). Choose the same file again from your folders to restore it; the entry, its links and history are kept.</p>${can.edit() ? '<p><label class="btn2 sm">⬆ Choose the file again<input type="file" accept=".pdf,application/pdf" hidden></label></p>' : ''}</div>` : `<p class="note">Could not show this document: ${esc(e.message)}</p>`;
@@ -407,6 +409,25 @@ async function renderInto(el, d, token) {
       try { const path = `projects/${S.project.id}/docs/${d.id}/${safeName(f.name)}`, url = await S.store.putFile(path, f); await S.store.patchItem(S.project.id, 'docs', d.id, { url, path, size: f.size, fileName: f.name, mime: f.type || 'application/pdf' }); Object.assign(d, { url, path, size: f.size, fileName: f.name }); b.done(); toast('File restored'); el.dataset.tok = Math.random().toString(36); renderInto(el, d, el.dataset.tok); } catch (x) { b.done(); toast('Could not upload: ' + x.message, 7000); } }; }
 }
 let CMP_LOCK = true;
+// A page is blank when almost every pixel is close to white (scanners leave specks, so a little ink is allowed)
+function isBlank(c) { try { const w = 400, h = Math.round(c.height / c.width * w) || 1, t = document.createElement('canvas'); t.width = w; t.height = h; const x = t.getContext('2d'); x.drawImage(c, 0, 0, w, h);
+  const px = x.getImageData(0, 0, w, h).data; let ink = 0; for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 600) ink++; return ink < 25; } catch (e) { return false; } }
+// Remove one page from a stored PDF. The file before the change is kept with the entry, so it can be put back.
+async function removePage(d, n, total, el) {
+  if (!(await confirmBox(`Remove page ${n} of ${total} from "${d.title}"? The file is saved again without it. The file as it was is kept with this entry, so it can be put back.`, 'Remove the page'))) return;
+  const b = busy('Removing page ' + n + '…');
+  try { if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js');
+    const P = window.PDFLib, doc = await P.PDFDocument.load(await X.getBytes(d.url), { ignoreEncryption: true }); if (doc.getPageCount() < 2) throw new Error('it only has one page');
+    doc.removePage(n - 1); const bytes = await doc.save(), blob = new Blob([bytes], { type: 'application/pdf' });
+    const dir = String(d.path || `projects/${S.project.id}/docs/${d.id}/x`).split('/').slice(0, -1).join('/'), path = `${dir}/${Date.now().toString(36)}-${safeName(d.fileName || 'document.pdf')}`, url = await S.store.putFile(path, blob);
+    const prev = [...(d.prevFiles || []), { url: d.url, path: d.path || '', size: d.size || 0, at: new Date().toISOString(), by: S.user.email, why: `Before page ${n} of ${total} was removed`, marks: d.marks || [] }];
+    // clause boxes follow their pages; any on the removed page go
+    const marks = (d.marks || []).filter(m => m.page !== n).map(m => m.page > n ? { ...m, page: m.page - 1 } : m);
+    const patch = { url, path, size: blob.size, prevFiles: prev, marks, textIdx: null };
+    await S.store.patchItem(S.project.id, 'docs', d.id, patch); Object.assign(d, patch); b.done(); toast(`Page ${n} removed. The earlier file is kept with this entry.`, 5000);
+    el.dataset.tok = Math.random().toString(36); renderInto(el, d, el.dataset.tok);
+  } catch (e) { b.done(); toast('Could not remove the page: ' + e.message, 8000); }
+}
 function compare(G, a, k) {
   clearPeeks();
   G = G.map(d => fm().docs.find(x => x.id === d.id)).filter(Boolean); if (G.length < 2) return matchLibrary();
