@@ -179,12 +179,12 @@ export async function runCheck(d0, onProg = () => {}) {
     const items = defs.map(([k, label]) => { const r = found[k] || {}; return { k, label, ok: r.ok === true ? true : r.ok === false ? false : null, found: String(r.found || '').slice(0, 240), fix: r.ok === true ? '' : String(r.fix || '').slice(0, 300) }; });
     // a box on the page for every point that failed, so the marked-up copy shows where
     const marks = [];
-    for (const it of items.filter(i => i.ok === false)) {
+    for (const it of items.filter(i => i.ok !== null)) {
       const r = found[it.k]; let box = null;
       if (Array.isArray(r.box) && r.box.length === 4 && r.box.every(v => typeof v === 'number')) { const [x, y, w, h] = r.box.map(v => Math.max(0, Math.min(1, v))); if (w > 0.01 && h > 0.005) box = { x, y, w: Math.min(w, 1 - x), h: Math.min(h, 1 - y) }; }
       if (!box && r.quote) { try { box = locate((await page(r.page)).runs, r.quote); } catch (e) {} }
       if (!box) continue;
-      marks.push({ id: uid(), page: r.page, ...box, kind: MARK_KIND[it.k] || 'Other', period: it.label.slice(0, 160), text: it.found, flag: it.fix || it.label, note: '', assetIds: (d.assetIds || []).slice(), taskIds: [], ai: true, chk: true, updated: now(), by: 'Automatic check' });
+      marks.push({ id: uid(), page: r.page, ...box, kind: MARK_KIND[it.k] || 'Other', period: it.label.slice(0, 160), text: it.found, flag: it.ok === false ? (it.fix || it.label) : '', note: '', ck: it.k, pass: it.ok === true || undefined, assetIds: (d.assetIds || []).slice(), taskIds: [], ai: true, chk: true, updated: now(), by: 'Automatic check' });
     }
     const fails = items.filter(i => i.ok === false);
     return await save(fails.length ? 'Failed check' : 'Awaiting review', { at: now(), items, ...meta, via: (aiCall.last && aiCall.last.via) || '' },
@@ -350,23 +350,26 @@ export function submitDialog(a, replaces) {
 
 /* ================================================================ one submission: result, actions, history */
 const ICON = { true: '✓', false: '✗', null: '?' };
-const checkHtml = c => !c ? '<p class="muted small">Not checked yet.</p>' : c.error ? `<p class="note">The automatic check could not run (${esc(c.error)}). It has gone to the reviewer as it is. Use “Check again” to retry.</p>` : c.skipped ? '<p class="muted small">Supporting document: no automatic check.</p>'
-  : `<div class="ckl">${c.items.map(i => `<div class="ck ${i.ok === true ? 'ok' : i.ok === false ? 'bad' : 'unk'}"><i>${ICON[i.ok]}</i><div><b>${esc(i.label)}</b>${i.found ? `<small>Found: ${esc(i.found)}</small>` : ''}${i.ok === false && i.fix ? `<small class="fix">To fix: ${esc(i.fix)}</small>` : ''}${i.ok === null ? '<small>Could not be told from the document: the reviewer will check this.</small>' : ''}</div></div>`).join('')}</div>`;
+const checkHtml = (c, sel, d) => !c ? '<p class="muted small">Not checked yet.</p>' : c.error ? `<p class="note">The automatic check could not run (${esc(c.error)}). It has gone to the reviewer as it is. Use “Check again” to retry.</p>` : c.skipped ? '<p class="muted small">Supporting document: no automatic check.</p>'
+  : `<div class="ckl">${c.items.map(i => `<div class="ck ${i.ok === true ? 'ok' : i.ok === false ? 'bad' : 'unk'}${sel === i.k ? ' sel' : ''}${d && (d.marks || []).some(m => m.ck === i.k) ? ' go' : ''}" data-ck="${esc(i.k)}"><i>${ICON[i.ok]}</i><div><b>${esc(i.label)}</b>${i.found ? `<small>Found: ${esc(i.found)}</small>` : ''}${i.ok === false && i.fix ? `<small class="fix">To fix: ${esc(i.fix)}</small>` : ''}${i.ok === null ? '<small>Could not be told from the document: the reviewer will check this.</small>' : ''}</div></div>`).join('')}</div>`;
 const handMarks = d => (d.marks || []).filter(m => !m.chk && (m.flag || m.note)).sort((x, y) => x.page - y.page || x.y - y.y);
 // The document viewer's side panel is the review screen: the check, the actions, and the next one to review.
 const queueFor = () => { const ed = can.edit(), want = ed ? ['Awaiting review'] : ['Failed check', 'Sent back']; return fm().docs.filter(x => isSub(x) && want.includes(x.sub.status) && DV.isPdf(x)).sort((a, b) => String(a.sub.at || '').localeCompare(String(b.sub.at || ''))); };
-export function wireBox(d, openDoc) {
+export function wireBox(d, openDoc, goMark) {
   if (!isSub(d) || !$('sbvNx')) return; const cur = fm().docs.find(x => x.id === d.id) || d;
+  // a point in the list takes you to its box on the page
+  document.querySelectorAll('.sbv [data-ck]').forEach(el => el.onclick = () => { const m = (cur.marks || []).find(x => x.ck === el.dataset.ck); if (m && goMark) goMark(m); else toast('This point has no box on the page'); });
+  const sel = document.querySelector('.sbv .ck.sel'); if (sel) sel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   const next = () => { const L = queueFor().filter(x => x.id !== cur.id); if (!L.length) return toast(can.edit() ? 'Nothing else is waiting for review' : 'Nothing else needs fixing'); openDoc(L[0]); };
   $('sbvNx').onclick = next;
   if ($('sbvAcc')) $('sbvAcc').onclick = () => decide(cur, true, next); if ($('sbvBack')) $('sbvBack').onclick = () => decide(cur, false, next);
   if ($('sbvMk')) $('sbvMk').onclick = () => markedPdf(cur); if ($('sbvDet')) $('sbvDet').onclick = () => detail(cur);
 }
-export function boxHtml(d) {
+export function boxHtml(d, selMark) {
   if (!isSub(d)) return ''; d = fm().docs.find(x => x.id === d.id) || d; const s = d.sub, a = assetOf(d), ed = can.edit(), n = queueFor().filter(x => x.id !== d.id).length;
   return `<div class="sbv"><div class="sbvh"><b>${esc(a ? (a.ref || '') + ' ' + a.element : 'Submission')}</b>${chip(checking(d.id) ? 'Checking' : s.status)}</div>
   ${s.review && s.review.note ? `<div class="sbrev ${s.review.accepted ? 'ok' : ''}">${esc(s.review.note).replace(/\n/g, '<br>')}</div>` : ''}
-  ${checking(d.id) || s.status === 'Checking' ? '<p class="muted small">Checking now. The result appears here when it finishes.</p>' : checkHtml(s.check)}
+  ${checking(d.id) || s.status === 'Checking' ? '<p class="muted small">Checking now. The result appears here when it finishes.</p>' : checkHtml(s.check, selMark && selMark.ck, d)}${(s.check && s.check.items || []).length && !(d.marks || []).some(m => m.pass) ? '<p class="muted small">Checked before the passed points were boxed on the page. Use Details > Check again to box every point.</p>' : ''}
   <div class="sbact">${ed && s.status !== 'Superseded' && s.status !== 'Accepted' ? '<button class="btn2 go" id="sbvAcc">✔ Accept</button>' : ''}${ed && s.status !== 'Superseded' ? '<button class="btn2 warn" id="sbvBack">↩ Send back</button>' : ''}<button class="btn2" id="sbvMk">⬇ With markup</button><button class="btn2" id="sbvDet">Details</button><button class="btn2" id="sbvNx">Next ›${n ? ' (' + n + ')' : ''}</button></div>
   <p class="muted small">Press <b>Mark</b> and drag a box on the page to add your own point. It appears in the send-back note and the marked-up copy.</p></div>`;
 }
@@ -462,7 +465,7 @@ export async function markedPdf(d0) {
       const pg = pages[m.page - 1]; if (!pg) return; const { width: W, height: H } = pg.getSize(), R = ((pg.getRotation().angle % 360) + 360) % 360;
       // fractions are of the page as it is viewed; turn them back into the page's own coordinates when the page is rotated
       const map = (u, v) => R === 90 ? [v * W, u * H] : R === 180 ? [W - u * W, v * H] : R === 270 ? [W - v * W, H - u * H] : [u * W, H - v * H];
-      const [ax, ay] = map(m.x, m.y), [bx, by] = map(m.x + m.w, m.y + m.h), x = Math.min(ax, bx), y = Math.min(ay, by), w = Math.abs(bx - ax), h = Math.abs(by - ay), col = m.flag ? RED : BLUE;
+      const [ax, ay] = map(m.x, m.y), [bx, by] = map(m.x + m.w, m.y + m.h), x = Math.min(ax, bx), y = Math.min(ay, by), w = Math.abs(bx - ax), h = Math.abs(by - ay), col = m.flag ? RED : m.pass ? GREEN : BLUE;
       pg.drawRectangle({ x, y, width: w, height: h, borderColor: col, borderWidth: 1.6, color: col, opacity: 0.07, borderOpacity: 1 });
       const [cx, cy] = map(m.x, m.y), n = String(i + 1); pg.drawCircle({ x: cx, y: cy, size: 8, color: col });
       pg.drawText(n, { x: cx - fb.widthOfTextAtSize(n, 8) / 2, y: cy - 2.8, size: 8, font: fb, color: P.rgb(1, 1, 1) });
@@ -478,9 +481,9 @@ export async function markedPdf(d0) {
       if (s.review && s.review.note) { line((s.review.accepted ? 'Accepted' : 'Sent back') + ` by ${s.review.byName || s.review.by || ''}, ${dt(s.review.at)}:`, { bold: true, color: s.review.accepted ? GREEN : RED }); line(s.review.note, { ind: 10, gap: 8 }); }
       const c = s.check; if (c && c.items && c.items.length) { line('Automatic check', { bold: true, size: 11, color: NAVY, gap: 2 });
         c.items.forEach(i => { line(`${i.ok === true ? 'PASS ' : i.ok === false ? 'FIX  ' : 'CHECK'}   ${i.label}`, { bold: true, color: i.ok === true ? GREEN : i.ok === false ? RED : AMB }); if (i.found) line('Found: ' + i.found, { ind: 44, color: GREY }); if (i.ok === false && i.fix) line('To fix: ' + i.fix, { ind: 44 }); y -= 3; }); y -= 6; } }
-    line(`Boxes marked on the document (${marks.length})`, { bold: true, size: 11, color: NAVY, gap: 2 });
-    if (!marks.length) line('Nothing has been marked on the pages.', { color: GREY });
-    marks.forEach((m, i) => { line(`${i + 1}.  Page ${m.page}  |  ${m.period || m.kind || ''}`, { bold: true, color: m.flag ? RED : BLUE }); if (m.flag) line('To fix: ' + m.flag, { ind: 16 }); if (m.note) line('Note: ' + m.note, { ind: 16 }); if (m.text) line('"' + m.text.slice(0, 260) + '"', { ind: 16, color: GREY }); y -= 3; });
+    const shown = marks.filter(m => !m.pass); line(`Boxes marked on the document (${shown.length}; green boxes show points that passed)`, { bold: true, size: 11, color: NAVY, gap: 2 });
+    if (!shown.length) line('Nothing has been marked on the pages.', { color: GREY });
+    marks.forEach((m, i) => { if (m.pass) return; line(`${i + 1}.  Page ${m.page}  |  ${m.period || m.kind || ''}`, { bold: true, color: m.flag ? RED : BLUE }); if (m.flag) line('To fix: ' + m.flag, { ind: 16 }); if (m.note) line('Note: ' + m.note, { ind: 16 }); if (m.text) line('"' + m.text.slice(0, 260) + '"', { ind: 16, color: GREY }); y -= 3; });
     const out = await doc.save(); b.done(); deliver(new Blob([out], { type: 'application/pdf' }), `${fileSafe(d.submitted ? d.title : (d.fileName || d.title).replace(/\.pdf$/i, ''))} - with markup.pdf`, 'Marked-up copy');
   } catch (e) { console.error(e); b.done(); toast('Could not build the marked-up copy: ' + e.message, 7000); }
 }

@@ -104,7 +104,7 @@ export async function open(d, opts = {}) {
   if (opts.asset) V.asset = opts.asset; if (opts.all != null) V.all = !!opts.all;
   setMode('view');
   const b = busy('Opening the document…');
-  try { V.d = fm().docs.find(x => x.id === d.id) || d; V.pdf = await loadPdf(V.d); V.n = V.pdf.numPages; V.hl = null; }
+  try { if (!V.d || V.d.id !== d.id) V.selCk = null; V.d = fm().docs.find(x => x.id === d.id) || d; V.pdf = await loadPdf(V.d); V.n = V.pdf.numPages; V.hl = null; }
   catch (e) { b.done(); toast('Could not open this document: ' + e.message, 6000); close(); return; }
   b.done(); $('dvMark').style.display = canMark() ? '' : 'none'; $('dvT').textContent = V.d.title; $('dvN').textContent = '/ ' + V.n; $('dvP').max = V.n;
   const mk = opts.markId ? (V.d.marks || []).find(m => m.id === opts.markId) : null;
@@ -162,10 +162,10 @@ const names = (ids, list, key) => (ids || []).map(id => list.find(x => x.id === 
 async function overlayPage(pp) {
   let h = ''; const all = (V.d.marks || []).slice().sort((a, b) => a.page - b.page || a.y - b.y);
   all.forEach((m, i) => { if (m.page !== pp.p) return; const an = names(m.assetIds, fm().assets, 'element'), tn = names(m.taskIds, fm().tasks, 'title');
-    h += `<div class="dvm ${KCLS[m.kind] || 'ko'}${m.flag ? ' flag' : ''}${m.pending ? ' pend' : ''}${V.sel === m.id ? ' sel' : ''}" data-m="${esc(m.id)}" style="z-index:${Math.max(1, Math.round(1000 - m.w * m.h * 1000))};left:${m.x * 100}%;top:${m.y * 100}%;width:${m.w * 100}%;height:${m.h * 100}%"><i>${i + 1}</i><div class="dvtip"><b>${esc(m.kind || 'Requirement')}${m.period ? ': ' + esc(m.period) : ''}</b>${m.flag ? '<br><span style="color:#ffb4b4">Problem: ' + esc(m.flag) + '</span>' : ''}${m.pending ? '<br>Marked by AI, not checked yet' : ''}${m.clause ? '<br>Clause ' + esc(m.clause) : ''}${an.length ? '<br>Assets: ' + esc(an.join('; ')) : ''}${tn.length ? '<br>Tasks: ' + esc(tn.join('; ')) : ''}<br><u>Click to open</u></div></div>`; });
+    h += `<div class="dvm ${KCLS[m.kind] || 'ko'}${m.pass ? ' pass' : ''}${m.flag ? ' flag' : ''}${m.pending ? ' pend' : ''}${V.sel === m.id ? ' sel' : ''}" data-m="${esc(m.id)}" style="z-index:${Math.max(1, Math.round(1000 - m.w * m.h * 1000))};left:${m.x * 100}%;top:${m.y * 100}%;width:${m.w * 100}%;height:${m.h * 100}%"><i>${i + 1}</i><div class="dvtip"><b>${esc(m.kind || 'Requirement')}${m.period ? ': ' + esc(m.period) : ''}</b>${m.flag ? '<br><span style="color:#ffb4b4">Problem: ' + esc(m.flag) + '</span>' : ''}${m.pending ? '<br>Marked by AI, not checked yet' : ''}${m.clause ? '<br>Clause ' + esc(m.clause) : ''}${an.length ? '<br>Assets: ' + esc(an.join('; ')) : ''}${tn.length ? '<br>Tasks: ' + esc(tn.join('; ')) : ''}<br><u>${V.d.submitted && m.ck ? 'Click to see this point' : 'Click to open'}</u></div></div>`; });
   if (V.hl && V.hl.length && pp.pg && pp.vp1) { const set = new Set(V.hl); try { for (const r of await runs(pp)) { if (norm(r.s).split(' ').some(w => set.has(w))) h += `<div class="dvhl" style="left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%"></div>`; } } catch (e) {} }
   if (!V) return; pp.o.innerHTML = h;
-  pp.o.querySelectorAll('.dvm').forEach(el => el.onclick = e => { if (V.mode === 'mark') return; e.stopPropagation(); const m = (V.d.marks || []).find(x => x.id === el.dataset.m); if (m) { detail(m); overlay(); } });
+  pp.o.querySelectorAll('.dvm').forEach(el => el.onclick = e => { if (V.mode === 'mark') return; e.stopPropagation(); const m = (V.d.marks || []).find(x => x.id === el.dataset.m); if (!m) return; if (V.d.submitted && m.ck) { V.selCk = m.id; V.sel = m.id; home(); return; } detail(m); overlay(); });
 }
 function overlay() { if (V) V.pp.forEach(pp => { if (pp.gen === V.gen) overlayPage(pp); }); }
 function wireDraw() {
@@ -187,9 +187,9 @@ function wireDraw() {
 /* ---------- side panel: search and the list of marked clauses ---------- */
 const QUICK = [['Warranties', 'warranty guarantee'], ['Maintenance', 'maintenance'], ['O&M manuals', 'o&m manual'], ['As-builts', 'as-built'], ['Producer statements', 'producer statement']];
 function home() {
-  if (!V) return; V.side = 'home'; V.sel = null; const marks = (V.d.marks || []).slice().sort((a, b) => a.page - b.page || a.y - b.y);
+  if (!V) return; V.side = 'home'; V.sel = V.d && V.d.submitted ? (V.selCk || null) : null; const marks = (V.d.marks || []).slice().sort((a, b) => a.page - b.page || a.y - b.y);
   $('dvSide').innerHTML = `${V.asset ? `<div class="dvctx">Marking for: <b>${esc(V.asset.element)}</b><br><span class="muted small">Find the clause, press “Mark”, and drag a box around it.</span></div>` : ''}
-    ${V.d.submitted && X.subBox ? X.subBox(V.d) : ''}
+    ${V.d.submitted && X.subBox ? X.subBox(V.d, (V.d.marks || []).find(m => m.id === V.selCk)) : ''}
     <div class="dvsearch" ${V.d.submitted ? 'hidden' : ''}><input type="search" id="dvQ" placeholder="Find a clause, e.g. roof warranty" value="${esc(V.q || '')}"><button class="go" id="dvGo">Search</button></div>
     <div class="dvquick" ${V.d.submitted ? 'hidden' : ''}>${QUICK.map(([l, q]) => `<button data-q="${esc(q)}">${l}</button>`).join('')}</div>
     <label class="dvall" ${V.d.submitted ? 'hidden' : ''}><input type="checkbox" id="dvAll" ${V.all ? 'checked' : ''}> Search all contract and specification documents</label>
@@ -199,7 +199,7 @@ function home() {
     <h4>Marked in this document (${marks.length})</h4>
     ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b>${m.flag ? ' <span class="st st-bad">problem</span>' : ''}${m.pending ? ' <span class="st st-warn">to check</span>' : ''} <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${V.d.submitted && canMark() ? 'Nothing marked yet. Press “Mark” and drag a box around anything that is wrong or needs explaining.' : can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
     ${can.edit() ? `<label class="dvall" style="margin-top:10px"><input type="checkbox" id="dvSrc" ${isSource(V.d) ? 'checked' : ''}> This is a requirement source (included in clause searches)</label>` : ''}`;
-  if (X.subWire) X.subWire(V.d, d => open(d));
+  if (X.subWire) X.subWire(V.d, d => open(d), async m => { V.selCk = m.id; V.sel = m.id; await show(m.page, Math.max(0, m.y - 0.15)); home(); });
   if ($('dvRead')) $('dvRead').onclick = () => window.dispatchEvent(new CustomEvent('rd-ai-read', { detail: V.d.id }));
   if ($('dvAcc')) $('dvAcc').onclick = async () => { await saveMarks((V.d.marks || []).map(m => m.pending ? { ...m, pending: false, checkedBy: S.user.email } : m)); toast('Accepted'); home(); };
   $('dvGo').onclick = runSearch; $('dvQ').onkeydown = e => { if (e.key === 'Enter') runSearch(); };
