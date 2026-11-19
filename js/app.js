@@ -920,7 +920,10 @@ async function saveEditor() {
   if (!ED.isNew && !limited(ED.d)) { const o0 = S.defects.find(x => x.id === ED.d.id) || ED.d, CL = { severity: 'category', type: 'type', source: 'raised by', trade: 'trade', element: 'element' };
     const moved = Object.keys(CL).filter(k => (o0[k] ?? '') !== (d[k] ?? '')); const c0 = $('cmt') ? $('cmt').value.trim() : '';
     if (moved.length && !c0) { const bx = $('cmt'); if (bx) { bx.scrollIntoView({ block: 'center', behavior: 'smooth' }); bx.focus(); bx.placeholder = 'Say why the ' + moved.map(k => CL[k]).join(' and ') + ' changed'; bx.classList.add('need'); } toast('Add a comment saying why you changed the ' + moved.map(k => CL[k]).join(' and ') + '. It is kept in the history.', 6000); return; } }
-  const cm = $('cmt') ? $('cmt').value.trim() : '', E = ED; const b = bgSave(E.isNew ? 'new item' : d.id); closeEditor();
+  const cm = $('cmt') ? $('cmt').value.trim() : '', E = ED; const b = bgSave(E.isNew ? 'new item' : d.id);
+  // Work through the list: once saved, the next item in the current list opens straight away (switch off in the editor header)
+  let nx = null; if (!E.isNew && autoNext()) { const L = filtered(), i = L.findIndex(x => x.id === E.d.id); nx = i > -1 ? (L[i + 1] || L[i - 1]) : null; }
+  closeEditor(); if (nx) setTimeout(() => { const n = S.defects.find(x => x.id === nx.id) || nx; S.sel = n.id; openEditor(n); renderPins(); toast('Saved ' + E.d.id + '. Now on ' + n.id, 2500); }, 60);
   try {
     if (E.isNew) { d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); for (let k = 0; k < 50 && S.defects.some(x => x.id === d.id); k++) d.id = await S.store.nextRef(pid, S.project.idPrefix, localNextRef); }
     d.photos = await uploadPhotos(pid, d.id, d.photos || []);
@@ -963,6 +966,12 @@ async function deleteDefect() {
     toast(msg, 4000); } catch (e) { toast('Could not delete: ' + friendly(e)); }
 }
 const edSnap = () => JSON.stringify([FIELDS.map(f => { const el = $('edBody').querySelector(`[name=${f}]`); return el ? el.value : ''; }), (ED.d.photos || []).map(p => p.id || p.path), ED.d.plan, ED.d.x, ED.d.y]);
+const autoNext = () => { try { return localStorage.getItem('autoNext') !== '0'; } catch (e) { return true; } };
+// Keyboard: Alt+Right / Alt+Left (or Page Down / Page Up outside a text box) moves through the list; Ctrl+Enter saves
+document.addEventListener('keydown', e => { if (!ED || ED.isNew || document.querySelector('.modal.show, .mpop')) return; const typing = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.target.isContentEditable;
+  if ((e.altKey && e.key === 'ArrowRight') || (!typing && e.key === 'PageDown')) { e.preventDefault(); step(1); }
+  else if ((e.altKey && e.key === 'ArrowLeft') || (!typing && e.key === 'PageUp')) { e.preventDefault(); step(-1); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); saveEditor(); } });
 async function step(dir) {
   if (!ED || ED.isNew) return; const L = filtered(); const i = L.findIndex(x => x.id === ED.d.id); const n = L[i + dir];
   if (!n) { toast(dir > 0 ? 'That is the last item in this list' : 'That is the first item in this list'); return; }
@@ -1253,7 +1262,8 @@ function wire() {
   $('zfull').onclick = () => { const on = !$('planPane').classList.contains('full'); if (on) Nav.open('fullplan', () => { $('planPane').classList.remove('full'); document.body.classList.remove('fullplan'); $('zfull').textContent = '⛶'; requestAnimationFrame(() => PV.fit()); }); else Nav.closed('fullplan'); $('planPane').classList.toggle('full', on); document.body.classList.toggle('fullplan', on); $('zfull').textContent = on ? '✕' : '⛶'; $('zfull').title = on ? 'Exit full screen' : 'Full screen'; requestAnimationFrame(() => PV.fit()); };
   Nav.init(() => { modal(`<h2>Leave ${esc(APP.name)}?</h2><p>You are on the main screen. Going back again will leave the app.</p><div class="act"><button class="go" id="lvStay">Stay</button><button id="lvGo">Leave</button></div>`); $('lvStay').onclick = closeModal; $('lvGo').onclick = () => { $('modal').classList.remove('show'); Nav.leave(); }; });
   $('edClose').onclick = $('edCancel').onclick = () => tryCloseEditor(); $('edSave').onclick = saveEditor; $('edDel').onclick = deleteDefect; $('edSend').onclick = sendItem; $('edBody').addEventListener('input', e => { const t = e.target; if (t && t.tagName === 'TEXTAREA') { t.style.height = 'auto'; t.style.height = Math.min(600, t.scrollHeight + 2) + 'px'; } });
-  $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1); swipeWire($('edBody'));
+  $('edPrev').onclick = () => step(-1); $('edNext').onclick = () => step(1);
+  { const an = $('edAuto'); const sync = () => { const on = autoNext(); an.classList.toggle('on', on); an.title = on ? 'After saving or closing, the next item in the list opens. Click to switch off.' : 'Click to open the next item automatically after saving'; an.textContent = on ? '⏭ Auto-next on' : '⏭ Auto-next off'; }; sync(); an.onclick = () => { try { localStorage.setItem('autoNext', autoNext() ? '0' : '1'); } catch (e) {} sync(); }; } swipeWire($('edBody'));
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') dismissModal(); });
   document.querySelectorAll('#mtabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
   $('fPhoto').onchange = async e => { const fs = [...e.target.files]; e.target.value = ''; await addPhotos(fs); };
