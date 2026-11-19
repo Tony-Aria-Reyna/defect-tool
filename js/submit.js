@@ -337,7 +337,11 @@ export function linkExisting(a) {
 // Every warranty already in the library, matched to its element in one go
 // Every warranty already in the library, matched to its element in one go. Documents that look like versions of each other are
 // grouped: you compare them side by side and decide which is current. Nothing is left out or deleted without you choosing it.
-const ML = { over: {}, solo: new Set() };
+const ML = { over: {}, solo: new Set(), out: new Set() };
+// the company a document came from: its name up to the first " - ", brackets included, without generic words
+const CO_GENERIC = ['construction', 'constructions', 'services', 'service', 'group', 'limited', 'ltd', 'company', 'holdings', 'contracting', 'contractors', 'contractor', 'solutions', 'building', 'builders', 'new', 'zealand', 'and', 'the', 'auckland', 'north', 'south', 'nz'];
+const coWords = d => new Set(String(d.party || String(d.title || '').split(' - ')[0] || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !CO_GENERIC.includes(w)));
+const sameCo = (x, y) => { const A = coWords(x), B = coWords(y); if (!A.size || !B.size) return true; for (const w of A) if (B.has(w)) return true; return false; };
 const TPL = /(^|[^a-z])(form of|template|draft|fillable|prepopulated|blank|unexecuted)([^a-z]|$)/i;
 const dateIn = d => { const m = /(\d{1,2})[-./](\d{1,2})[-./](20\d\d)/.exec([d.title, d.fileName].join(' ')); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(d.created || '').slice(0, 10); };
 const simWords = d => new Set(words([d.title, d.fileName].join(' ')).filter(w => !/^\d+$/.test(w) && !['yr', 'check', 'signed', 'dated', 'unsigned', 'version', 'issue', 'copy', 'final'].includes(w)));
@@ -350,7 +354,7 @@ export function matchLibrary() {
     const rv = d.mlReviewed && d.mlReviewed.at ? d.mlReviewed : null, o = ML.over[d.id] || rv; return { d, rev: rv, a: o ? A.find(a => a.id === o.a) || null : own ? g.a : lk[0] || g.a, sure: own || !!lk[0] || g.sure, k: o ? (o.k || k) : k, tpl: TPL.test([d.title, d.fileName].join(' ')), empty: !d.size }; });
   // groups: same element and type, or near-identical names, in the same building system
   const gid = new Map(); let next = 0;
-  rows.forEach((r, i) => rows.forEach((q, j) => { if (j <= i || r.tpl || q.tpl || (ML.solo.has(r.d.id) && ML.solo.has(q.d.id))) return; const same = (r.a && q.a && r.a.id === q.a.id && r.k === q.k && !['product', 'other'].includes(r.k)) || ((r.d.system || '') === (q.d.system || '') && similar(r.d, q.d));
+  rows.forEach((r, i) => rows.forEach((q, j) => { if (j <= i || r.tpl || q.tpl || ML.out.has(r.d.id) || ML.out.has(q.d.id) || (ML.solo.has(r.d.id) && ML.solo.has(q.d.id)) || !sameCo(r.d, q.d)) return; const same = (r.a && q.a && r.a.id === q.a.id && r.k === q.k && !['product', 'other'].includes(r.k)) || ((r.d.system || '') === (q.d.system || '') && similar(r.d, q.d));
     if (!same) return; const g = gid.get(r.d.id) ?? gid.get(q.d.id) ?? next++; [r, q].forEach(x => { const old = gid.get(x.d.id); if (old != null && old !== g) rows.forEach(y => { if (gid.get(y.d.id) === old) gid.set(y.d.id, g); }); gid.set(x.d.id, g); }); }));
   const groups = {}; rows.forEach(r => { const g = gid.get(r.d.id); if (g != null) (groups[g] = groups[g] || []).push(r); });
   Object.values(groups).forEach(G => G.sort((x, y) => (x.empty - y.empty) || dateIn(y.d).localeCompare(dateIn(x.d))));
@@ -408,11 +412,12 @@ function compare(G, a, k) {
   let L = 0, R = 1; const adm = can.admin();
   const side = (i, w) => { const d = G[i]; return `<div class="cmps"><div class="cmph"><select data-side="${w}">${G.map((x, j) => `<option value="${j}" ${j === i ? 'selected' : ''}>${esc(nzDate(dateIn(x)) || '')} · ${esc(x.title)}</option>`).join('')}</select>
     <div class="small muted">${esc(d.fileName || '')} · ${d.size ? (d.size / 1e6).toFixed(1) + ' MB' : '<b style="color:#a32222">empty: no file stored</b>'} · added ${esc(nzDate(String(d.created || '').slice(0, 10)))}${d.createdBy ? ' by ' + esc(d.createdBy) : ''}</div>
-    <div class="cmpa">${d.size ? `<button class="btn2 go sm" data-use="${w}">✔ Link this one</button>` : ''}<button class="btn2 sm" data-sup="${w}">Move to Superseded</button>${adm ? `<button class="btn2 sm warn" data-del="${w}">🗑 Delete</button>` : ''}<button class="btn2 sm" data-open="${w}">Open</button></div></div><div class="cmpb" id="cmp${w}"></div></div>`; };
+    <div class="cmpa">${d.size ? `<button class="btn2 go sm" data-use="${w}">✔ Link this one</button>` : ''}<button class="btn2 sm" data-sup="${w}">Move to Superseded</button>${adm ? `<button class="btn2 sm warn" data-del="${w}">🗑 Delete</button>` : ''}<button class="btn2 sm" data-open="${w}">Open</button>${G.length > 2 ? `<button class="btn2 sm" data-out="${w}" title="This one is a different document: take it out of this group">≠ Not this one</button>` : ''}</div></div><div class="cmpb" id="cmp${w}"></div></div>`; };
   const draw = () => { modal(`<h2>⧉ Compare similar documents (${G.length})</h2><p class="note">Scroll each side to compare. Pick which to link, move older versions to Superseded (kept, but out of the way), or delete a file that should not be here.</p><div class="cmpw">${side(L, 'L')}${side(R, 'R')}</div><div class="act"><button id="cmApart" title="They were grouped because they matched the same element or have similar names">≠ These are different documents</button><button id="cmX">‹ Back to the list</button></div>`, true);
     $('mbox').classList.add('xwide'); ['L', 'R'].forEach(w => { const el = $('cmp' + w); el.dataset.tok = Math.random().toString(36); renderInto(el, G[w === 'L' ? L : R], el.dataset.tok); });
     const both = [$('cmpL'), $('cmpR')]; let lock = false; both.forEach((el, i) => el.onscroll = () => { if (lock) return; lock = true; const o = both[1 - i]; o.scrollTop = el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight) * (o.scrollHeight - o.clientHeight); requestAnimationFrame(() => lock = false); });
-    document.querySelectorAll('[data-side]').forEach(s => s.onchange = () => { if (s.dataset.side === 'L') L = +s.value; else R = +s.value; draw(); });
+    document.querySelectorAll('[data-side]').forEach(s => s.onchange = () => { const v = +s.value; if (s.dataset.side === 'L') { if (v === R) R = L; L = v; } else { if (v === L) L = R; R = v; } draw(); });
+    document.querySelectorAll('[data-out]').forEach(b => b.onclick = () => { const d = pick(b.dataset.out); ML.out.add(d.id); G = G.filter(x => x.id !== d.id); toast('Taken out of this group: ' + d.title, 4000); if (G.length < 2) { $('mbox').classList.remove('xwide'); return matchLibrary(); } L = 0; R = 1; draw(); });
     const pick = w => G[w === 'L' ? L : R];
     $('cmX').onclick = () => { $('mbox').classList.remove('xwide'); matchLibrary(); };
     $('cmApart').onclick = () => { G.forEach(x => { ML.solo.add(x.id); const o = ML.over[x.id]; if (o && !o.a) delete ML.over[x.id]; }); $('mbox').classList.remove('xwide'); toast('Kept apart. Check each one is matched to the right element.', 5000); matchLibrary(); };
