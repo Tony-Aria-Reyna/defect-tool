@@ -416,13 +416,16 @@ async function renderInto(el, d, token) {
     const inp = el.querySelector('input[type=file]'); if (inp) inp.onchange = async () => { const f = inp.files[0]; if (!f || !f.size) return toast('That file reads as empty'); const b = busy('Uploading ' + f.name + '…');
       try { const path = `projects/${S.project.id}/docs/${d.id}/${safeName(f.name)}`, url = await S.store.putFile(path, f); await S.store.patchItem(S.project.id, 'docs', d.id, { url, path, size: f.size, fileName: f.name, mime: f.type || 'application/pdf' }); Object.assign(d, { url, path, size: f.size, fileName: f.name }); b.done(); toast('File restored'); el.dataset.tok = Math.random().toString(36); renderInto(el, d, el.dataset.tok); } catch (x) { b.done(); toast('Could not upload: ' + x.message, 7000); } }; }
 }
-let CMP_LOCK = true, CMP_DIFF = true;
+let CMP_LOCK = true, CMP_DIFF = true, CMP_SCROLL = null;
 // A page is blank when almost every pixel is close to white (scanners leave specks, so a little ink is allowed)
 function isBlank(c) { try { const w = 400, h = Math.round(c.height / c.width * w) || 1, t = document.createElement('canvas'); t.width = w; t.height = h; const x = t.getContext('2d'); x.drawImage(c, 0, 0, w, h);
   const px = x.getImageData(0, 0, w, h).data; let ink = 0; for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 600) ink++; return ink < 25; } catch (e) { return false; } }
 // Remove one page from a stored PDF. The file before the change is kept with the entry, so it can be put back.
 async function removePage(d, n, total, el) {
-  if (!(await confirmBox(`Remove page ${n} of ${total} from "${d.title}"? The file is saved again without it. The file as it was is kept with this entry, so it can be put back.`, 'Remove the page'))) return;
+  // the confirm box takes over the window, so remember where both sides were and bring the comparison back afterwards
+  const back = el._redraw, keep = { L: ($('cmpL') || {}).scrollTop || 0, R: ($('cmpR') || {}).scrollTop || 0 };
+  const reopen = () => { if (back) { CMP_SCROLL = keep; back(); } };
+  if (!(await confirmBox(`Remove page ${n} of ${total} from "${d.title}"? The file is saved again without it. The file as it was is kept with this entry, so it can be put back.`, 'Remove the page'))) return reopen();
   const b = busy('Removing page ' + n + '…');
   try { if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js');
     const P = window.PDFLib, doc = await P.PDFDocument.load(await X.getBytes(d.url), { ignoreEncryption: true }); if (doc.getPageCount() < 2) throw new Error('it only has one page');
@@ -433,8 +436,8 @@ async function removePage(d, n, total, el) {
     const marks = (d.marks || []).filter(m => m.page !== n).map(m => m.page > n ? { ...m, page: m.page - 1 } : m);
     const patch = { url, path, size: blob.size, prevFiles: prev, marks, textIdx: null };
     await S.store.patchItem(S.project.id, 'docs', d.id, patch); Object.assign(d, patch); b.done(); toast(`Page ${n} removed. The earlier file is kept with this entry.`, 5000);
-    el.dataset.tok = Math.random().toString(36); await renderInto(el, d, el.dataset.tok); if ($('cmDiff')) $('cmDiff').dispatchEvent(new Event('change'));
-  } catch (e) { b.done(); toast('Could not remove the page: ' + e.message, 8000); }
+    if (back) return reopen(); el.dataset.tok = Math.random().toString(36); await renderInto(el, d, el.dataset.tok);
+  } catch (e) { b.done(); toast('Could not remove the page: ' + e.message, 8000); reopen(); }
 }
 // Differences: a word counts as shared when it appears in the other document with the same word before or after it,
 // so a changed date, name, figure or clause stands out while text that has only moved is left alone.
@@ -462,7 +465,8 @@ function compare(G, a, k) {
       if (!A.length || !B.length) { $('cmDN').textContent = `(${!A.length && !B.length ? 'both are scans' : (!A.length ? 'the left one' : 'the right one') + ' is a scan'} with no readable text, so differences cannot be shown)`; return; }
       const r = markDiffs(A, B, CMP_DIFF); spots = r.dA.length ? r.dA : []; at = -1;
       $('cmDN').innerHTML = CMP_DIFF ? (r.dA.length || r.dB.length ? `<span class="cmpk l"></span>${r.dA.length} word${r.dA.length === 1 ? "" : "s"} only on the left · <span class="cmpk r"></span>${r.dB.length} only on the right` : 'No differences in the text') : ''; $('cmNext').hidden = !CMP_DIFF || !spots.length; };
-    Promise.all(loads).then(diffs);
+    $('cmpL')._redraw = $('cmpR')._redraw = draw;
+    Promise.all(loads).then(() => { diffs(); if (CMP_SCROLL) { const k = CMP_SCROLL; CMP_SCROLL = null; let lk = CMP_LOCK; CMP_LOCK = false; $('cmpL').scrollTop = k.L; $('cmpR').scrollTop = k.R; setTimeout(() => { CMP_LOCK = lk; }, 200); } });
     $('cmDiff').onchange = e => { CMP_DIFF = e.target.checked; diffs(); };
     $('cmNext').onclick = () => { if (!spots.length) return; const el = $('cmpL'); let k = at, y0 = el.scrollTop + 40;
       // jump to the next highlighted word lower down the left side (wrapping to the top)
