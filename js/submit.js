@@ -343,10 +343,11 @@ const dateIn = d => { const m = /(\d{1,2})[-./](\d{1,2})[-./](20\d\d)/.exec([d.t
 const simWords = d => new Set(words([d.title, d.fileName].join(' ')).filter(w => !/^\d+$/.test(w) && !['yr', 'check', 'signed', 'dated', 'unsigned', 'version', 'issue', 'copy', 'final'].includes(w)));
 const similar = (x, y) => { const A = simWords(x), B = simWords(y); if (!A.size || !B.size) return false; let n = 0; A.forEach(w => B.has(w) && n++); return n / Math.min(A.size, B.size) >= 0.7; };
 export function matchLibrary() {
+  clearPeeks();
   const L = libCands().filter(isWarr); if (!L.length) return toast('No unlinked warranties in the library');
   const A = fm().assets.filter(a => a.status !== 'Not applicable').sort((a, b) => natural(a.system, b.system) || natural(a.ref || '', b.ref || ''));
   const rows = L.map(d => { const g = guess([d.title, d.party, d.fileName].join(' ')), k = kindOf(d), lk = (d.assetIds || []).map(id => A.find(a => a.id === id)).filter(Boolean), own = ['sch19', 'sch18', 'bond'].includes(k) && g.sure;
-    const o = ML.over[d.id]; return { d, a: o ? A.find(a => a.id === o.a) || null : own ? g.a : lk[0] || g.a, sure: own || !!lk[0] || g.sure, k: o ? o.k : k, tpl: TPL.test([d.title, d.fileName].join(' ')), empty: !d.size }; });
+    const rv = d.mlReviewed && d.mlReviewed.at ? d.mlReviewed : null, o = ML.over[d.id] || rv; return { d, rev: rv, a: o ? A.find(a => a.id === o.a) || null : own ? g.a : lk[0] || g.a, sure: own || !!lk[0] || g.sure, k: o ? (o.k || k) : k, tpl: TPL.test([d.title, d.fileName].join(' ')), empty: !d.size }; });
   // groups: same element and type, or near-identical names, in the same building system
   const gid = new Map(); let next = 0;
   rows.forEach((r, i) => rows.forEach((q, j) => { if (j <= i || r.tpl || q.tpl || (ML.solo.has(r.d.id) && ML.solo.has(q.d.id))) return; const same = (r.a && q.a && r.a.id === q.a.id && r.k === q.k && !['product', 'other'].includes(r.k)) || ((r.d.system || '') === (q.d.system || '') && similar(r.d, q.d));
@@ -355,26 +356,37 @@ export function matchLibrary() {
   Object.values(groups).forEach(G => G.sort((x, y) => (x.empty - y.empty) || dateIn(y.d).localeCompare(dateIn(x.d))));
   rows.forEach(r => { const G = groups[gid.get(r.d.id)]; r.grp = G && G.length > 1 ? G : null; r.newest = r.grp ? r.grp[0] === r : true; });
   // first time through, only the newest of a group and no templates are put forward; your own choices are kept
-  rows.forEach(r => { if (ML.over[r.d.id] && !r.empty) return; if (r.tpl || !r.newest || r.empty) r.a = null; });
+  rows.forEach(r => { if ((ML.over[r.d.id] || r.rev) && !r.empty) return; if (r.tpl || !r.newest || r.empty) r.a = null; });
   rows.sort((x, y) => natural(x.d.system || '', y.d.system || '') || (gid.get(x.d.id) ?? 1e9) - (gid.get(y.d.id) ?? 1e9) || (x.grp && y.grp ? x.grp.indexOf(x) - y.grp.indexOf(y) : 0) || natural(x.d.title, y.d.title));
   const nG = Object.values(groups).filter(G => G.length > 1).length, note = r => r.grp ? `<span class="mlg ${r.newest ? '' : 'old'}">${r.newest ? '⧉ newest of ' + r.grp.length + ' similar' : '⧉ similar to a newer document'} · <a href="#" data-cmp="${esc(r.d.id)}">compare side by side</a></span>` : '';
-  modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. ${nG ? `<b>${nG} groups look like versions of the same document</b>: only the newest of each is filled in. Use “compare side by side” to check, then link, move to Superseded or delete.` : ''} Blank forms and templates start empty. Click an element box and type to change it; leave it empty to leave the document out.</p>
-  <table class="ftable bkt"><colgroup><col><col style="width:31%"><col style="width:180px"><col style="width:132px"></colgroup><tr><th>Document</th><th>Element</th><th>Type</th><th></th></tr>${rows.map((r, i) => `<tr class="${r.grp ? 'mlgr' : ''}${r.grp && !r.newest ? ' mlold' : ''}"><td class="small"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')} · ${esc(dateIn(r.d) ? nzDate(dateIn(r.d)) : '')}${r.empty ? ' · <b style="color:#a32222">no file stored (empty entry)</b>' : ''}${r.tpl ? ' · <b>blank form or template</b>' : ''}${!r.grp && !r.tpl && !r.a ? ' · <b style="color:#8a5e00">no element fits: choose one or create it</b>' : !r.grp && !r.tpl && !r.sure ? ' · <i>check this match</i>' : ''}</span>${note(r)}</td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to leave out')}</td><td><select id="mlK${i}">${kindOpts(r.k)}</select></td><td class="mlact">${r.d.size ? `<button class="mini" data-mv="${esc(r.d.id)}" title="View the document">👁</button>` : '<span class="mlph"></span>'}${r.tpl && can.edit() ? `<button class="mini" data-mt="${esc(r.d.id)}" title="Keep it for the project team under Documents > Templates. Never in the handover export.">📋</button>` : '<span class="mlph"></span>'}${can.admin() ? `<button class="mini warn" data-md="${esc(r.d.id)}" title="Delete from the library">🗑</button>` : ''}</td></tr>`).join('')}</table>
+  modal(`<h2>🔗 Match warranties already in the library</h2><p class="note">${L.length} warranties in the library are not yet tracked as submissions. Each has been matched to its element by its name and the company. ${nG ? `<b>${nG} groups look like versions of the same document</b>: only the newest of each is filled in. Use “compare side by side” to check, then link, move to Superseded or delete.` : ''} Blank forms and templates start empty. Click an element box and type to change it; leave it empty to leave the document out. <b>Tick each row once you have checked it</b>: ticks are saved, so you can stop and come back.</p>
+  <div class="mlprog"><span><b id="mlN">0</b> of ${rows.length} checked</span><label><input type="checkbox" id="mlHide" ${ML.hide ? 'checked' : ''}> Hide checked rows</label></div>
+  <table class="ftable bkt${ML.hide ? ' mlhide' : ''}" id="mlT"><colgroup><col style="width:46px"><col><col style="width:30%"><col style="width:180px"><col style="width:132px"></colgroup><tr><th title="Tick each row once you have checked it">✓</th><th>Document</th><th>Element</th><th>Type</th><th></th></tr>${rows.map((r, i) => `<tr data-row="${i}" class="${r.grp ? 'mlgr' : ''}${r.grp && !r.newest ? ' mlold' : ''}${r.rev ? ' mlrev' : ''}"><td class="mlck"><input type="checkbox" data-rv="${i}" title="Tick when you have checked this row" ${r.rev ? 'checked' : ''}></td><td class="small mlt"><b>${esc(r.d.title)}</b><br><span class="muted">${esc(r.d.system || '')} · ${esc(dateIn(r.d) ? nzDate(dateIn(r.d)) : '')}${r.empty ? ' · <b style="color:#a32222">no file stored (empty entry)</b>' : ''}${r.tpl ? ' · <b>blank form or template</b>' : ''}${!r.grp && !r.tpl && !r.a ? ' · <b style="color:#8a5e00">no element fits: choose one or create it</b>' : !r.grp && !r.tpl && !r.sure ? ' · <i>check this match</i>' : ''}</span>${note(r)}<span class="mlrvby" id="mlRv${i}">${r.rev ? '✓ Checked by ' + esc(r.rev.name || r.rev.by || '') + ', ' + esc(nzDate(String(r.rev.at).slice(0, 10))) : ''}</span></td><td>${pickHtml('mlA' + i, r.a, 'Type to find it, or leave empty to leave out')}</td><td><select id="mlK${i}">${kindOpts(r.k)}</select></td><td class="mlact">${r.d.size ? `<button class="mini" data-mv="${esc(r.d.id)}" title="View the document">👁</button>` : '<span class="mlph"></span>'}${r.tpl && can.edit() ? `<button class="mini" data-mt="${esc(r.d.id)}" title="Keep it for the project team under Documents > Templates. Never in the handover export.">📋</button>` : '<span class="mlph"></span>'}${can.admin() ? `<button class="mini warn" data-md="${esc(r.d.id)}" title="Delete from the library">🗑</button>` : ''}</td></tr>`).join('')}</table>
   ${aiToggle('mlAi')}
-  <div class="act"><button id="mlX">Cancel</button><button class="go" id="mlGo">Link</button></div>`, true);
+  <div class="act"><button id="mlX">Close</button><button id="mlGo" title="Link every row that has an element filled in, ticked or not">Link all filled in</button><button class="go" id="mlGoT" title="Link only the rows you have ticked">Link ticked (<span id="mlNT">0</span>)</button></div>`, true);
   const keep = () => rows.forEach((r, i) => { if (document.querySelector(`[data-apk="mlA${i}"]`)) ML.over[r.d.id] = { a: pickVal('mlA' + i), k: $('mlK' + i).value }; });
-  $('mlX').onclick = () => { ML.over = {}; ML.solo = new Set(); closeModal(); }; wirePicks(A);
+  $('mlX').onclick = () => { ML.over = {}; ML.solo = new Set(); closeModal(); };
+  const ticked = i => !!(document.querySelector(`[data-rv="${i}"]`) || {}).checked;
+  const counts = () => { $('mlN').textContent = rows.filter((r, i) => ticked(i)).length; $('mlNT').textContent = rows.filter((r, i) => ticked(i) && pickVal('mlA' + i)).length; };
+  const saveRev = async (i, on) => { const r = rows[i], rec = on ? { by: S.user.email, name: S.user.name || S.user.email, at: now(), a: pickVal('mlA' + i) || '', k: $('mlK' + i).value } : null;
+    r.rev = rec; const tr = document.querySelector(`tr[data-row="${i}"]`); if (tr) tr.classList.toggle('mlrev', !!on); $('mlRv' + i).textContent = on ? '✓ Checked by ' + rec.name + ', ' + nzDate(rec.at.slice(0, 10)) : ''; counts();
+    try { await S.store.patchItem(S.project.id, 'docs', r.d.id, { mlReviewed: rec }); r.d.mlReviewed = rec; } catch (e) { toast('Could not save the tick: ' + e.message, 6000); } };
+  wirePicks(A, key => { const i = +String(key).replace('mlA', ''); if (rows[i] && ticked(i)) saveRev(i, true); else counts(); });
+  document.querySelectorAll('[data-rv]').forEach(c => c.onchange = () => saveRev(+c.dataset.rv, c.checked));
+  rows.forEach((r, i) => { const k = $('mlK' + i); if (k) k.addEventListener('change', () => { if (ticked(i)) saveRev(i, true); }); });
+  $('mlHide').onchange = e => { ML.hide = e.target.checked; $('mlT').classList.toggle('mlhide', ML.hide); }; counts();
   const docOf = id => fm().docs.find(x => x.id === id);
-  document.querySelectorAll('[data-mv]').forEach(b => { const d = docOf(b.dataset.mv); docPeek(b, d); const td = b.closest('tr') && b.closest('tr').querySelector('td'); if (td) docPeek(td, d, true); b.onclick = () => { if (b._held) { b._held = 0; return; } keep(); closeModal(); DV.open(d, { ret: () => matchLibrary() }); }; });
+  document.querySelectorAll('[data-mv]').forEach(b => { const d = docOf(b.dataset.mv); docPeek(b, d); const td = b.closest('tr') && b.closest('tr').querySelector('td.mlt'); if (td) docPeek(td, d, true); b.onclick = () => { if (b._held) { b._held = 0; return; } keep(); closeModal(); DV.open(d, { ret: () => matchLibrary() }); }; });
   document.querySelectorAll('[data-mt]').forEach(b => b.onclick = async () => { keep(); const d = docOf(b.dataset.mt); try { await S.store.patchItem(S.project.id, 'docs', d.id, { template: true, type: 'Template / blank form' }); delete ML.over[d.id]; toast('Saved under Documents > Templates', 3500); matchLibrary(); } catch (e) { toast('Could not save: ' + e.message, 6000); } });
   document.querySelectorAll('[data-md]').forEach(b => b.onclick = async () => { keep(); const d = docOf(b.dataset.md);
     if (!(await confirmBox(d.size ? `Delete "${d.title}" (${d.fileName || ''})? It is removed from the library and cannot be recovered. Your file in OneDrive is not touched.` : `Delete this empty entry "${d.title}"? It has no file stored, so nothing is lost.`, 'Delete for good'))) return matchLibrary();
     try { await S.store.deleteItem(S.project.id, 'docs', d.id); if (d.path && d.size) { try { await S.store.deleteFile(d.path); } catch (e) {} } delete ML.over[d.id]; toast('Deleted'); } catch (e) { toast('Could not delete: ' + e.message, 6000); } matchLibrary(); });
   document.querySelectorAll('[data-cmp]').forEach(l => l.onclick = e => { e.preventDefault(); keep(); const r = rows.find(x => x.d.id === l.dataset.cmp); compare(r.grp.map(x => x.d), r.grp[0].a || r.a || A.find(a => a.id === pickVal('mlA' + rows.indexOf(r))), r.k); });
-  $('mlGo').onclick = async () => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === pickVal('mlA' + i)), k: $('mlK' + i).value })).filter(x => x.a);
-    if (!go.length) return toast('Nothing chosen'); const useAi = $('mlAi').checked; setAi(useAi); ML.over = {}; closeModal(); const b = busy('Linking…'); let n = 0;
+  const linkRows = async only => { const go = rows.map((r, i) => ({ d: r.d, a: A.find(a => a.id === pickVal('mlA' + i)), k: $('mlK' + i).value, t: ticked(i) })).filter(x => x.a && (!only || x.t));
+    if (!go.length) return toast(only ? 'Tick the rows you have checked first. Each one needs an element to link to.' : 'Nothing chosen', 5000); const useAi = $('mlAi').checked; setAi(useAi); ML.over = {}; closeModal(); const b = busy('Linking…'); let n = 0;
     try { for (const x of go) { b.set(`Linking ${++n} of ${go.length}…`); await convert(x.d, x.a, x.k, useAi); } b.done(); toast(useAi ? `${go.length} linked. Checking in the background: results appear as they finish.` : `${go.length} linked and sent for review.`, 6000); } catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
     refresh(); };
+  $('mlGo').onclick = () => linkRows(false); $('mlGoT').onclick = () => linkRows(true);
 }
 
 /* ---------------- compare similar documents side by side, then decide */
@@ -391,6 +403,7 @@ async function renderInto(el, d, token) {
       try { const path = `projects/${S.project.id}/docs/${d.id}/${safeName(f.name)}`, url = await S.store.putFile(path, f); await S.store.patchItem(S.project.id, 'docs', d.id, { url, path, size: f.size, fileName: f.name, mime: f.type || 'application/pdf' }); Object.assign(d, { url, path, size: f.size, fileName: f.name }); b.done(); toast('File restored'); el.dataset.tok = Math.random().toString(36); renderInto(el, d, el.dataset.tok); } catch (x) { b.done(); toast('Could not upload: ' + x.message, 7000); } }; }
 }
 function compare(G, a, k) {
+  clearPeeks();
   G = G.map(d => fm().docs.find(x => x.id === d.id)).filter(Boolean); if (G.length < 2) return matchLibrary();
   let L = 0, R = 1; const adm = can.admin();
   const side = (i, w) => { const d = G[i]; return `<div class="cmps"><div class="cmph"><select data-side="${w}">${G.map((x, j) => `<option value="${j}" ${j === i ? 'selected' : ''}>${esc(nzDate(dateIn(x)) || '')} · ${esc(x.title)}</option>`).join('')}</select>
@@ -629,6 +642,7 @@ export function view(tabs) {
 
 // Sneak view: hover a document (desktop) for a quick look at page 1; press and hold the eye for a full-screen look, let go to close.
 const PEEK = new Map();
+export function clearPeeks() { document.querySelectorAll('.dpop').forEach(x => x.remove()); }
 function peekImg(d) {
   if (!PEEK.has(d.id)) PEEK.set(d.id, (async () => { const pdf = await DV.loadPdf(d), pg = await pdf.getPage(1), b = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1400 / b.width }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; return { src: c.toDataURL('image/jpeg', .85), n: pdf.numPages }; })().catch(e => { PEEK.delete(d.id); throw e; }));
   return PEEK.get(d.id);
@@ -636,10 +650,10 @@ function peekImg(d) {
 function docPeek(el, d, hoverOnly) {
   if (!d || el._dp) return; el._dp = 1; let ht = null, pop = null, t = null, ov = null;
   const fill = (box, big) => { box.innerHTML = '<div class="dpl">Loading page 1…</div>'; peekImg(d).then(r => { if (!box.isConnected) return; box.innerHTML = `<img alt="" src="${r.src}"><span>${esc(d.title)} · page 1 of ${r.n}${big ? ' · let go to close' : ''}</span>`; }).catch(() => { if (box.isConnected) box.innerHTML = '<div class="dpl">Preview not available. Click to open it.</div>'; }); };
-  const hide = () => { clearTimeout(ht); ht = null; if (pop) { pop.remove(); pop = null; } };
+  let iv = null; const hide = () => { clearTimeout(ht); ht = null; clearInterval(iv); iv = null; if (pop) { pop.remove(); pop = null; } };
   if (matchMedia('(hover: hover)').matches) {
-    el.addEventListener('mouseenter', e => { if (ov) return; clearTimeout(ht); ht = setTimeout(() => { pop = document.createElement('div'); pop.className = 'dpop'; document.body.appendChild(pop); const r = el.getBoundingClientRect(), w = Math.min(460, innerWidth * .4), left = r.right + 14 + w < innerWidth ? r.right + 14 : Math.max(8, r.left - w - 14); pop.style.left = left + 'px'; pop.style.width = w + 'px'; pop.style.top = Math.max(8, Math.min(r.top - 40, innerHeight - w * 1.45 - 8)) + 'px'; fill(pop); }, 350); });
-    el.addEventListener('mouseleave', hide);
+    el.addEventListener('mouseenter', e => { if (ov) return; clearTimeout(ht); ht = setTimeout(() => { if (!el.isConnected || !el.matches(':hover')) return; clearPeeks(); pop = document.createElement('div'); pop.className = 'dpop'; document.body.appendChild(pop); const r = el.getBoundingClientRect(), w = Math.min(460, innerWidth * .4), left = r.right + 14 + w < innerWidth ? r.right + 14 : Math.max(8, r.left - w - 14); pop.style.left = left + 'px'; pop.style.width = w + 'px'; pop.style.top = Math.max(8, Math.min(r.top - 40, innerHeight - w * 1.45 - 8)) + 'px'; fill(pop); iv = setInterval(() => { if (!el.isConnected || !el.matches(':hover')) hide(); }, 200); }, 350); });
+    el.addEventListener('mouseleave', hide); el.addEventListener('pointerdown', hide, true);
   }
   if (hoverOnly) return;
   const end = () => { clearTimeout(t); t = null; ['pointerup', 'pointercancel', 'blur'].forEach(n => window.removeEventListener(n, end, true)); if (ov) { ov.remove(); ov = null; setTimeout(() => { el._held = 0; }, 400); } };

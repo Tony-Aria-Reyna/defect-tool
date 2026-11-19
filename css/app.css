@@ -704,3 +704,6 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 .dpop{position:fixed;z-index:1000;background:#fff;border:1px solid #c9d3de;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:6px;pointer-events:none}
 .dpop img{width:100%;display:block;border-radius:4px;max-height:80vh;object-fit:contain;object-position:top}.dpop span{display:block;font-size:11px;color:#555;padding:4px 2px 0}
 .dpl{padding:30px 10px;text-align:center;color:#777;font-size:13px}.dpeek .dpl{color:#fff}.dpeek img{background:#fff}
+.mlck{text-align:center;vertical-align:middle}.mlck input{width:22px;height:22px;cursor:pointer;accent-color:#2e9b5f;margin:0}
+tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.mlrvby{display:block;margin-top:3px;font-size:12px;color:#1e7a46;font-weight:600}.mlrvby:empty{display:none}
+.mlprog{display:flex;gap:18px;align-items:center;margin:2px 0 10px;font-size:13px}.mlprog label{display:flex;gap:6px;align-items:center;cursor:pointer}table.mlhide tr.mlrev{display:none}
