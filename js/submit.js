@@ -254,9 +254,9 @@ function guess(name) {
 async function aiGuess(f, rows) {
   try { const L = await DV.pdfLib(), pdf = await L.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise; const pg = await pdf.getPage(1), t = (await pageRuns(L, pg)).map(r => r.s).join(' ').replace(/\s+/g, ' ').slice(0, 2500);
     const list = fm().assets.filter(a => a.status !== 'Not applicable').map(a => `${a.ref} | ${a.element} | ${a.installer || ''} | ${a.product || ''}`).join('\n').slice(0, 9000);
-    const ask = `Match this construction warranty document to the one element it covers. Answer JSON only: {"ref":"the element ref from the list","kind":"deed" for a Schedule 13 / contractor warranty deed, "product" for a manufacturer or product warranty, "other" for anything else}.\n\nELEMENTS (ref | element | installer | product)\n${list}\n\nFILE NAME: ${f.name}\n`;
+    const ask = `Match this construction warranty document to the one element it covers. Answer JSON only: {"ref":"the element ref from the list","kind":"deed" for a Schedule 13 / contractor warranty deed, "sch19" for a Schedule 19 weathertightness guarantee, "sch18" for a parent company guarantee, "bond" for a performance, retention or advance payment bond or bank guarantee, "product" for a manufacturer or product warranty, "other" for anything else}.\n\nELEMENTS (ref | element | installer | product)\n${list}\n\nFILE NAME: ${f.name}\n`;
     const j = parse(await aiCall(t.length > 150 ? ask + 'PAGE 1 TEXT: ' + t : ask + 'The picture is page 1.', t.length > 150 ? undefined : await pageImage(pg))); pdf.destroy();
-    return j && { a: fm().assets.find(a => String(a.ref) === String(j.ref)), k: ['deed', 'product', 'other'].includes(j.kind) ? j.kind : null };
+    return j && { a: fm().assets.find(a => String(a.ref) === String(j.ref)), k: Object.keys(kinds()).includes(j.kind) ? j.kind : null };
   } catch (e) { console.warn('match', e); return null; }
 }
 export function bulk(files) {
@@ -266,15 +266,17 @@ export function bulk(files) {
   const opt = id => `<option value="">Choose the element…</option>` + A.map(a => `<option value="${esc(a.id)}" ${a.id === id ? 'selected' : ''}>${esc((a.ref || '') + ' ' + a.element + (a.installer ? ' (' + a.installer + ')' : ''))}</option>`).join('');
   const rows = L.map(f => ({ f, ...guess(f.name) }));
   modal(`<h2>⬆ Submit ${L.length} document${L.length === 1 ? '' : 's'}</h2><p class="note">Each file has been matched to the element it most likely covers${skipped ? ` (${skipped} non-PDF file${skipped === 1 ? '' : 's'} left out)` : ''}. Check the matches, then submit. They upload and are checked in the background, so you can carry on working.</p>
-  <table class="ftable bkt"><tr><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td class="small">${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by name' : 'matching…'}</span></td><td>${pickHtml('bkA' + i, r.a)}</td><td><select id="bkK${i}">${kindOpts(r.k)}</select></td></tr>`).join('')}</table>
+  <table class="ftable bkt bkbig"><colgroup><col style="width:150px"><col><col style="width:34%"><col style="width:200px"></colgroup><tr><th></th><th>File</th><th>Element</th><th>Type</th></tr>${rows.map((r, i) => `<tr><td><canvas class="bkth" id="bkT${i}" title="Click to see it larger"></canvas></td><td>${esc(r.f.name)}<br><span class="muted" id="bkS${i}">${r.sure ? 'matched by name' : 'matching…'}</span></td><td>${pickHtml('bkA' + i, r.a)}</td><td><select id="bkK${i}">${kindOpts(r.k)}</select></td></tr>`).join('')}</table>
   <div class="act"><button id="bkX">Cancel</button><button class="go" id="bkGo">Submit and check</button></div>`, true);
-  $('bkX').onclick = closeModal; const touched = new Set(); wirePicks(A, k => touched.add(k));
-  rows.forEach(async (r, i) => { if (r.sure) return; const g = await aiGuess(r.f); const box = document.querySelector(`[data-apk="bkA${i}"]`); if (!box) return; if (g && g.a && !touched.has('bkA' + i)) { box.dataset.id = g.a.id; box.querySelector('input').value = label(g.a); $('bkS' + i).textContent = 'matched by reading page 1'; } else $('bkS' + i).textContent = g && g.a ? '' : 'no match found: choose it'; if (g && g.k && !$('bkK' + i).dataset.touched) $('bkK' + i).value = g.k; });
+  $('mbox').classList.add('xwide'); $('bkX').onclick = () => { $('mbox').classList.remove('xwide'); closeModal(); }; const touched = new Set(); wirePicks(A, k => touched.add(k));
+  // page 1 of each file, so the match can be checked at a glance; click for a big view
+  rows.forEach(async (r, i) => { try { const L = await DV.pdfLib(), pdf = await L.getDocument({ data: new Uint8Array(await r.f.arrayBuffer()) }).promise, pg = await pdf.getPage(1), b = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1100 / b.width }), c = $('bkT' + i); if (!c) return; c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; c.onclick = () => c.classList.toggle('big'); pdf.destroy(); } catch (e) { console.warn('thumb', e); } });
+  rows.forEach(async (r, i) => { if (r.sure) return; const g = await aiGuess(r.f); const box = document.querySelector(`[data-apk="bkA${i}"]`); if (!box) return; if (g && g.a && !touched.has('bkA' + i)) { box.dataset.id = g.a.id; box.querySelector('input').value = label(g.a); $('bkS' + i).textContent = 'matched by reading page 1'; } else $('bkS' + i).textContent = g && g.a ? '' : 'no match found: choose it'; if (g && g.k && !$('bkK' + i).dataset.touched && (r.k === 'other' || r.k === 'product')) $('bkK' + i).value = g.k; });
   L.forEach((_, i) => { $('bkK' + i).onchange = e => e.target.dataset.touched = 1; });
   $('bkGo').onclick = async () => {
     const go = L.map((f, i) => ({ f, a: fm().assets.find(a => a.id === pickVal('bkA' + i)), k: $('bkK' + i).value }));
     const miss = go.filter(x => !x.a).length; if (miss) return toast(`Choose the element for ${miss} file${miss === 1 ? '' : 's'}`);
-    closeModal(); const b = busy('Uploading…'); let n = 0;
+    $('mbox').classList.remove('xwide'); closeModal(); const b = busy('Uploading…'); let n = 0;
     try { for (const x of go) { b.set(`Uploading ${++n} of ${go.length}: ${x.f.name}`); enqueue(await upload(x.f, x.a, x.k, '', null, typeOf(x.k, 'Other'))); } b.done(); toast(`${go.length} uploaded. Checking in the background: the results appear in the list as they finish.`, 6000); }
     catch (e) { b.done(); toast(`Stopped after ${n - 1}: ${e.message}`, 8000); }
     try { X.showSubs ? X.showSubs() : X.render(); } catch (e) {}
