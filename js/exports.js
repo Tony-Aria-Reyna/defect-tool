@@ -416,17 +416,18 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   // they are issued as an appendix and treated as deferred works, and the bond and retentions are released once they are resolved.
   page(); { const tl = wrap(title, fb, 18, W - 2 * M); tl.forEach(l => { T(l, M, y, 18, fb, NAVY); y -= 21; }); } T([pr.name, pr.address].filter(Boolean).join(', '), M, y, 10, f, GREY); y -= 20;
   [['To', pr.engineer ? pr.engineer + ' (Engineer to the Contract)' : ''], ['From', o.from || ((ctx.me || '') + ', Resero Property')], ['Date', nzDate(todayISO())], ['Practical completion', pr.pcDate ? nzDate(pr.pcDate) : ''], ['Contract', pr.contract], ['Contractor', pr.contractor]].filter(r => r[1]).forEach(([k, v]) => { T(k, M, y, 9, fb, GREY); wrap(v, f, 9, W - 2 * M - 105).forEach((l, i) => { T(l, M + 105, y, 9); y -= 13; }); }); y -= 8;
-  const byTxt = o.by ? nzDate(o.by) : 'the dates shown', note = (o.note != null ? o.note : PC_NOTE).replace(/\{by\}/g, byTxt);
+  const byTxt = o.by ? nzDate(o.by) : 'a date to be agreed', note = (o.note != null ? o.note : PC_NOTE).replace(/\{by\}/g, byTxt);
   if (note) { para(note, undefined, 9.5); y -= 6; }
   h1('Summary of outstanding items');
   const R = [], bySub = L => { const g = {}; L.forEach(d => (g[who(d)] = (g[who(d)] || 0) + 1)); const top = Object.entries(g).sort((a, b) => b[1] - a[1]); return top.slice(0, 3).map(([k, v]) => k + ' ' + v).join(', ') + (top.length > 3 ? ', others ' + top.slice(3).reduce((a, x) => a + x[1], 0) : ''); };
   const appA = on('appDefects') ? 'Appendix A' : '', appB = on('appDocs') ? 'Appendix B' : '', appC = pcOpen.length ? 'Appendix C' : '';
-  if (open.length) R.push(['Defects', `${open.length} open of ${D.length} recorded: ${todo.length} to be fixed, ${rr.length} fixed and awaiting inspection${mj.length ? `. ${mj.length} of major severity` : ''}.`, bySub(open), appA]);
+  if (open.length) R.push(['Defects', `${open.length} open of ${D.length} recorded: ${todo.length} to be fixed, ${rr.length} fixed and awaiting inspection.`, '', appA]);
   else R.push(['Defects', `All ${D.length} recorded defects are closed.`, '', '']);
   if (A.length) { const n = st => count(outD, a => st.test(a.status || '')); const parts = [[n(/Not received|Partial/), 'not yet received'], [n(/Revision/), 'to be re-issued'], [n(/Query|Confirm/), 'with questions'], [n(/execution/i), 'awaiting execution']].filter(x => x[0]).map(x => x[0] + ' ' + x[1]);
-    R.push(['Warranties and handover documents', outD.length ? `${outD.length} of ${A.length} outstanding: ${parts.join(', ')}.` : `All ${A.length} received.`, outD.length ? contractor : '', appB]); }
-  if (pcOpen.length) R.push(['Other close-out items', `${pcOpen.length} item${pcOpen.length === 1 ? '' : 's'} still open (producer statements, guarantees, as-builts, O&M manuals and similar).`, bySub(pcOpen.map(a => ({ subcontractor: a.responsible || contractor }))), appC]);
-  table([['Item', 100], ['Outstanding', 220], ['With', 100], ['Complete by', 60], ['Listed in', 50]], R.map(r => [r[0], r[1], r[2], r[1].startsWith('All ') ? '' : byTxt, r[3]]));
+    R.push(['Warranties and handover documents', outD.length ? `${outD.length} of ${A.length} outstanding: ${parts.join(', ')}.` : `All ${A.length} received.`, '', appB]); }
+  if (pcOpen.length) R.push(['Other close-out items', `${pcOpen.length} item${pcOpen.length === 1 ? '' : 's'} still open (producer statements, guarantees, as-builts, O&M manuals and similar).`, '', appC]);
+  if (o.by) table([['Item', 110], ['Outstanding', 300], ['Complete by', 60], ['Listed in', 60]], R.map(r => [r[0], r[1], r[1].startsWith('All ') ? '' : byTxt, r[3]]));
+  else table([['Item', 110], ['Outstanding', 340], ['Listed in', 60]], R.map(r => [r[0], r[1], r[3]]));
   if (o.link) { y -= 2; para('The full defect register, photos, warranties and handover documents are kept in Resero Site: ' + o.link, GREY, 8.5); }
 
   // ===== optional summaries
@@ -445,11 +446,10 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   if (on('ss')) { const ss = (fmd && fmd.systems) || []; h1('Specified systems (compliance schedule)'); if (ss.length) table([['System', 50], ['Name', 200], ['Standard', 150], ['Certificate', 120]], ss.map(s => [s.ss || '', s.name || '', s.standard || '', s.cert || 'Not recorded'])); else para('None recorded.'); }
 
   // ===== Appendix A: every open defect, holding-up items first, then by unit
-  if (on('appDefects')) { page(); h1('Appendix A: Open defects'); para('Items of major severity are listed first. "Latest" is the most recent status change or comment.', GREY, 8.5); y -= 4;
-    const cols = [['Ref', 40], ['Where', 95], ['Item', 190], ['Who', 80], ['Status', 62], ['Latest', 150]];
-    const row = d => { const m = latestMove(d); return [d.id, locText(d) || '', d.title || d.desc || '', who(d), say(d.status), m ? (nzDate(String(m.when || '').slice(0, 10)) + ' ' + (m.text || m.label)).slice(0, 160) : '']; };
-    if (mj.length) { h2('Major severity (' + mj.length + ')'); table(cols, mj.sort((a, b) => natural(a.id, b.id)).map(row), { red: (ri, i) => i === 0 }); }
-    const rest = open.filter(d => !major(d)), g = {}; rest.forEach(d => { const k = d.unit ? 'Unit ' + d.unit : 'Common areas' + (d.block ? ', ' + (/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block) : ''); (g[k] = g[k] || []).push(d); });
+  if (on('appDefects')) { page(); h1('Appendix A: Open defects'); para('By unit, then common areas. "Latest" is the most recent status change or comment.', GREY, 8.5); y -= 4;
+    const cols = [['Ref', 42], ['Where', 105], ['Item', 215], ['Status', 65], ['Latest', 160]];
+    const row = d => { const m = latestMove(d); return [d.id, locText(d) || '', d.title || d.desc || '', say(d.status), m ? (nzDate(String(m.when || '').slice(0, 10)) + ' ' + (m.text || m.label)).slice(0, 160) : '']; };
+    const rest = open, g = {}; rest.forEach(d => { const k = d.unit ? 'Unit ' + d.unit : 'Common areas' + (d.block ? ', ' + (/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block) : ''); (g[k] = g[k] || []).push(d); });
     Object.keys(g).sort((a, b) => (a.startsWith('Unit') ? 0 : 1) - (b.startsWith('Unit') ? 0 : 1) || natural(a, b)).forEach(k => { h2(k + ' (' + g[k].length + ')'); table(cols, g[k].sort((a, b) => natural(a.id, b.id)).map(row)); });
     if (!open.length) para('No open defects.'); }
   // ===== Appendix B: every outstanding document
@@ -457,9 +457,9 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
     if (!A.length) para('No building elements are loaded in Assets and warranties yet.', RED);
     else { const L = outD.slice().sort((a, b) => (hold(b) - hold(a)) || natural(a.ref || '', b.ref || ''));
       para(`${count(A, got)} of ${A.length} received. ${L.length} outstanding.`, GREY, 8.5); y -= 4;
-      table([['Ref', 36], ['Element', 120], ['Installer', 85], ['Required', 105], ['Status', 70], ['What is needed', 160]], L.map(a => [a.ref || '', (a.element || '') + (a.product ? ' (' + a.product + ')' : ''), a.installer || '', [a.instWarranty, a.mfrWarranty].filter(x => x && x !== '-').join('; '), (hold(a) ? 'Priority: ' : '') + (a.status || ''), a.notes || '']), { red: (ri, i) => i === 4 && (hold(L[ri]) || /Revision|Not received/.test(L[ri].status)) }); } }
+      table([['Ref', 36], ['Element', 120], ['Installer', 85], ['Required', 105], ['Status', 70], ['What is needed', 160]], L.map(a => [a.ref || '', (a.element || '') + (a.product ? ' (' + a.product + ')' : ''), a.installer || '', [a.instWarranty, a.mfrWarranty].filter(x => x && x !== '-').join('; '), a.status || '', a.notes || '']), { red: (ri, i) => i === 4 && (hold(L[ri]) || /Revision|Not received/.test(L[ri].status)) }); } }
   // ===== Appendix C: the other close-out items from the Actions register
-  if (pcOpen.length) { page(); h1('Appendix C: Other close-out items'); table([['Ref', 44], ['Item', 270], ['Who', 110], ['Due', 60]], pcOpen.map(a => [a.ref || '', a.action || '', a.responsible || contractor, a.due ? nzDate(a.due) : ''])); }
+  if (pcOpen.length) { page(); h1('Appendix C: Other close-out items'); table([['Ref', 44], ['Item', 380], ['Due', 60]], pcOpen.map(a => [a.ref || '', a.action || '', a.due ? nzDate(a.due) : ''])); }
   doc.setTitle(clean(title + ' - ' + (pr.name || '')));
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
