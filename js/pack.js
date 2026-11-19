@@ -93,7 +93,7 @@ const contacts = aud => (S.project.contacts || []).filter(c => !aud || !c.audien
 /* ------------------------------------------------------------ FM Manual */
 export async function buildFmManual(mode, st = () => {}) {
   if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js');
-  const p = S.project, { assets: A, tasks: T, systems: SY, docs: Dd } = X.fm(), { SYSTEMS, warrantyExpiry, freqText, addFreq } = X;
+  const p = S.project, { assets: A, tasks: T, systems: SY } = X.fm(), Dd = X.fm().docs.filter(d => !d.template && !d.superseded), { SYSTEMS, warrantyExpiry, freqText, addFreq } = X;
   const w = await Writer({ title: 'Facility Management Manual', base: 9.5 });
   const dnpEnd = p.pcDate ? addFreq(p.pcDate, +(p.dnpMonths || 12), 'months') : '';
   w.cover('Facility Management Manual', p.name, [['Property', [p.name, p.address].filter(Boolean).join(', ')], ['Owner', p.client], ['Main contractor', p.contractor], ['Practical completion', nzDate(p.pcDate)], ['Code Compliance Certificate', nzDate(p.cccDate)], ['Compliance schedule', p.csNumber], ['Building consent', p.consent]]);
@@ -145,7 +145,7 @@ const HOME_SECTIONS = p => [
 ];
 export async function buildHomeGuide(mode, st = () => {}) {
   if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js');
-  const p = S.project, { assets: A, docs: Dd } = X.fm();
+  const p = S.project, { assets: A } = X.fm(), Dd = X.fm().docs.filter(d => !d.template && !d.superseded);
   const w = await Writer({ title: 'Home User Guide', base: 13 });
   w.cover('Home User Guide', p.name, [['Your home', [p.name, p.address].filter(Boolean).join(', ')], ['Landlord', p.client]]);
   const mine = A.filter(a => a.audience === 'Home user' || a.audience === 'Both');
@@ -168,7 +168,7 @@ export async function buildHomeGuide(mode, st = () => {}) {
 
 /* ------------------------------------------------------------ dialog */
 export function packDialog() {
-  const { docs: Dd } = X.fm(); const files = Dd.filter(d => d.url && !d.link); const mb = files.reduce((a, d) => a + (d.size || 0), 0) / 1e6;
+  const Dd = X.fm().docs.filter(d => !d.template && !d.superseded); const files = Dd.filter(d => d.url && !d.link); const mb = files.reduce((a, d) => a + (d.size || 0), 0) / 1e6;
   modal(`<h2>Handover pack</h2><p class="note">Generates the handover documents from what is in this project now. Regenerate any time; nothing in the project changes.</p>
   <div class="opt"><input type="checkbox" id="hpF" checked><label for="hpF"><b>Facility Management Manual</b>: key dates, contacts, compliance schedule and BWoF, maintenance schedule, assets and warranties, document index, open defects</label></div>
   <div class="opt"><input type="checkbox" id="hpH" checked><label for="hpH"><b>Home User Guide</b> for residents: large clear type, how to look after the home, fire safety, who to call</label></div>

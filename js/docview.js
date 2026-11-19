@@ -14,6 +14,7 @@ const fm = () => S.fm || { assets: [], docs: [], tasks: [], systems: [] };
 export function init(ctx) { X = ctx; }
 // Who may draw and edit boxes: editors anywhere; contractors on the warranties they have submitted.
 const canMark = () => can.edit() || (can.contractor() && !!(V && V.d && V.d.submitted));
+const quick = () => V && V.d && (V.d.submitted || V.d.template);
 export const isPdf = d => !!d && !!d.url && (/\.pdf$/i.test(d.fileName || '') || d.mime === 'application/pdf');
 // Source documents are where requirements come from: the contract and the specification, or anything ticked as a source or already marked up.
 export const isSource = d => isPdf(d) && d.source !== false && (d.source === true || (d.marks || []).some(m => !m.ai) || ['Contract document', 'Specification / drawing'].includes(d.type));
@@ -197,7 +198,7 @@ function home() {
     ${V.d.aiRead && !V.d.submitted ? `<div class="dvctx"><b>✨ Read by AI</b> ${esc(nzDate(String(V.d.aiRead).slice(0, 10)))}${V.d.aiSummary ? '<br><span class="small">' + esc(V.d.aiSummary) + '</span>' : ''}${(V.d.aiProblems || []).length ? '<br><span class="small" style="color:#a32222"><b>Problems found:</b><br>' + V.d.aiProblems.map(x => '• ' + esc(x)).join('<br>') + '</span>' : ''}${marks.some(m => m.pending) && can.edit() ? `<br><button class="mini" id="dvAcc">✔ Accept all ${marks.filter(m => m.pending).length} AI boxes</button>` : ''}</div>` : ''}
     ${can.edit() && V.d.size ? `<p><button class="mini" id="dvRead">✨ ${V.d.aiRead ? 'Read again with AI' : 'Read this document with AI'}</button></p>` : ''}
     <h4>Marked in this document (${marks.length})</h4>
-    ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b>${m.flag ? ' <span class="st st-bad">problem</span>' : ''}${m.pending ? ' <span class="st st-warn">to check</span>' : ''} <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${V.d.submitted && canMark() ? 'Nothing marked yet. Press “Mark” and drag a box around anything that is wrong or needs explaining.' : can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
+    ${marks.map((m, i) => `<div class="dvrow" data-go="${esc(m.id)}"><i class="${KCLS[m.kind] || 'ko'}">${i + 1}</i><div><b>${esc(m.period || m.kind || 'Requirement')}</b>${m.flag ? ' <span class="st st-bad">problem</span>' : ''}${m.pending ? ' <span class="st st-warn">to check</span>' : ''} <span class="muted small">p. ${m.page}${m.clause ? ' · cl. ' + esc(m.clause) : ''}</span><br><span class="small">${esc(names(m.assetIds, fm().assets, 'element').concat(names(m.taskIds, fm().tasks, 'title')).join('; ') || 'Not linked yet')}</span></div></div>`).join('') || `<p class="muted small">${V.d.template && canMark() ? 'Nothing marked yet. Press “Mark” and drag a box around each place the recipient must fill in, then “⬇ With markup” gives them a copy with numbered boxes and instructions.' : V.d.submitted && canMark() ? 'Nothing marked yet. Press “Mark” and drag a box around anything that is wrong or needs explaining.' : can.edit() ? 'Nothing marked yet. Press “Mark” and drag a box around the words: a clause that sets a requirement, or a product detail such as a colour or model.' : 'Nothing has been marked in this document.'}</p>`}
     ${can.edit() ? `<label class="dvall" style="margin-top:10px"><input type="checkbox" id="dvSrc" ${isSource(V.d) ? 'checked' : ''}> This is a requirement source (included in clause searches)</label>` : ''}`;
   if (X.subWire) X.subWire(V.d, d => open(d), async m => { V.selCk = m.id; V.sel = m.id; await show(m.page, Math.max(0, m.y - 0.15)); home(); });
   if ($('dvRead')) $('dvRead').onclick = () => window.dispatchEvent(new CustomEvent('rd-ai-read', { detail: V.d.id }));
@@ -263,7 +264,7 @@ function quickForm(m, isNew) {
   V.side = 'form'; setMode('view'); V.sel = m.id;
   $('dvSide').innerHTML = `<h3>${isNew ? 'New box' : 'Edit box'}</h3><p class="muted small">Page ${m.page} of ${esc(V.d.title)}</p>
     ${m.text ? `<p class="dvtext">${esc(m.text.slice(0, 300))}</p>` : ''}
-    <label class="f">What needs to change here?<textarea id="qkF" rows="4" placeholder="e.g. Contractor must read Miles Construction Limited">${esc(m.flag || '')}</textarea></label>
+    <label class="f">${V.d.template ? 'What they need to fill in here' : 'What needs to change here?'}<textarea id="qkF" rows="4" placeholder="${V.d.template ? 'e.g. Insert your company\'s full registered name' : 'e.g. Contractor must read Miles Construction Limited'}">${esc(m.flag || '')}</textarea></label>
     <label class="f">Note (optional, not a problem)<input id="qkN" value="${esc(m.note || '')}" placeholder="e.g. Signature confirmed by phone"></label>
     <div class="act"><button id="qkX">Cancel</button>${can.edit() ? '<button id="qkMore">More options</button>' : ''}<button id="qkS" class="go">Save</button></div>`;
   const read = () => ({ ...m, kind: m.kind && !isNew ? m.kind : 'Other', flag: $('qkF').value.trim(), note: $('qkN').value.trim(), period: (m.chk ? m.period : '') || ($('qkF').value.trim() || $('qkN').value.trim()).slice(0, 80), assetIds: (m.assetIds || []).length ? m.assetIds : (V.d.assetIds || []).slice(), taskIds: m.taskIds || [], pending: false, chk: false, updated: new Date().toISOString(), by: S.user.email });
@@ -275,7 +276,7 @@ function quickForm(m, isNew) {
   setTimeout(() => $('qkF') && $('qkF').focus(), 50); overlay();
 }
 function form(m, isNew, full) {
-  if (V.d.submitted && !full) return quickForm(m, isNew);
+  if (quick() && !full) return quickForm(m, isNew);
   V.side = 'form'; setMode('view'); V.sel = m.id;
   const A = fm().assets.slice().sort((a, b) => natural(a.system, b.system) || natural(a.ref || '', b.ref || '')).map(a => ({ id: a.id, txt: `${a.ref || ''} ${a.element}${a.installer ? ' (' + a.installer + ')' : ''}`.trim() }));
   const T = fm().tasks.slice().sort((a, b) => natural(a.system || '', b.system || '') || natural(a.title, b.title)).map(t => ({ id: t.id, txt: t.title }));
