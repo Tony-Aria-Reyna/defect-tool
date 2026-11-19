@@ -692,3 +692,5 @@ h3.done .rq.must{background:#dff2e1;color:#1b5e20}
 @media(max-width:800px){.cmpw{grid-template-columns:1fr}.cmpb{height:45vh}}
 .cmpempty{background:#fff4f4;border:1px solid #f0c4c4;border-radius:8px;padding:14px;color:#5b2a2a}.cmpempty p{margin:6px 0 0}
 .mlrb{display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle}.mlrb .mini{padding:2px 7px;font-size:11.5px}.mlrb .warn{color:#a32222}
+.mlact{white-space:nowrap;text-align:right}.mlact .mini,.mlph{display:inline-block;width:92px;margin:2px 0 2px 4px;text-align:center;padding:4px 0;font-size:12px}.mlact .warn{color:#a32222}
+.bkt td{vertical-align:middle}.bkt select{max-width:150px}
