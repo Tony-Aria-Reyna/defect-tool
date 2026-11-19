@@ -88,7 +88,13 @@ async function Writer(o) {
 
 /* ------------------------------------------------------------ document targets */
 // In "zip" mode the manuals link to files inside the zip (relative paths); otherwise to the online copies.
-export function docPath(d) { const ext = (/\.[a-z0-9]{2,5}$/i.exec(d.fileName || '') || [''])[0] || '.pdf'; return `${d.restricted ? 'Restricted' : 'Documents'}/${safeName(d.system || 'General').slice(0, 60)}/${safeName(d.type || 'Other').replace(/[()]/g, '').slice(0, 40)}/${safeName(d.title).slice(0, 110)}${ext}`; }
+// Where a document sits in the pack. Two documents can end up with the same name (same system, type and title, or titles
+// that only differ after 110 characters, or only in capitals on Windows): the later one gets " (2)" so neither is lost.
+let PP = new Map();
+export function setPackPaths(list) { PP = new Map(); const used = new Set();
+  list.slice().sort((a, b) => String(a.created || '').localeCompare(String(b.created || '')) || String(a.id).localeCompare(String(b.id))).forEach(d => { const b = basePath(d); let p = b, k = 2; while (used.has(p.toLowerCase())) p = b.replace(/(\.[a-z0-9]{2,5})$/i, ` (${k++})$1`); used.add(p.toLowerCase()); PP.set(d.id, p); }); }
+export function docPath(d) { return PP.get(d.id) || basePath(d); }
+export function basePath(d) { const ext = (/\.[a-z0-9]{2,5}$/i.exec(d.fileName || '') || [''])[0] || '.pdf'; return `${d.restricted ? 'Restricted' : 'Documents'}/${safeName(d.system || 'General').slice(0, 60)}/${safeName(d.type || 'Other').replace(/[()]/g, '').slice(0, 40)}/${safeName(d.title).slice(0, 110)}${ext}`; }
 // restricted documents are never linked online: only the copy in the pack's Restricted folder
 const target = (d, mode) => d.link ? d.link : mode === 'zip' ? (d.url ? docPath(d) : '') : (d.restricted ? '' : d.url || '');
 const contacts = aud => (S.project.contacts || []).filter(c => !aud || !c.audience || c.audience === 'Both' || c.audience === aud);
@@ -206,7 +212,7 @@ ${sec('contacts', 'Contacts', contacts.length ? `<table><tr><th>Company</th><th>
 function dataJson() {
   const p = { ...S.project }; delete p.memberInfo; delete p.members; delete p.memberUids; delete p.access;
   const f = X.fm(), strip = L => (L || []).map(x => JSON.parse(JSON.stringify(x)));
-  return new Blob([JSON.stringify({ app: APP.name, type: 'project-archive', version: 1, exported: new Date().toISOString(), project: p, plans: strip(S.plans).map(x => ({ ...x })), defects: strip(S.defects), assets: strip(f.assets), docs: strip(f.docs), tasks: strip(f.tasks), systems: strip(f.systems), guide: strip(f.guide), actions: strip(f.actions) }, null, 1)], { type: 'application/json' });
+  return new Blob([JSON.stringify({ app: APP.name, type: 'project-archive', version: 1, exported: new Date().toISOString(), project: p, plans: strip(S.plans).map(x => ({ ...x })), defects: strip(S.defects), assets: strip(f.assets), docs: strip(f.docs).map(d => { const o = PP.has(d.id) ? { ...d, packPath: PP.get(d.id) } : d; if (d.restricted) { delete o.url; delete o.path; } return o; }), tasks: strip(f.tasks), systems: strip(f.systems), guide: strip(f.guide), actions: strip(f.actions) }, null, 1)], { type: 'application/json' });
 }
 
 /* ------------------------------------------------------------ after handover: free the cloud storage, keep the records */
@@ -255,6 +261,7 @@ export function packDialog() {
   $('hpX').onclick = closeModal; if ($('hpAr')) $('hpAr').onclick = archiveDialog;
   $('hpGo').onclick = async () => {
     const mode = document.querySelector('[name=hpM]:checked').value, st = t => $('hpSt').textContent = t, nm = safeName(S.project.name), n = stamp(), root = `${nm} - Handover Pack - ${n}`, linkMode = mode === 'online' ? 'online' : 'zip';
+    setPackPaths(mode === 'online' ? [] : files);
     let dir = null; if (mode === 'folder') { try { dir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch (e) { return; } }
     $('hpGo').disabled = true;
     try {

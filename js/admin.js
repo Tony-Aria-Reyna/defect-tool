@@ -1170,6 +1170,7 @@ export async function importJson(file) {
     await X.reloadProject(); toast(`Drawing lines added to ${n} plan${n === 1 ? '' : 's'}; boundaries now snap to the walls on those plans`, 6000); return;
   }
   if (j.type === 'renumber' && j.map) return importRenumber(j);
+  if (j.type === 'project-archive' && j.project) { const m = await import('./restore.js'); return m.restoreDialog(j, X); }   // a handover pack's data file
   if (j.project && Array.isArray(j.plans) && j.plans.length && j.plans[0].img) return importProjectPack(j);
   const list = (Array.isArray(j) ? j : (j.defects || [])).filter(d => d && d.id);
   const fmN = ['assets', 'tasks', 'systems'].reduce((a, k) => a + ((j[k] || []).length), 0);
