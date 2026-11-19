@@ -365,7 +365,7 @@ export function matchLibrary() {
   const keep = () => rows.forEach((r, i) => { if (document.querySelector(`[data-apk="mlA${i}"]`)) ML.over[r.d.id] = { a: pickVal('mlA' + i), k: $('mlK' + i).value }; });
   $('mlX').onclick = () => { ML.over = {}; ML.solo = new Set(); closeModal(); }; wirePicks(A);
   const docOf = id => fm().docs.find(x => x.id === id);
-  document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { keep(); closeModal(); DV.open(docOf(b.dataset.mv), { ret: () => matchLibrary() }); });
+  document.querySelectorAll('[data-mv]').forEach(b => { const d = docOf(b.dataset.mv); docPeek(b, d); const td = b.closest('tr') && b.closest('tr').querySelector('td'); if (td) docPeek(td, d, true); b.onclick = () => { if (b._held) { b._held = 0; return; } keep(); closeModal(); DV.open(d, { ret: () => matchLibrary() }); }; });
   document.querySelectorAll('[data-mt]').forEach(b => b.onclick = async () => { keep(); const d = docOf(b.dataset.mt); try { await S.store.patchItem(S.project.id, 'docs', d.id, { template: true, type: 'Template / blank form' }); delete ML.over[d.id]; toast('Saved under Documents > Templates', 3500); matchLibrary(); } catch (e) { toast('Could not save: ' + e.message, 6000); } });
   document.querySelectorAll('[data-md]').forEach(b => b.onclick = async () => { keep(); const d = docOf(b.dataset.md);
     if (!(await confirmBox(d.size ? `Delete "${d.title}" (${d.fileName || ''})? It is removed from the library and cannot be recovered. Your file in OneDrive is not touched.` : `Delete this empty entry "${d.title}"? It has no file stored, so nothing is lost.`, 'Delete for good'))) return matchLibrary();
@@ -625,4 +625,24 @@ export function view(tabs) {
   if ($('svDeed')) $('svDeed').onclick = () => Deed.prepareDialog();
   if ($('svRev')) $('svRev').onclick = () => { const L = queueFor(); if (!L.length) return toast(can.edit() ? 'Nothing is waiting for review' : 'Nothing needs fixing'); DV.open(L[0]); };
   resume();
+}
+
+// Sneak view: hover a document (desktop) for a quick look at page 1; press and hold the eye for a full-screen look, let go to close.
+const PEEK = new Map();
+function peekImg(d) {
+  if (!PEEK.has(d.id)) PEEK.set(d.id, (async () => { const pdf = await DV.loadPdf(d), pg = await pdf.getPage(1), b = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1400 / b.width }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; return { src: c.toDataURL('image/jpeg', .85), n: pdf.numPages }; })().catch(e => { PEEK.delete(d.id); throw e; }));
+  return PEEK.get(d.id);
+}
+function docPeek(el, d, hoverOnly) {
+  if (!d || el._dp) return; el._dp = 1; let ht = null, pop = null, t = null, ov = null;
+  const fill = (box, big) => { box.innerHTML = '<div class="dpl">Loading page 1…</div>'; peekImg(d).then(r => { if (!box.isConnected) return; box.innerHTML = `<img alt="" src="${r.src}"><span>${esc(d.title)} · page 1 of ${r.n}${big ? ' · let go to close' : ''}</span>`; }).catch(() => { if (box.isConnected) box.innerHTML = '<div class="dpl">Preview not available. Click to open it.</div>'; }); };
+  const hide = () => { clearTimeout(ht); ht = null; if (pop) { pop.remove(); pop = null; } };
+  if (matchMedia('(hover: hover)').matches) {
+    el.addEventListener('mouseenter', e => { if (ov) return; clearTimeout(ht); ht = setTimeout(() => { pop = document.createElement('div'); pop.className = 'dpop'; document.body.appendChild(pop); const r = el.getBoundingClientRect(), w = Math.min(460, innerWidth * .4), left = r.right + 14 + w < innerWidth ? r.right + 14 : Math.max(8, r.left - w - 14); pop.style.left = left + 'px'; pop.style.width = w + 'px'; pop.style.top = Math.max(8, Math.min(r.top - 40, innerHeight - w * 1.45 - 8)) + 'px'; fill(pop); }, 350); });
+    el.addEventListener('mouseleave', hide);
+  }
+  if (hoverOnly) return;
+  const end = () => { clearTimeout(t); t = null; ['pointerup', 'pointercancel', 'blur'].forEach(n => window.removeEventListener(n, end, true)); if (ov) { ov.remove(); ov = null; setTimeout(() => { el._held = 0; }, 400); } };
+  el.addEventListener('pointerdown', e => { if (e.button) return; hide(); clearTimeout(t); t = setTimeout(() => { hide(); el._held = 1; ov = document.createElement('div'); ov.className = 'peek dpeek'; document.body.appendChild(ov); fill(ov, true); try { navigator.vibrate && navigator.vibrate(15); } catch (x) {} }, 300); ['pointerup', 'pointercancel', 'blur'].forEach(n => window.addEventListener(n, end, true)); });
+  el.addEventListener('contextmenu', e => e.preventDefault());
 }
