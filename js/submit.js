@@ -5,7 +5,7 @@ import { S, can } from './state.js';
 import { aiCall } from './ai.js';
 import * as DV from './docview.js';
 import { pageRuns, locate, pageImage, parse } from './docai.js';
-import { $, esc, toast, modal, closeModal, busy, uid, nzDate, natural, safeName, deliver, loadScript, stamp } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, nzDate, natural, safeName, deliver, loadScript, stamp } from './util.js';
 
 let X = {};
 const VF = { q: '', sys: '', st: '' };
@@ -24,6 +24,25 @@ export const subsOf = id => fm().docs.filter(d => isSub(d) && (d.assetIds || [])
 const live = L => L.filter(d => d.sub.status !== 'Superseded');
 const assetOf = d => fm().assets.find(a => (d.assetIds || []).includes(a.id));
 export const counts = () => { const L = fm().docs.filter(isSub); return { review: L.filter(d => d.sub.status === 'Awaiting review').length, fix: L.filter(d => ['Failed check', 'Sent back'].includes(d.sub.status)).length, accepted: L.filter(d => d.sub.status === 'Accepted').length }; };
+
+/* ================================================================ naming convention: [Contractor] - [Document type] - [What it covers] (warranty length) */
+const TYPE_LBL = { deed: 'Schedule 13 Deed', product: 'Product Warranty' };
+const TYPE_SHORT = [[/o&m/i, 'O&M Manual'], [/care/i, 'Care & Maintenance Guide'], [/producer|certificate/i, 'Producer Statement'], [/commission|test/i, 'Commissioning & Test Record'], [/as-built/i, 'As-Built Drawing'], [/data sheet/i, 'Product Data Sheet']];
+const FOLDER = [[/schedule 13/i, 'Warranties/Schedule 13 Deeds'], [/warranty/i, 'Warranties/Product Warranties'], [/o&m/i, 'O&M Manuals'], [/care/i, 'Care & Maintenance Guides'], [/producer|certificate/i, 'Producer Statements & Certificates'], [/commission|test/i, 'Commissioning & Test Data'], [/as-built/i, 'As-Built Drawings'], [/data sheet/i, 'Product Data Sheets']];
+const tidy = t => String(t || '').replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+export const fileSafe = t => String(t || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 170);
+// While points are open the name says so, the way the filed copies do; the tag drops off once it is accepted.
+export function convName(d, sub = d.sub) {
+  if (sub.nameFixed) return d.title;
+  const c = sub.check || {}, a = assetOf(d), items = c.items || [], bad = k => items.some(i => i.k === k && i.ok === false);
+  let tag = '';
+  if (sub.status !== 'Accepted' && items.length) { const t = [bad('form') && 'wrong form', bad('contractor') && 'Contractor misnamed', bad('principal') && 'Principal misnamed', bad('owner') && 'owner not named', bad('complete') && 'blank template', (bad('exec') || bad('contractorSig')) && 'execution incomplete', bad('principalBlank') && 'Principal block signed'].filter(Boolean), n = items.filter(i => i.ok === false).length; tag = t.length ? ` (${t.slice(0, 2).join(', ')})` : n ? ` (${n} to fix)` : ''; }
+  const who = tidy(c.warrantor || d.party || (a && a.installer) || 'Unknown'), type = TYPE_LBL[sub.kind] || (TYPE_SHORT.find(([re]) => re.test(d.type || '')) || [0, d.type || 'Document'])[1];
+  const works = tidy(c.worksShort || (a && a.element) || ''), per = tidy(c.periodShort || '');
+  return `${who} - ${type}${tag}${works ? ' - ' + works : ''}${per ? ` (${per})` : ''}`.slice(0, 180);
+}
+const ext = d => (/\.[a-z0-9]{2,5}$/i.exec(d.fileName || '') || ['.pdf'])[0].toLowerCase();
+const folderOf = d => `${d.system || 'Unsorted'}/${(FOLDER.find(([re]) => re.test(d.type || '')) || [0, 'Other'])[1]}`;
 
 /* ================================================================ the standard a document is checked against */
 const deedForm = p => p.deedForm || 'NZS 3916:2013 Schedule 13';
@@ -57,12 +76,12 @@ PROJECT: ${p.name || ''}${p.address ? ', ' + p.address : ''}
 PRINCIPAL: ${p.client || '(not recorded)'}
 HEAD CONTRACTOR: ${p.contractor || '(not recorded)'}
 THE ELEMENT THIS WAS SUBMITTED FOR: ${[a && a.ref, a && a.element, a && a.installer ? 'installer ' + a.installer : ''].filter(Boolean).join(' · ') || '(not recorded)'}${a && /\d+\s*(yr|year|month)/i.test(a.instWarranty || '') ? '\nPERIOD THE CONTRACT REQUIRES FOR THIS ELEMENT: ' + a.instWarranty + ' (a shorter stated period does not meet the period point)' : ''}
-${p.aiContext ? 'PROJECT NOTES: ' + String(p.aiContext).slice(0, 2500) + '\n' : ''}
+${p.deedNotes ? 'WARRANTY RULES FOR THIS PROJECT (these override anything general): ' + String(p.deedNotes).slice(0, 5000) + '\n' : ''}${p.aiContext ? 'PROJECT NOTES: ' + String(p.aiContext).slice(0, 2500) + '\n' : ''}
 POINTS TO CHECK
 ${points.map(([k, , rule]) => `${k}: ${rule}`).join('\n')}
 
 Answer with JSON only, in this shape:
-{"warrantor":"company giving the warranty","works":"what it covers, short","period":"the period as written","date":"the date as written","items":[{"k":"point key","ok":true,"found":"what the document actually says or shows for this point, under 25 words","fix":"exactly what has to change, written to the contractor, under 30 words; empty when ok is true","page":1,${where}}]}
+{"warrantor":"company giving the warranty","works":"what it covers, short","period":"the period as written","date":"the date as written","worksShort":"what it covers in 2 to 6 words in Title Case, e.g. Archimax Cladding Installation","periodShort":"the period in short form, e.g. 5yr, or 10yr materials, 2yr workmanship","items":[{"k":"point key","ok":true,"found":"what the document actually says or shows for this point, under 25 words","fix":"exactly what has to change, written to the contractor, under 30 words; empty when ok is true","page":1,${where}}]}
 Give one item for every point key listed. "ok" is true when the point is met, false when it is not, and null only when what you were given does not let you tell.`;
 }
 const Q_TEXT = '"quote":"6 to 15 words copied exactly from the document at the place this point is decided"';
@@ -73,7 +92,7 @@ export async function runCheck(d0, onProg = () => {}) {
   let d = fm().docs.find(x => x.id === d0.id) || d0; const p = S.project, a = assetOf(d), kind = d.sub.kind, hist = (d.sub.history || []).slice();
   const save = async (status, check, extra = {}) => {
     const sub = { ...d.sub, status, check, history: [...hist, { t: now(), who: 'Automatic check', txt: check.error ? 'Could not be checked automatically: ' + check.error : check.skipped ? 'Not a warranty: no automatic check.' : (check.items.filter(i => i.ok === false).length ? check.items.filter(i => i.ok === false).length + ' point(s) to fix.' : 'All points passed.') }] };
-    const patch = plain({ sub, ...extra }); await S.store.patchItem(p.id, 'docs', d.id, patch); d = { ...d, ...patch }; return d;
+    const patch = plain({ sub, ...extra }); patch.title = convName({ ...d, ...patch }, sub); if (sub.check && sub.check.warrantor) patch.party = String(sub.check.warrantor).slice(0, 80); await S.store.patchItem(p.id, 'docs', d.id, patch); d = { ...d, ...patch }; return d;
   };
   if (kind === 'other' || !DV.isPdf(d)) return save('Awaiting review', { at: now(), skipped: true, items: [] });
   let pdf = null;
@@ -82,7 +101,7 @@ export async function runCheck(d0, onProg = () => {}) {
     const page = async k => pages[k] || (pages[k] = await (async () => { const pg = await pdf.getPage(k), runs = await pageRuns(L, pg); return { pg, runs, t: runs.map(r => r.s).join(' ').replace(/\s+/g, ' ').trim() }; })());
     const first = Math.min(n, 3); for (let k = 1; k <= first; k++) await page(k);
     const scanned = pages[1].t.length < 200, found = {}, meta = {};
-    const take = (j, pgNo) => { if (!j) return; ['warrantor', 'works', 'period', 'date'].forEach(k => { if (j[k] && !meta[k]) meta[k] = String(j[k]).slice(0, 200); }); (j.items || []).forEach(it => { if (it && it.k) found[it.k] = { ...it, page: Math.max(1, Math.min(n, +it.page || pgNo || 1)) }; }); };
+    const take = (j, pgNo) => { if (!j) return; ['warrantor', 'works', 'period', 'date', 'worksShort', 'periodShort'].forEach(k => { if (j[k] && !meta[k]) meta[k] = String(j[k]).slice(0, 200); }); (j.items || []).forEach(it => { if (it && it.k) found[it.k] = { ...it, page: Math.max(1, Math.min(n, +it.page || pgNo || 1)) }; }); };
     const front = kind === 'deed' ? deedPoints(p) : productPoints(p);
     // the front matter: from the words where the PDF has them, from a picture of page 1 where it is a scan
     const askFront = async () => {
@@ -171,7 +190,8 @@ export function detail(d0) {
   const d = fm().docs.find(x => x.id === d0.id) || d0, s = d.sub, a = assetOf(d), c = s.check, hm = handMarks(d), ed = can.edit(), wr = can.write();
   const open = !['Accepted', 'Superseded'].includes(s.status);
   modal(`<h2>${esc(a ? (a.ref || '') + ' ' + (a.element || '') : d.title)}</h2>
-  <p>${chip(s.status)} <span class="muted small">${esc(KIND[s.kind] || '')} · ${esc(d.fileName || '')} · submitted ${esc(dt(s.at))} by ${esc(s.byName || s.by || '')}</span></p>
+  <p>${chip(s.status)} <span class="muted small">${esc(KIND[s.kind] || '')} · submitted ${esc(dt(s.at))} by ${esc(s.byName || s.by || '')}</span></p>
+  <p class="small sbname"><b>Filed as:</b> ${esc(d.title)}${ed ? ' <a href="#" id="sdRn">✎ Rename</a>' : ''}${d.fileName ? `<br><span class="muted">Uploaded as: ${esc(d.fileName)}</span>` : ''}</p>
   ${s.note ? `<p class="small"><b>Submitter's note:</b> ${esc(s.note)}</p>` : ''}
   ${s.review && s.review.note ? `<div class="sbrev ${s.status === 'Accepted' ? 'ok' : ''}"><b>${s.status === 'Accepted' ? 'Accepted' : 'Sent back'} by ${esc(s.review.byName || s.review.by || '')}, ${esc(dt(s.review.at))}</b><br>${esc(s.review.note).replace(/\n/g, '<br>')}</div>` : ''}
   ${c && c.items && c.items.length ? `<p class="muted small">${[c.warrantor && 'Warrantor: ' + esc(c.warrantor), c.works && 'Works: ' + esc(c.works), c.period && 'Period: ' + esc(c.period), c.date && 'Dated: ' + esc(c.date)].filter(Boolean).join(' · ')}</p>` : ''}
@@ -192,12 +212,16 @@ export function detail(d0) {
   if ($('sdRe')) $('sdRe').onclick = async () => { closeModal(); const b = busy('Checking again…'); let r = d; try { r = await runCheck({ ...d, sub: { ...s, status: 'Checking' } }, b.set); } catch (e) { toast('Could not check: ' + e.message, 6000); } b.done(); detail(r); };
   if ($('sdNew')) $('sdNew').onclick = () => submitDialog(a, d);
   if ($('sdAny')) $('sdAny').onclick = () => noteBox('Send for review anyway', 'Tell the reviewer why the points above do not apply (optional)', 'Send for review', async note => { await setStatus(d, 'Awaiting review', 'Sent for review with check points outstanding' + (note ? ': ' + note : '') + '.', { note: [s.note, note].filter(Boolean).join(' | ') }); toast('Sent for review'); });
+  if ($('sdRn')) $('sdRn').onclick = e => { e.preventDefault();
+    modal(`<h2>Rename</h2><p class="note">Convention: [Contractor] - [Document type] - [What it covers] (warranty length)</p><label class="f">Name<input id="rnT" value="${esc(d.title)}"></label><div class="act"><button id="rnX">Cancel</button><button id="rnA">Use the automatic name</button><button class="go" id="rnGo">Save</button></div>`);
+    const put = async (title, fixed) => { try { const sub = plain({ ...s, nameFixed: fixed, history: [...(s.history || []), { t: now(), who: S.user.name, txt: 'Renamed to "' + title + '".' }] }); await S.store.patchItem(S.project.id, 'docs', d.id, { title, sub }); try { X.render(); } catch (x) {} detail({ ...d, title, sub }); } catch (x) { toast('Could not rename: ' + x.message, 6000); } };
+    $('rnX').onclick = () => detail(d); $('rnGo').onclick = () => { const t = $('rnT').value.trim(); if (!t) return toast('Enter a name'); put(t, true); }; $('rnA').onclick = () => put(convName(d, { ...s, nameFixed: false }), false); };
   if ($('sdAcc')) $('sdAcc').onclick = () => decide(d, true);
   if ($('sdBack')) $('sdBack').onclick = () => decide(d, false);
 }
 async function setStatus(d, status, txt, extra = {}) {
   const cur = fm().docs.find(x => x.id === d.id) || d, sub = plain({ ...cur.sub, ...extra, status, history: [...(cur.sub.history || []), { t: now(), who: S.user.name, txt }] });
-  await S.store.patchItem(S.project.id, 'docs', d.id, { sub }); const r = { ...cur, sub }; try { X.render(); } catch (e) {} detail(r); return r;
+  const title = convName(cur, sub); await S.store.patchItem(S.project.id, 'docs', d.id, { sub, title }); const r = { ...cur, sub, title }; try { X.render(); } catch (e) {} detail(r); return r;
 }
 function noteBox(title, ask, btn, go) {
   modal(`<h2>${esc(title)}</h2><label class="f">${esc(ask)}<textarea id="nbT" rows="4"></textarea></label><div class="act"><button id="nbX">Cancel</button><button class="go" id="nbGo">${esc(btn)}</button></div>`);
@@ -232,7 +256,7 @@ function decide(d0, accept) {
 async function openFile(d) { try { const u = await S.store.resolveUrl(d.url); if (u) window.open(u, '_blank', 'noopener'); } catch (e) { toast('Could not open: ' + e.message); } }
 export async function original(d) {
   const b = busy('Fetching the original…');
-  try { const buf = await X.getBytes(d.url); b.done(); deliver(new Blob([buf], { type: d.mime || 'application/pdf' }), d.fileName || (safeName(d.title) + '.pdf'), 'Original'); }
+  try { const buf = await X.getBytes(d.url); b.done(); deliver(new Blob([buf], { type: d.mime || 'application/pdf' }), fileSafe(d.submitted ? d.title : (d.fileName || d.title).replace(/\.[a-z0-9]{2,5}$/i, '')) + ext(d), 'Original'); }
   catch (e) { b.done(); toast('Could not download: ' + e.message, 6000); }
 }
 
@@ -269,8 +293,26 @@ export async function markedPdf(d0) {
     line(`Boxes marked on the document (${marks.length})`, { bold: true, size: 11, color: NAVY, gap: 2 });
     if (!marks.length) line('Nothing has been marked on the pages.', { color: GREY });
     marks.forEach((m, i) => { line(`${i + 1}.  Page ${m.page}  |  ${m.period || m.kind || ''}`, { bold: true, color: m.flag ? RED : BLUE }); if (m.flag) line('To fix: ' + m.flag, { ind: 16 }); if (m.note) line('Note: ' + m.note, { ind: 16 }); if (m.text) line('"' + m.text.slice(0, 260) + '"', { ind: 16, color: GREY }); y -= 3; });
-    const out = await doc.save(); b.done(); deliver(new Blob([out], { type: 'application/pdf' }), `${safeName((d.fileName || d.title).replace(/\.pdf$/i, ''))} - with markup - ${stamp()}.pdf`, 'Marked-up copy');
+    const out = await doc.save(); b.done(); deliver(new Blob([out], { type: 'application/pdf' }), `${fileSafe(d.submitted ? d.title : (d.fileName || d.title).replace(/\.pdf$/i, ''))} - with markup.pdf`, 'Marked-up copy');
   } catch (e) { console.error(e); b.done(); toast('Could not build the marked-up copy: ' + e.message, 7000); }
+}
+
+/* ================================================================ filing pack: accepted documents, named to the convention, in the handover folder structure */
+const toFile = all => fm().docs.filter(d => isSub(d) && d.sub.status === 'Accepted' && (all || !d.sub.filed));
+export async function filingPack() {
+  let L = toFile(false), all = false;
+  if (!L.length) { L = toFile(true); all = true; if (!L.length) return toast('Nothing has been accepted yet'); if (!(await confirmBox(`Everything accepted has already been downloaded for filing. Download all ${L.length} accepted documents again?`, 'Download all'))) return; }
+  const b = busy('Building the filing pack…');
+  try {
+    if (!window.JSZip) await loadScript('lib/jszip.min.js');
+    const zip = new window.JSZip(), used = new Set(), rows = [['Folder', 'File', 'Element', 'Accepted', 'By', 'Uploaded as']];
+    for (const [i, d] of L.entries()) { b.set(`Adding ${i + 1} of ${L.length}: ${d.title}`); let path = `${folderOf(d)}/${fileSafe(d.title)}${ext(d)}`; for (let k = 2; used.has(path.toLowerCase()); k++) path = `${folderOf(d)}/${fileSafe(d.title)} (${k})${ext(d)}`; used.add(path.toLowerCase());
+      zip.file(path, await X.getBytes(d.url)); const a = assetOf(d), r = d.sub.review || {}; rows.push([folderOf(d), path.split('/').pop(), a ? (a.ref || '') + ' ' + (a.element || '') : '', dt(r.at), r.byName || r.by || '', d.fileName || '']); }
+    zip.file('Filing list.csv', '\ufeff' + rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\r\n'));
+    const blob = await zip.generateAsync({ type: 'blob' }); b.done(); deliver(blob, `${fileSafe(S.project.name)} - accepted documents to file - ${stamp()}.zip`, 'Filing pack');
+    if (!all) for (const d of L) { try { await S.store.patchItem(S.project.id, 'docs', d.id, { sub: plain({ ...d.sub, filed: now() }) }); } catch (e) { console.warn('filed mark', e); } }
+    try { X.render(); } catch (e) {}
+  } catch (e) { console.error(e); b.done(); toast('Could not build the filing pack: ' + e.message, 7000); }
 }
 
 /* ================================================================ the list: every element, what is needed, what has been submitted */
@@ -280,13 +322,14 @@ export function view(tabs) {
   const rows = A.map(a => ({ a, ...state(a) })).filter(({ a, L, review, fix, acc }) => a.status !== 'Not applicable' && (!VF.sys || a.system === VF.sys) && (!q || [a.ref, a.element, a.product, a.installer].join(' ').toLowerCase().includes(q))
     && (!VF.st || (VF.st === 'out' ? !['Received'].includes(a.status) && !review : VF.st === 'review' ? review : VF.st === 'fix' ? fix : VF.st === 'acc' ? acc : true)));
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="svQ" placeholder="Search element, product, installer…" value="${esc(VF.q)}"><select id="svS"><option value="">All systems</option>${(X.SYSTEMS || []).map(s => `<option ${s === VF.sys ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select><select id="svT">${[['', 'Everything'], ['out', 'Still outstanding'], ['fix', 'Needs fixing (' + C.fix + ')'], ['review', 'Awaiting review (' + C.review + ')'], ['acc', 'Accepted (' + C.accepted + ')']].map(([v, l]) => `<option value="${v}" ${v === VF.st ? 'selected' : ''}>${l}</option>`).join('')}</select>${can.edit() ? `<button class="btn2" id="svZip" title="Accepted documents, named to the convention, in the handover folder structure">📦 Accepted, ready to file${toFile(false).length ? ' (' + toFile(false).length + ' new)' : ''}</button>` : ''}</div>
   ${tabs}
   <p class="muted small">${can.edit() ? `${C.review} awaiting your review · ${C.fix} with the contractor to fix · ${C.accepted} accepted.` : `Submit each warranty against the element it covers. It is checked straight away so you can fix anything before it is reviewed. ${C.fix} need fixing · ${C.review} with the reviewer · ${C.accepted} accepted.`}</p>
   ${rows.length ? `<table class="ftable sbt"><tr><th>Ref</th><th>Element</th><th class="hm">Required</th><th>Status</th><th>Submitted</th><th></th></tr>
   ${rows.map(({ a, L }) => { const g = a.system !== last ? `<tr class="grp"><td colspan="6">${esc(a.system)}</td></tr>` : ''; last = a.system;
-    return g + `<tr><td>${esc(a.ref || '')}</td><td><b>${esc(a.element || '')}</b><br><span class="muted small">${esc([a.installer, a.product].filter(Boolean).join(' · '))}</span></td><td class="hm small">${esc([a.instWarranty && 'Installer: ' + a.instWarranty, a.mfrWarranty && a.mfrWarranty !== '-' && 'Manufacturer: ' + a.mfrWarranty].filter(Boolean).join(' · '))}</td><td><span class="st ${a.status === 'Received' ? 'st-ok' : a.status === 'Not received' ? 'st-bad' : 'st-warn'}">${esc(a.status || '')}</span></td><td>${L.map(d => `<a href="#" class="sbchip" data-sd="${esc(d.id)}" title="${esc(d.fileName || d.title)}">${chip(d.sub.status)}<small>${esc(d.sub.kind === 'deed' ? 'Deed' : d.sub.kind === 'product' ? 'Product' : 'Supporting')} · ${esc(dt(d.sub.at))}</small></a>`).join('') || '<span class="muted small">Nothing yet</span>'}</td><td>${wr ? `<button class="btn2 sm" data-sub="${esc(a.id)}">⬆ Submit</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">Nothing matches. Change the filter to see more.</div>'}`;
+    return g + `<tr><td>${esc(a.ref || '')}</td><td><b>${esc(a.element || '')}</b><br><span class="muted small">${esc([a.installer, a.product].filter(Boolean).join(' · '))}</span></td><td class="hm small">${esc([a.instWarranty && 'Installer: ' + a.instWarranty, a.mfrWarranty && a.mfrWarranty !== '-' && 'Manufacturer: ' + a.mfrWarranty].filter(Boolean).join(' · '))}</td><td><span class="st ${a.status === 'Received' ? 'st-ok' : a.status === 'Not received' ? 'st-bad' : 'st-warn'}">${esc(a.status || '')}</span></td><td>${L.map(d => `<a href="#" class="sbchip" data-sd="${esc(d.id)}" title="${esc(d.title)}">${chip(d.sub.status)}<small>${esc(d.sub.kind === 'deed' ? 'Deed' : d.sub.kind === 'product' ? 'Product' : 'Supporting')} · ${esc(dt(d.sub.at))}</small></a>`).join('') || '<span class="muted small">Nothing yet</span>'}</td><td>${wr ? `<button class="btn2 sm" data-sub="${esc(a.id)}">⬆ Submit</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">Nothing matches. Change the filter to see more.</div>'}`;
   $('svQ').oninput = e => { VF.q = e.target.value; X.render(); const i = $('svQ'); if (i) { i.focus(); i.setSelectionRange(VF.q.length, VF.q.length); } };
+  if ($('svZip')) $('svZip').onclick = filingPack;
   $('svS').onchange = e => { VF.sys = e.target.value; X.render(); }; $('svT').onchange = e => { VF.st = e.target.value; X.render(); };
   document.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => submitDialog(fm().assets.find(a => a.id === b.dataset.sub)));
   document.querySelectorAll('[data-sd]').forEach(l => l.onclick = e => { e.preventDefault(); const d = fm().docs.find(x => x.id === l.dataset.sd); if (d) detail(d); });

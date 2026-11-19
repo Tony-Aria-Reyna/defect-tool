@@ -118,7 +118,7 @@ service cloud.firestore {
         // It can never mark its own submission Accepted, nor move one that was sent back anywhere except Superseded.
         allow update: if canEdit(pid)
           || (isContractor(pid) && resource.data.get('submitted', false) == true
-              && changed().hasOnly(['sub', 'marks', 'aiRead', 'aiSummary', 'aiProblems'])
+              && changed().hasOnly(['sub', 'marks', 'aiRead', 'aiSummary', 'aiProblems', 'title', 'party'])
               && (request.resource.data.sub.status == resource.data.sub.status
                   || (resource.data.sub.status in ['Checking', 'Failed check', 'Awaiting review']
                       && request.resource.data.sub.status in ['Checking', 'Failed check', 'Awaiting review', 'Superseded'])
