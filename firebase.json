@@ -1,4 +1,13 @@
 {
   "firestore": { "rules": "firestore.rules" },
-  "storage": { "rules": "storage.rules" }
+  "storage": { "rules": "storage.rules" },
+  "hosting": {
+    "public": ".",
+    "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "test/**", "helper/**", "README.md", "cors.json", "*.rules"],
+    "cleanUrls": false,
+    "headers": [
+      { "source": "**/*.@(js|css|html|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "sw.js", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+    ]
+  }
 }

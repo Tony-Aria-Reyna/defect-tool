@@ -1,0 +1,21 @@
+name: Deploy app to Firebase Hosting
+# The app is also published at https://resero-site-tools.web.app (and the Resero subdomain once it is connected)
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['test/**', 'helper/**', '*.rules', '.github/workflows/rules-test.yml', '.github/workflows/deploy-rules.yml']
+  workflow_dispatch:
+jobs:
+  hosting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm i -g firebase-tools
+      - name: Deploy hosting
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+          firebase deploy --only hosting --project resero-site-tools --non-interactive
