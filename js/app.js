@@ -1191,7 +1191,7 @@ function openExport() {
   <div class="opt"><input type="checkbox" id="xSig"><label for="xSig">Sign-off block (Engineer and Contractor)</label></div>
   <div class="btnlist" style="margin-top:10px">
     <button id="xPdf">📄 PDF schedule<small>Resero and client branding, linked</small></button>
-    <button id="xPc">📑 Schedule of Deferred Works<small>The appendix to the Certificate of Practical Completion: a short front page with the covering note and a summary, then Appendix A open defects, Appendix B outstanding documents and Appendix C other close-out items. Always the whole project.</small></button>
+    <button id="xPc">📑 Schedule of Deferred Works<small>For the Certificate of Practical Completion: a short covering note and a summary that points to Resero Site for the detail. Choose any lists to print behind it. Always the whole project.</small></button>
     <button id="xUnits">🏠 Wall sheets per unit<small>One A4 page per unit and common area, open items, photo, unit plan with pins, tick boxes for sub, contractor and consultant, to print and pin up</small></button>
     <button id="xXls">📊 Excel register<small>One row per defect, plus summary</small></button>
     <button id="xCsv">🧾 CSV (Procore)<small>Import into Procore Punch List</small></button>
@@ -1225,10 +1225,10 @@ function openExport() {
     const isOn = s => sv[s[0]] === undefined ? s[2] : sv[s[0]];
     const pr = S.project, oneMonth = pr.pcDate ? (() => { const d = new Date(pr.pcDate + 'T00:00'); d.setMonth(d.getMonth() + 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })() : '';
     const tc = n => String(n || '').replace(/\b\w/g, c => c.toUpperCase()), oldT = /^Practical completion action list$/i;
-    modal(`<h2>Schedule of Deferred Works</h2><p class="note">For the appendix to the Certificate of Practical Completion. Page 1 is a short front page: the covering note and a summary of the defects, warranties and other items outstanding, with the appendices behind it.</p>
+    modal(`<h2>Schedule of Deferred Works</h2><p class="note">For the appendix to the Certificate of Practical Completion. Page 1 is a short front page: the covering note and a summary of the defects, warranties and other items outstanding, each pointing to Resero Site for the detail. Tick any lists you also want printed.</p>
       <div class="grid"><label class="f full">From<input id="pcF" value="${esc(pr.pcFrom || sv._from || tc(S.user.name) + ', Resero Property')}"></label>
       <label class="f">Complete by<input id="pcB" type="date" value="${esc(pr.pcBy || sv._by || oneMonth)}"></label>
-      <label class="f full">Covering note ({by} becomes the date)<textarea id="pcN" style="min-height:90px">${esc(pr.pcNote || PC_NOTE)}</textarea></label></div>
+      <label class="f full">Covering note ({by} becomes the date)<textarea id="pcN" style="min-height:90px">${esc(String(pr.pcNote || PC_NOTE).replace('This schedule is issued as an appendix to the Certificate of Practical Completion under clause 10.4.3(a).', 'This schedule accompanies the Certificate of Practical Completion issued under clause 10.4.3(a).'))}</textarea></label></div>
       ${PC_SECTIONS.map(s => `<div class="opt"><input type="checkbox" id="pcs_${s[0]}" ${isOn(s) ? 'checked' : ''}><label for="pcs_${s[0]}">${esc(s[1])}</label></div>`).join('')}
       <label class="f" style="margin-top:8px">Report title<input id="pcT" value="${esc(sv._title && !oldT.test(sv._title) ? sv._title : 'Schedule of Deferred Works')}"></label>
       <p class="note" id="pcSt"></p><div class="act"><button id="pcX">Cancel</button><button class="go" id="pcGo">Build PDF</button></div>`);

@@ -370,7 +370,7 @@ export async function buildZip(L, o, ctx, st) {
 
 // Practical completion schedule. Page 1 is a short front page: a covering note and a summary of what is outstanding.
 // Everything else is optional (o.sections) so the report stays short: the defect and document appendices are on by default.
-export const PC_NOTE = 'This schedule is issued as an appendix to the Certificate of Practical Completion under clause 10.4.3(a). The defects, warranties, handover documents and other items listed are Deferred Works, to be completed by the Contractor by {by}. The bond and retentions will be released only once these items have been resolved.';
+export const PC_NOTE = 'This schedule accompanies the Certificate of Practical Completion issued under clause 10.4.3(a). The defects, warranties, handover documents and other items listed are Deferred Works, to be completed by the Contractor by {by}. The bond and retentions will be released only once these items have been resolved.';
 export const PC_SECTIONS = [
   ['units', 'Open defects by unit (summary table)', false],
   ['trades', 'Open defects by trade / subcontractor (summary table)', false],
@@ -379,8 +379,9 @@ export const PC_SECTIONS = [
   ['ccc', 'Council CCC items still open', false],
   ['actions', 'Other open actions from the Actions register', false],
   ['ss', 'Specified systems (compliance schedule)', false],
-  ['appDefects', 'Appendix A: open defects, by unit', true],
-  ['appDocs', 'Appendix B: outstanding documents', true],
+  ['appDefects', 'Open defects, listed by unit', false],
+  ['appDocs', 'Outstanding warranties and handover documents, listed', false],
+  ['appActions', 'Other close-out items, listed', true],
 ];
 export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   const on = k => { const x = (o.sections || {})[k]; return x === undefined ? (PC_SECTIONS.find(s => s[0] === k) || [])[2] : !!x; };
@@ -400,7 +401,9 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   const table = (cols, rows, o2 = {}) => { const tw = cols.reduce((a, c) => a + c[1], 0), sc = (W - 2 * M) / tw, C = cols.map(c => [c[0], c[1] * sc, c[2]]);
     const head = () => { need(30); pg.drawRectangle({ x: M, y: y - 5, width: W - 2 * M, height: 15, color: NAVY }); let x = M; C.forEach(([t, w, al]) => { const s = clean(t); T(s, al === 'r' ? x + w - 4 - fb.widthOfTextAtSize(s, 7.5) : x + 4, y, 7.5, fb, WHITE); x += w; }); y -= 9; };
     head(); rows.forEach((r, ri) => { const font = o2.bold && o2.bold(ri) ? fb : f, cells = r.map((v, i) => wrap(String(v == null ? '' : v), font, 8, C[i][1] - 8)), hh = 5 + 10 * Math.max(...cells.map(c => c.length));
-      if (y - hh < M + 8) { page(); head(); } let x = M; cells.forEach((ls, i) => { ls.forEach((l, k) => T(l, C[i][2] === 'r' ? x + C[i][1] - 4 - font.widthOfTextAtSize(clean(l), 8) : x + 4, y - 9 - k * 10, 8, font, o2.red && o2.red(ri, i) ? RED : undefined)); x += C[i][1]; });
+      if (y - hh < M + 8) { page(); head(); } let x = M; cells.forEach((ls, i) => { const lk = o2.link && o2.link(ri, i); ls.forEach((l, k) => T(l, C[i][2] === 'r' ? x + C[i][1] - 4 - font.widthOfTextAtSize(clean(l), 8) : x + 4, y - 9 - k * 10, 8, font, lk ? hex('#1f5fa8') : o2.red && o2.red(ri, i) ? RED : undefined));
+        if (lk) { const lw = font.widthOfTextAtSize(clean(ls[0]), 8); pg.drawLine({ start: { x: x + 4, y: y - 10.5 }, end: { x: x + 4 + lw, y: y - 10.5 }, thickness: 0.5, color: hex('#1f5fa8') }); pg.node.addAnnot(doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [x + 4, y - 12, x + 4 + lw, y - 1], Border: [0, 0, 0], A: { Type: 'Action', S: 'URI', URI: P.PDFString.of(lk) } }))); }
+        x += C[i][1]; });
       y -= hh; pg.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: LINE }); }); y -= 12; };
   // plain words for the app's statuses
   const SAY = { 'Ready for review': 'Ready for inspection', 'In progress': 'Being fixed', 'Open': 'Not started', 'Disputed': 'Disputed' }, say = s => SAY[s] || s || '';
@@ -420,14 +423,15 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   if (note) { para(note, undefined, 9.5); y -= 6; }
   h1('Summary of outstanding items');
   const R = [], bySub = L => { const g = {}; L.forEach(d => (g[who(d)] = (g[who(d)] || 0) + 1)); const top = Object.entries(g).sort((a, b) => b[1] - a[1]); return top.slice(0, 3).map(([k, v]) => k + ' ' + v).join(', ') + (top.length > 3 ? ', others ' + top.slice(3).reduce((a, x) => a + x[1], 0) : ''); };
-  const appA = on('appDefects') ? 'Appendix A' : '', appB = on('appDocs') ? 'Appendix B' : '', appC = pcOpen.length ? 'Appendix C' : '';
+  const appA = 'Resero Site', appB = 'Resero Site', appC = 'Resero Site';
   if (open.length) R.push(['Defects', `${open.length} open of ${D.length} recorded: ${todo.length} to be fixed, ${rr.length} fixed and awaiting inspection.`, '', appA]);
   else R.push(['Defects', `All ${D.length} recorded defects are closed.`, '', '']);
   if (A.length) { const n = st => count(outD, a => st.test(a.status || '')); const parts = [[n(/Not received|Partial/), 'not yet received'], [n(/Revision/), 'to be re-issued'], [n(/Query|Confirm/), 'with questions'], [n(/execution/i), 'awaiting execution']].filter(x => x[0]).map(x => x[0] + ' ' + x[1]);
     R.push(['Warranties and handover documents', outD.length ? `${outD.length} of ${A.length} outstanding: ${parts.join(', ')}.` : `All ${A.length} received.`, '', appB]); }
   if (pcOpen.length) R.push(['Other close-out items', `${pcOpen.length} item${pcOpen.length === 1 ? '' : 's'} still open (producer statements, guarantees, as-builts, O&M manuals and similar).`, '', appC]);
-  if (o.by) table([['Item', 110], ['Outstanding', 300], ['Complete by', 60], ['Listed in', 60]], R.map(r => [r[0], r[1], r[1].startsWith('All ') ? '' : byTxt, r[3]]));
-  else table([['Item', 110], ['Outstanding', 340], ['Listed in', 60]], R.map(r => [r[0], r[1], r[3]]));
+  const lk = (ri, i) => o.link && R[ri][3] && i === (o.by ? 3 : 2) ? o.link : '';
+  if (o.by) table([['Item', 110], ['Outstanding', 300], ['Complete by', 60], ['Details in', 60]], R.map(r => [r[0], r[1], r[1].startsWith('All ') ? '' : byTxt, r[3]]), { link: lk });
+  else table([['Item', 110], ['Outstanding', 340], ['Details in', 60]], R.map(r => [r[0], r[1], r[3]]), { link: lk });
   // the app as a link, not a printed address
   if (o.link) { y -= 2; need(14); const lead = 'The full defect register, photos, warranties and handover documents are kept in ', lab = 'Resero Site', sz = 8.5, x0 = M + f.widthOfTextAtSize(lead, sz), w = f.widthOfTextAtSize(lab, sz), BLUE = hex('#1f5fa8');
     T(lead, M, y, sz, f, GREY); T(lab, x0, y, sz, f, BLUE); T('.', x0 + w, y, sz, f, GREY); pg.drawLine({ start: { x: x0, y: y - 1.5 }, end: { x: x0 + w, y: y - 1.5 }, thickness: 0.5, color: BLUE });
@@ -449,20 +453,20 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   if (on('ss')) { const ss = (fmd && fmd.systems) || []; h1('Specified systems (compliance schedule)'); if (ss.length) table([['System', 50], ['Name', 200], ['Standard', 150], ['Certificate', 120]], ss.map(s => [s.ss || '', s.name || '', s.standard || '', s.cert || 'Not recorded'])); else para('None recorded.'); }
 
   // ===== Appendix A: every open defect, holding-up items first, then by unit
-  if (on('appDefects')) { page(); h1('Appendix A: Open defects'); para('By unit, then common areas. "Latest" is the most recent status change or comment.', GREY, 8.5); y -= 4;
+  if (on('appDefects')) { page(); h1('Open defects'); para('By unit, then common areas. "Latest" is the most recent status change or comment.', GREY, 8.5); y -= 4;
     const cols = [['Ref', 42], ['Where', 105], ['Item', 215], ['Status', 65], ['Latest', 160]];
     const row = d => { const m = latestMove(d); return [d.id, locText(d) || '', d.title || d.desc || '', say(d.status), m ? (nzDate(String(m.when || '').slice(0, 10)) + ' ' + (m.text || m.label)).slice(0, 160) : '']; };
     const rest = open, g = {}; rest.forEach(d => { const k = d.unit ? 'Unit ' + d.unit : 'Common areas' + (d.block ? ', ' + (/^(site|external)/i.test(d.block) ? d.block : 'Block ' + d.block) : ''); (g[k] = g[k] || []).push(d); });
     Object.keys(g).sort((a, b) => (a.startsWith('Unit') ? 0 : 1) - (b.startsWith('Unit') ? 0 : 1) || natural(a, b)).forEach(k => { h2(k + ' (' + g[k].length + ')'); table(cols, g[k].sort((a, b) => natural(a.id, b.id)).map(row)); });
     if (!open.length) para('No open defects.'); }
   // ===== Appendix B: every outstanding document
-  if (on('appDocs')) { page(); h1('Appendix B: Outstanding documents');
+  if (on('appDocs')) { page(); h1('Outstanding warranties and handover documents');
     if (!A.length) para('No building elements are loaded in Assets and warranties yet.', RED);
     else { const L = outD.slice().sort((a, b) => (hold(b) - hold(a)) || natural(a.ref || '', b.ref || ''));
       para(`${count(A, got)} of ${A.length} received. ${L.length} outstanding.`, GREY, 8.5); y -= 4;
       table([['Ref', 36], ['Element', 120], ['Installer', 85], ['Required', 105], ['Status', 70], ['What is needed', 160]], L.map(a => [a.ref || '', (a.element || '') + (a.product ? ' (' + a.product + ')' : ''), a.installer || '', [a.instWarranty, a.mfrWarranty].filter(x => x && x !== '-').join('; '), a.status || '', a.notes || '']), { red: (ri, i) => i === 4 && (hold(L[ri]) || /Revision|Not received/.test(L[ri].status)) }); } }
   // ===== Appendix C: the other close-out items from the Actions register
-  if (pcOpen.length) { page(); h1('Appendix C: Other close-out items'); table([['Ref', 44], ['Item', 380], ['Due', 60]], pcOpen.map(a => [a.ref || '', a.action || '', a.due ? nzDate(a.due) : ''])); }
+  if (pcOpen.length && on('appActions')) { page(); h1('Other close-out items'); table([['Ref', 44], ['Item', 380], ['Due', 60]], pcOpen.map(a => [a.ref || '', a.action || '', a.due ? nzDate(a.due) : ''])); }
   doc.setTitle(clean(title + ' - ' + (pr.name || '')));
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
