@@ -410,7 +410,7 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   const major = d => (pr.sevMajor && pr.sevMajor.length ? pr.sevMajor.includes(d.severity || '') : false) || /^Major/i.test(d.severity || '');
   const count = (L, fn) => L.filter(fn).length, who = d => d.subcontractor || d.responsible || 'Not assigned';
   const open = D.filter(d => d.status !== 'Closed'), mj = open.filter(major), rr = open.filter(d => d.status === 'Ready for review'), todo = open.filter(d => d.status !== 'Ready for review');
-  const A = (fmd && fmd.assets || []).filter(a => !/^(Not applicable|NA|N\/A)$/i.test(a.status || '')), docs = (fmd && fmd.docs) || [], got = a => a.status === 'Received';
+  const A = (fmd && fmd.assets || []).filter(a => !/^(Not applicable|NA|N\/A)$/i.test(a.status || '')), docs = (fmd && fmd.docs) || [], got = a => a.status === 'Received' || a.status === 'Partial';   // in this schedule an element received in part counts as received
   const outD = A.filter(a => !got(a)), hold = a => /^(yes|y|true)$/i.test(String(a.pcHold || a.holdPc || '')) || a.pcHold === true;
   const AC = (fmd && fmd.actions) || [], isPc = a => /^PC/i.test(a.ref || ''), isC = a => /^CCC/i.test(a.ref || ''), pcOpen = AC.filter(a => isPc(a) && a.status !== 'Closed').sort((a, b) => natural(a.ref, b.ref));
   const contractor = pr.contractor || 'Contractor', client = pr.clientName || pr.client || 'Client';
@@ -426,7 +426,7 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   const appA = 'Resero Site', appB = 'Resero Site', appC = 'Resero Site';
   if (open.length) R.push(['Defects', `${open.length} open of ${D.length} recorded: ${todo.length} to be fixed, ${rr.length} fixed and awaiting inspection.`, '', appA]);
   else R.push(['Defects', `All ${D.length} recorded defects are closed.`, '', '']);
-  if (A.length) { const n = st => count(outD, a => st.test(a.status || '')); const parts = [[n(/Not received|Partial/), 'not yet received'], [n(/Revision/), 'to be re-issued'], [n(/Query|Confirm/), 'with questions'], [n(/execution/i), 'awaiting execution']].filter(x => x[0]).map(x => x[0] + ' ' + x[1]);
+  if (A.length) { const n = st => count(outD, a => st.test(a.status || '')); const parts = [[n(/Not received/), 'not yet received'], [n(/Revision/), 'to be re-issued'], [n(/Query|Confirm/), 'with questions'], [n(/execution/i), 'awaiting execution']].filter(x => x[0]).map(x => x[0] + ' ' + x[1]);
     R.push(['Warranties and handover documents', outD.length ? `${outD.length} of ${A.length} outstanding: ${parts.join(', ')}.` : `All ${A.length} received.`, '', appB]); }
   if (pcOpen.length) R.push(['Other close-out items', `${pcOpen.length} item${pcOpen.length === 1 ? '' : 's'} still open (producer statements, guarantees, as-builts, O&M manuals and similar).`, '', appC]);
   const lk = (ri, i) => o.link && R[ri][3] && i === (o.by ? 3 : 2) ? o.link : '';
