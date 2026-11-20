@@ -381,7 +381,7 @@ export const PC_SECTIONS = [
   ['ss', 'Specified systems (compliance schedule)', false],
   ['appDefects', 'Open defects, listed by unit', false],
   ['appDocs', 'Outstanding warranties and handover documents, listed', false],
-  ['appActions', 'Other close-out items, listed', true],
+  ['appActions', 'Other close-out items, listed', false],
 ];
 export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   const on = k => { const x = (o.sections || {})[k]; return x === undefined ? (PC_SECTIONS.find(s => s[0] === k) || [])[2] : !!x; };
@@ -424,17 +424,17 @@ export async function buildPcReport(D, fmd, ctx, st = () => {}, o = {}) {
   h1('Summary of outstanding items');
   const R = [], bySub = L => { const g = {}; L.forEach(d => (g[who(d)] = (g[who(d)] || 0) + 1)); const top = Object.entries(g).sort((a, b) => b[1] - a[1]); return top.slice(0, 3).map(([k, v]) => k + ' ' + v).join(', ') + (top.length > 3 ? ', others ' + top.slice(3).reduce((a, x) => a + x[1], 0) : ''); };
   const appA = 'Resero Site', appB = 'Resero Site', appC = 'Resero Site';
-  if (open.length) R.push(['Defects', `${open.length} open of ${D.length} recorded: ${todo.length} to be fixed, ${rr.length} fixed and awaiting inspection.`, '', appA]);
+  // high level on purpose: one count per line as at today's date; the register in Resero Site carries the detail
+  if (open.length) R.push(['Defects', `${open.length} defect${open.length === 1 ? ' remains' : 's remain'} open as at ${nzDate(todayISO())}. Each is to be rectified and accepted on inspection.`, '', appA]);
   else R.push(['Defects', `All ${D.length} recorded defects are closed.`, '', '']);
-  if (A.length) { const n = st => count(outD, a => st.test(a.status || '')); const parts = [[n(/Not received/), 'not yet received'], [n(/Revision/), 'to be re-issued'], [n(/Query|Confirm/), 'with questions'], [n(/execution/i), 'awaiting execution']].filter(x => x[0]).map(x => x[0] + ' ' + x[1]);
-    R.push(['Warranties and handover documents', outD.length ? `${outD.length} of ${A.length} outstanding: ${parts.join(', ')}.` : `All ${A.length} received.`, '', appB]); }
-  if (pcOpen.length) R.push(['Other close-out items', `${pcOpen.length} item${pcOpen.length === 1 ? '' : 's'} still open (producer statements, guarantees, as-builts, O&M manuals and similar).`, '', appC]);
+  if (A.length) R.push(['Warranties and handover documents', outD.length ? `Outstanding for ${outD.length} of ${A.length} building elements. Each is to be provided in the form the contract requires.` : `All ${A.length} received.`, '', appB]);
+  if (pcOpen.length) R.push(['Other close-out items', `${pcOpen.length} contract close-out item${pcOpen.length === 1 ? ' remains' : 's remain'} open, including producer statements, guarantees, as-built drawings and O&M manuals.`, '', appC]);
   const lk = (ri, i) => o.link && R[ri][3] && i === (o.by ? 3 : 2) ? o.link : '';
   if (o.by) table([['Item', 110], ['Outstanding', 300], ['Complete by', 60], ['Details in', 60]], R.map(r => [r[0], r[1], r[1].startsWith('All ') ? '' : byTxt, r[3]]), { link: lk });
   else table([['Item', 110], ['Outstanding', 340], ['Details in', 60]], R.map(r => [r[0], r[1], r[3]]), { link: lk });
   // the app as a link, not a printed address
-  if (o.link) { y -= 2; need(14); const lead = 'The full defect register, photos, warranties and handover documents are kept in ', lab = 'Resero Site', sz = 8.5, x0 = M + f.widthOfTextAtSize(lead, sz), w = f.widthOfTextAtSize(lab, sz), BLUE = hex('#1f5fa8');
-    T(lead, M, y, sz, f, GREY); T(lab, x0, y, sz, f, BLUE); T('.', x0 + w, y, sz, f, GREY); pg.drawLine({ start: { x: x0, y: y - 1.5 }, end: { x: x0 + w, y: y - 1.5 }, thickness: 0.5, color: BLUE });
+  if (o.link) { y -= 2; need(14); const lead = 'Every item, with its photos, documents and current status, is recorded in ', lab = 'Resero Site', sz = 8.5, x0 = M + f.widthOfTextAtSize(lead, sz), w = f.widthOfTextAtSize(lab, sz), BLUE = hex('#1f5fa8');
+    T(lead, M, y, sz, f, GREY); T(lab, x0, y, sz, f, BLUE); T(', which is the record of the Deferred Works.', x0 + w, y, sz, f, GREY); pg.drawLine({ start: { x: x0, y: y - 1.5 }, end: { x: x0 + w, y: y - 1.5 }, thickness: 0.5, color: BLUE });
     const an = doc.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [x0, y - 3, x0 + w, y + sz], Border: [0, 0, 0], A: { Type: 'Action', S: 'URI', URI: P.PDFString.of(o.link) } }); pg.node.addAnnot(doc.context.register(an)); y -= 14; }
 
   // ===== optional summaries
