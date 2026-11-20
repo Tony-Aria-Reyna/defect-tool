@@ -145,19 +145,27 @@ export async function importRegister(file) {
   const ch = [], add = []; let miss = 0;
   for (const r of t.rows) { const el = g(r, c.el); if (!el || !g(r, c.st)) continue; const a = A[key(el)]; if (!a) { miss++; add.push(r); continue; }
     const raw = g(r, c.st), st = ST_MAP[raw.toLowerCase()] || (ST_OK.includes(raw) ? raw : a.status), notes = [g(r, c.doc) ? 'Received: ' + g(r, c.doc) + (g(r, c.per) ? ' (' + g(r, c.per) + ')' : '') : '', /execution incomplete/i.test(raw) ? 'Deed not yet fully executed.' : '', g(r, c.vr)].filter(Boolean).join(' ');
-    const p = { status: st, installer: g(r, c.inst) || a.installer || '', product: g(r, c.prod) || a.product || '', notes }; if (Object.keys(p).some(k => (a[k] || '') !== p[k])) ch.push({ id: a.id, p }); }
+    // never undo progress made in the app: a status only moves forward unless you tick it, blanks are filled, notes are added to
+    const p = {}, why = [], RANK = { 'Not applicable': 6, Received: 5, Partial: 3, 'Revision required': 2, Query: 2, Confirm: 2, 'Not received': 1 }, up = (RANK[st] || 0) > (RANK[a.status] || 0);
+    if (st !== a.status) { p.status = st; why.push(`${a.status || 'no status'} → ${st}`); }
+    if (g(r, c.inst) && !a.installer) { p.installer = g(r, c.inst); why.push('installer filled in'); }
+    if (g(r, c.prod) && !a.product) { p.product = g(r, c.prod); why.push('product filled in'); }
+    if (notes && !String(a.notes || '').includes(notes)) { p.notes = (a.notes ? a.notes + ' | ' : '') + todayISO().split('-').reverse().join('-') + ' (register): ' + notes; why.push('note added'); }
+    const edited = a.updated && file.lastModified && new Date(a.updated).getTime() > file.lastModified;
+    if (Object.keys(p).length) ch.push({ id: a.id, p, a, why, safe: (!p.status || up) && !(p.status && edited), back: p.status && !up, edited }); }
   // rows the app does not have yet become new elements, after you confirm them
   const AS = (S.fm && S.fm.assets) || [], sysOf = v => { const pre = String(v || '').slice(0, 2), hit = AS.find(a => String(a.system || '').startsWith(pre)); return hit ? hit.system : v; };
   let n = 0; AS.forEach(a => { const m = /^A-(\d+)$/.exec(a.ref || ''); if (m) n = Math.max(n, +m[1]); });
   const fresh = add.map(r => { const raw = g(r, c.st); return { id: 'as-' + Math.random().toString(36).slice(2, 10), ref: 'A-' + String(++n).padStart(3, '0'), regRef: g(r, c.ref), system: sysOf(g(r, c.sys)), element: g(r, c.el), product: g(r, c.prod), installer: g(r, c.inst), location: g(r, c.loc), instWarranty: g(r, c.ri), mfrWarranty: g(r, c.rm), status: ST_MAP[raw.toLowerCase()] || (ST_OK.includes(raw) ? raw : 'Not received'), notes: [g(r, c.doc) ? 'Received: ' + g(r, c.doc) + (g(r, c.per) ? ' (' + g(r, c.per) + ')' : '') : '', g(r, c.vr)].filter(Boolean).join(' '), warranties: [], om: true, maint: false, audience: 'FM', created: new Date().toISOString() }; });
   if (!ch.length && !fresh.length) return toast('The assets already match the register.', 6000);
   modal(`<h2>Update from the Warranty Requirements Register</h2>
-  ${ch.length ? `<p><b>${ch.length}</b> existing element${ch.length === 1 ? '' : 's'} will be updated: status, installer, product and notes are replaced with the register's.</p>` : ''}
+  ${ch.length ? `<p><b>${ch.length}</b> element${ch.length === 1 ? '' : 's'} differ from the register. Nothing you have done in the app is lost: notes are added to, blank fields filled, and a status only moves forward. Changes that would move a status <b>back</b>, or touch an element changed in the app since this file was saved, are left unticked.</p>
+  <div style="max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px">${ch.map((x, i) => `<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" data-ch="${i}" ${x.safe ? 'checked' : ''}><span><b>${esc(x.a.ref || '')} ${esc(x.a.element || '')}</b> <span class="small ${x.back ? 'bad' : 'muted'}">${esc(x.why.join(', '))}${x.back ? ' (moves back)' : ''}${x.edited ? ' · changed in the app since this file was saved' : ''}</span></span></label>`).join('')}</div>` : ''}
   ${fresh.length ? `<p><b>${fresh.length}</b> element${fresh.length === 1 ? ' is' : 's are'} in the register but not in the app. Tick the ones to add:</p><div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px">${fresh.map((a, i) => `<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" data-nw="${i}" checked><span><b>${esc(a.element)}</b> <span class="muted small">${esc([a.regRef, a.system, a.installer].filter(Boolean).join(' · '))}</span></span></label>`).join('')}</div>` : ''}
   <div class="act"><button id="ruX">Cancel</button><button class="go" id="ruGo">Update</button></div>`, true);
   $('ruX').onclick = closeModal;
-  $('ruGo').onclick = async () => { const pick = fresh.filter((_, i) => document.querySelector(`[data-nw="${i}"]`).checked); closeModal(); const b = busy('Updating the register…'), tot = ch.length + pick.length; let k = 0;
-    try { for (const x of ch) { b.set(`Updating ${++k} of ${tot}…`); await S.store.patchItem(S.project.id, 'assets', x.id, x.p); }
+  $('ruGo').onclick = async () => { const pick = fresh.filter((_, i) => document.querySelector(`[data-nw="${i}"]`).checked), go = ch.filter((_, i) => document.querySelector(`[data-ch="${i}"]`).checked); closeModal(); const b = busy('Updating the register…'), tot = go.length + pick.length; let k = 0;
+    try { for (const x of go) { b.set(`Updating ${++k} of ${tot}…`); await S.store.patchItem(S.project.id, 'assets', x.id, x.p); }
       for (const a of pick) { b.set(`Adding ${++k} of ${tot}: ${a.element}`); await S.store.saveItem(S.project.id, 'assets', a); }
-      b.done(); toast(`${ch.length} updated, ${pick.length} added from the register`, 6000); } catch (e) { b.done(); toast('Stopped: ' + e.message, 7000); } };
+      b.done(); toast(`${go.length} updated, ${pick.length} added from the register${ch.length - go.length ? `, ${ch.length - go.length} left as they were` : ''}`, 6000); } catch (e) { b.done(); toast('Stopped: ' + e.message, 7000); } };
 }

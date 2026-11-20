@@ -253,7 +253,7 @@ function assets() {
   const A = fm().assets.slice().sort((a, b) => natural(a.system, b.system) || natural(a.ref, b.ref)), q = F.q.toLowerCase();
   const L = A.filter(a => (!F.sys || a.system === F.sys) && (!F.st || a.status === F.st) && (!q || [a.ref, a.element, a.product, a.location, a.installer, a.notes].join(' ').toLowerCase().includes(q)));
   let last = '';
-  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="aQ" placeholder="Search element, product, installer…" value="${esc(F.q)}"><select id="aSys">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="aSt"><option value="">All statuses</option>${ASSET_STATUS.map(s => `<option ${s === F.st ? 'selected' : ''}>${s}</option>`).join('')}</select>${can.edit() ? '<button class="btn2 go" id="aNew">+ Asset</button>' : ''}${can.edit() ? `<button class="btn2" id="aChase" title="Email the contractor the list of elements still missing documents">📨 Chase missing (${A.filter(waiting).length})</button>` : ''}<button class="btn2" id="aX">⬇ Excel</button></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Assets &amp; warranties</h2><input type="search" id="aQ" placeholder="Search element, product, installer…" value="${esc(F.q)}"><select id="aSys">${sysOpts(F.sys, 1).replace('<option value=""></option>', '<option value="">All systems</option>')}</select>${QM}<select id="aSt"><option value="">All statuses</option>${ASSET_STATUS.map(s => `<option ${s === F.st ? 'selected' : ''}>${s}</option>`).join('')}</select>${can.edit() ? '<button class="btn2 go" id="aNew">+ Asset</button>' : ''}${can.edit() ? `<button class="btn2" id="aCk" title="Elements whose warranty is in the library but whose status was never updated">✔ Check statuses</button><button class="btn2" id="aChase" title="Email the contractor the list of elements still missing documents">📨 Chase missing (${A.filter(waiting).length})</button>` : ''}<button class="btn2" id="aX">⬇ Excel</button></div>
   ${subTabs(false)}
   <p class="muted small">${L.length} of ${A.length} assets · ${A.filter(a => a.status === 'Received').length} with documents received · warranty expiry runs from ${pcDate() ? 'practical completion (' + nzDate(pcDate()) + ')' : 'practical completion (date not set yet: Dashboard > Key dates)'}</p>
   ${L.length ? `<table class="ftable"><tr><th>Ref</th><th>Element</th><th class="hm">Product / installer</th><th class="hm">Location</th><th>Warranty to</th><th>Documents</th><th>Status</th></tr>
@@ -262,6 +262,7 @@ function assets() {
   $('aQ').oninput = e => { F.q = e.target.value; assets(); $('aQ').focus(); $('aQ').setSelectionRange(F.q.length, F.q.length); };
   wireSubTabs();
   $('aSys').onchange = e => { F.sys = e.target.value; assets(); }; $('aSt').onchange = e => { F.st = e.target.value; assets(); };
+  if ($('aCk')) $('aCk').onclick = checkStatuses;
   if ($('aNew')) $('aNew').onclick = () => editAsset(null); if ($('aChase')) $('aChase').onclick = chaseDialog;
   $('aX').onclick = exportFmRegister;
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = () => editAsset(fm().assets.find(a => a.id === r.dataset.id)));
@@ -692,6 +693,29 @@ async function uploadFiles(files, ctx) {
   return ids;
 }
 // For other parts of the app (Actions): file one document in the library with the details the user confirmed
+// Status catch-up: for each element still short of documents, show the warranties already linked to it and ones in the
+// library that look like they belong (same company), so it can be linked and marked received in one go.
+const WARR = /warrant|deed|guarantee/i, isW = d => WARR.test((d.type || '') + ' ' + (d.title || ''));
+const GENERIC = new Set(['construction', 'services', 'service', 'limited', 'group', 'auckland', 'install', 'supply', 'roofing', 'contractor', 'electrical', 'plumbing', 'subs', 'trade', 'interiors', 'systems', 'solutions', 'product', 'warranty', 'schedule', 'deed', 'confirm', 'units', 'common', 'areas', 'tester', 'supplier', 'installer', 'bricklayer', 'carpentry', 'waterproofing']);
+const names = s => String(s || '').toLowerCase().replace(/\(.*?\)|\[.*?\]/g, ' ').split(/[^a-z0-9]+/).filter(w => w.length > 3 && !GENERIC.has(w));
+function checkStatuses() {
+  const OUT = ['Not received', 'Partial', 'Query', 'Confirm', 'Revision required'], docs = fm().docs.filter(d => !d.superseded && !d.template && isW(d));
+  const rows = fm().assets.filter(a => OUT.includes(a.status)).map(a => { const lk = docs.filter(d => (d.assetIds || []).includes(a.id)), ks = names(a.installer);
+    const maybe = ks.length ? docs.filter(d => !(d.assetIds || []).includes(a.id) && ks.some(k => ((d.party || '') + ' ' + (d.title || '').split(' - ')[0]).toLowerCase().includes(k))).slice(0, 4) : [];
+    return { a, lk, maybe }; }).filter(r => r.lk.length || r.maybe.length).sort((x, y) => natural(x.a.ref || '', y.a.ref || ''));
+  const row = r => `<div class="ckrow" data-a="${esc(r.a.id)}"><div><b>${esc(r.a.ref || '')} ${esc(r.a.element)}</b> <span class="muted small">${esc(r.a.installer || '')}</span> <span class="st ${r.a.status === 'Revision required' ? 'st-bad' : 'st-warn'}">${esc(r.a.status)}</span></div>
+    ${r.lk.map(d => `<div class="small">✔ Linked: <a href="#" data-od="${esc(d.id)}">${esc(d.title)}</a></div>`).join('')}
+    ${r.maybe.map(d => `<div class="small">? In the library: <a href="#" data-od="${esc(d.id)}">${esc(d.title)}</a> <button class="mini" data-lk="${esc(d.id)}">Link it</button></div>`).join('')}
+    <div class="ckact"><button class="mini go" data-rc="Received">Mark received</button> <button class="mini" data-rc="Partial">Partial</button> <button class="mini" data-rc="Revision required">Revision required</button></div></div>`;
+  modal(`<h2>Check statuses</h2><p class="note">${rows.length} elements still short of documents already have a warranty linked, or one in the library from the same company. Open it, then link it and set the status. Everything else is left as it is.</p>
+    <div id="ckL" style="max-height:62vh;overflow:auto">${rows.map(row).join('') || '<p class="muted">Nothing to catch up.</p>'}</div><div class="act"><button id="ckX">Done</button></div>`, true);
+  $('ckX').onclick = () => { closeModal(); render(); };
+  $('ckL').onclick = async e => { const t = e.target, box = t.closest('[data-a]'); if (!box) return; const a = fm().assets.find(x => x.id === box.dataset.a);
+    if (t.dataset.od) { e.preventDefault(); const d = fm().docs.find(x => x.id === t.dataset.od); if (d) { try { window.open(await S.store.resolveUrl(d.url), '_blank'); } catch (x) {} } return; }
+    try { if (t.dataset.lk) { const d = fm().docs.find(x => x.id === t.dataset.lk); await S.store.patchItem(S.project.id, 'docs', d.id, { assetIds: [...new Set([...(d.assetIds || []), a.id])] }); d.assetIds = [...new Set([...(d.assetIds || []), a.id])]; t.replaceWith(Object.assign(document.createElement('b'), { textContent: ' linked', className: 'ok small' })); }
+      if (t.dataset.rc) { const dd = todayISO().split('-').reverse().join('-'); await S.store.patchItem(S.project.id, 'assets', a.id, { status: t.dataset.rc, notes: (a.notes ? a.notes + ' | ' : '') + `${dd}: status set to ${t.dataset.rc} after checking the documents.`, updated: new Date().toISOString(), updatedBy: S.user.email });
+        a.status = t.dataset.rc; box.style.opacity = .5; box.querySelector('.st').textContent = t.dataset.rc; } } catch (x) { toast('Could not save: ' + x.message, 6000); } };
+}
 export function classifyName(name) { const c = classify('x/' + name); if (/\.(msg|eml)$/i.test(name)) c.type = 'Correspondence (email / letter)'; return c; }
 export async function uploadAs(file, meta) { const ids = await uploadFiles([file], { classified: meta, assetIds: meta.assetIds || [] }); return ids[0]; }
 export const docBytes = d => X.getBytes(d.url);

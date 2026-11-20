@@ -729,3 +729,4 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .aedrop{border:2px dashed #b9c6d4;border-radius:10px;padding:14px;text-align:center;color:#556;background:#f8fafc;margin:6px 0}
 .aelink input{width:100%;margin-top:4px}.aehit{padding:6px 8px;border-bottom:1px solid var(--line);cursor:pointer}.aehit:hover{background:#f2f6fa}
 .aedoc{padding:4px 0}.aesum{margin:6px 0}.aefile{border:1px solid #cfe0f3;border-radius:10px;padding:10px;margin-top:8px;background:#f7fbff}.aefrow{border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
+.ckrow{border-bottom:1px solid var(--line);padding:8px 2px}.ckrow .small{margin:2px 0 2px 10px}.ckact{margin-top:4px}
