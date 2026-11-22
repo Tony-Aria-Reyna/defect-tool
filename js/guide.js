@@ -50,14 +50,16 @@ export async function draw(cv, pg, unit) {
     y = Math.max(r.y + r.h + 55, side ? ly + 10 : ly + 20);
     // close-ups: part of the photo shown larger under it, joined to where it came from
     const Z = (pg.zooms || []).slice(0, 2);
-    if (Z.length) { const gap = 30, n = Z.length, maxW = n === 1 ? 560 : (W - PX * 2 - gap) / 2, maxH = 400; let x = PX, rowH = 0, capB = 0;
+    // with the key beside the photo, the close-ups sit under the photo in the left column, so they do not wait for the key to end
+    const keyEnd = y; if (Z.length && side) y = r.y + r.h + 60;
+    if (Z.length) { const gap = 30, n = Z.length, colW = side ? r.w : W - PX * 2, maxW = n === 1 ? Math.min(560, colW) : (colW - gap) / 2, maxH = Math.max(180, Math.min(400, H - 190 - y - 260)); let x = PX, rowH = 0, capB = 0;
       const B = Z.map(z => { const sw = z.w * img.width, sh = z.h * img.height, sc = Math.min(maxW / sw, maxH / sh); return { z, sw, sh, bw: Math.round(sw * sc), bh: Math.round(sh * sc) }; });
       B.forEach((b, bi) => { ZR[bi] = { x, y, w: b.bw, h: b.bh }; const z = b.z, sx = r.x + z.x * r.w, sy = r.y + z.y * r.h, sW = z.w * r.w, sH = z.h * r.h;
         for (const [col, wd] of [['#fff', 12], [RED, 5]]) { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(sx + sW / 2, sy + sH); c.lineTo(x + b.bw / 2, y); c.stroke(); c.beginPath(); c.roundRect(sx, sy, sW, sH, 10); c.stroke(); }
         c.drawImage(img, z.x * img.width, z.y * img.height, b.sw, b.sh, x, y, b.bw, b.bh); c.strokeStyle = '#fff'; c.lineWidth = 12; c.strokeRect(x, y, b.bw, b.bh); c.strokeStyle = RED; c.lineWidth = 6; c.strokeRect(x, y, b.bw, b.bh);
-        const cap = fill(z.label, unit); if (cap) { const cx = n === 1 ? x + b.bw + 34 : x, cw = n === 1 ? W - PX - cx : maxW; let cy = n === 1 ? y + 44 : y + b.bh + 48; c.fillStyle = NAVY; c.font = font(36, 1); for (const t of wrap(c, cap, cw)) { c.fillText(t, cx, cy); cy += 46; } if (n > 1) capB = Math.max(capB, cy - (y + b.bh)); }
+        const cap = fill(z.label, unit); if (cap) { const beside = n === 1 && !side, cx = beside ? x + b.bw + 34 : x, cw = beside ? W - PX - cx : maxW; let cy = beside ? y + 44 : y + b.bh + 48; c.fillStyle = NAVY; c.font = font(36, 1); for (const t of wrap(c, cap, cw)) { c.fillText(t, cx, cy); cy += 46; } if (!beside) capB = Math.max(capB, cy - (y + b.bh)); }
         rowH = Math.max(rowH, b.bh); x += maxW + gap; });
-      y += rowH + capB + 50; }
+      y += rowH + capB + 50; if (side) y = Math.max(y, keyEnd); }
     marks.forEach((m, i) => { const q = m.z != null && ZR[m.z]; if (!q) return; arrow(c, { x: q.x + m.nx * q.w, y: q.y + m.ny * q.h }, { x: q.x + m.tx * q.w, y: q.y + m.ty * q.h }); dot(c, q.x + m.nx * q.w, q.y + m.ny * q.h, i + 1); });
   }
   // step by step: numbered photos in two columns, each with what to do
