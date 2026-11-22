@@ -85,6 +85,10 @@ export async function draw(cv, pg, unit) {
     for (const u of wrap(c, t, W - PX * 2 - 60)) { c.fillText(u, PX + 50, y + 40); y += 56; } y += 18;
   }
   c.fillStyle = TEAL; c.fillRect(0, H - 170, W, 170); c.fillStyle = '#fff'; c.font = font(40, 1); c.fillText(g.footer || 'Something not working?', PX, H - 104); c.font = font(46, 1); c.fillText(`Call ${g.org || 'us'}  ${g.phone || ''}`.trim(), PX, H - 44);
+  // a QR code to the item's manual: the link opens the document itself, with no sign-in
+  if (pg.qrUrl && pg.qr !== false) { try { if (!window.qrcode) await loadScript('lib/qrcode.js'); const q = window.qrcode(0, 'L'); q.addData(pg.qrUrl); q.make(); const n = q.getModuleCount(), box = 190, bx = W - PX - box, by = H - 180, pad = 15, m = (box - pad * 2) / n;
+    c.fillStyle = '#fff'; c.beginPath(); c.roundRect(bx, by, box, box, 10); c.fill(); c.fillStyle = '#000'; for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) c.fillRect(bx + pad + k * m, by + pad + r * m, m + 0.4, m + 0.4);
+    c.fillStyle = '#fff'; c.font = font(28, 1); c.textAlign = 'right'; c.fillText('Scan for', bx - 18, H - 96); c.fillText('the full manual', bx - 18, H - 60); c.textAlign = 'left'; } catch (e) { console.warn('qr', e); } }
   return ZR;
 }
 
@@ -146,8 +150,10 @@ function edit(p) {
   shell(); const isNew = !p; p = p ? JSON.parse(JSON.stringify(p)) : { id: uid(), order: pages().length + 1, title: '', photo: '', marks: [], lines: '', wide: false, codeBox: false };
   p.marks = p.marks || []; p.zooms = p.zooms || []; p.steps = p.steps || []; p.docIds = p.docIds || []; E = { p, isNew, adding: false, addingZoom: false, rect: null }; E.snap = isNew ? '' : snap();
   Nav.open('guide-ed', () => close(true)); $('ge').classList.add('show'); $('geSave').style.display = $('geDel').style.display = can.edit() ? '' : 'none';
+  if (p.docIds.length && !ro0()) setQr();
   side(); redraw();
 }
+const ro0 = () => !can.edit();
 async function redraw() { if (!E) return; const tok = (E.tok = (E.tok || 0) + 1), cv = document.createElement('canvas'); const zr = await draw(cv, E.p, E.unit || ''); if (!E || tok !== E.tok) return; const c = $('geC'); c.width = W; c.height = H; c.getContext('2d').drawImage(cv, 0, 0); const img = await loadImg(E.p.photo); E.rect = photoRect(E.p, img); E.zr = zr || []; handles(); }
 function handles() {
   const o = $('geO'), r = E.rect; if (!r || !can.edit()) { o.innerHTML = ''; return; }
@@ -165,7 +171,8 @@ function side() {
     <h4>Photo</h4><p><button class="mini" id="geCam">📷 Take a photo</button> <button class="mini" id="geP">${p.photo ? 'Choose another photo' : '⬆ Choose a photo'}</button> ${p.photo && !ro ? '<button class="mini" id="geDraw" title="Circle, arrow, box, text and freehand, the same tools as on defect photos">✏ Draw on the photo</button>' : ''} ${p.photoOrig && !ro ? '<button class="mini" id="geUndraw">↩ Remove the drawing</button>' : ''} ${p.photo ? '<button class="mini" id="gePx">Remove</button>' : ''}<input type="file" id="gePF" accept="image/*" hidden><input type="file" id="gePC" accept="image/*" capture="environment" hidden></p>
     <label class="dvall"><input type="checkbox" id="geW" ${p.wide ? 'checked' : ''}> Full-width photo (for plans and wide pictures)</label>
     <h4>Pointers</h4><p class="muted small">Press “Add a pointer”, then click the item in the photo. Drag the arrow tip onto the item and the number clear of it, so nothing is covered.</p>
-    ${p.marks.map((m, i) => `<div class="gmark"><i>${i + 1}</i><div><input data-ml="${i}" value="${esc(m.label)}" placeholder="What it is, e.g. Timer"><input data-ms="${i}" value="${esc(m.sub)}" placeholder="What to do, in a few words"></div><button class="mini" data-mx="${i}" title="Remove">✕</button></div>`).join('')}
+    ${p.marks.map((m, i) => `<div class="gmark"><i>${i + 1}</i><div><input data-ml="${i}" value="${esc(m.label)}" placeholder="What it is, e.g. Timer"><input data-ms="${i}" value="${esc(m.sub)}" placeholder="What to do, in a few words"></div>${p.zooms.length && !ro ? `<button class="mini" data-mz="${i}" title="Where this pointer sits. Press to move it to the photo or a close-up">${m.z != null ? '🔍' + (m.z + 1) : '📷'}</button>` : ''}<button class="mini" data-mx="${i}" title="Remove">✕</button></div>`).join('')}
+    ${p.zooms.length && p.marks.length && !ro ? '<p class="muted small">📷 means the pointer is on the photo, 🔍1 on the first close-up. Press it to move the pointer across, then drag it into place.</p>' : ''}
     ${p.photo && !ro ? `<p><button class="mini${E.adding ? ' on' : ''}" id="geAdd">${E.adding ? 'Now click the item, in the photo or a close-up…' : '+ Add a pointer'}</button></p>` : ''}
     <h4>Step by step</h4><p class="muted small">For things done in order, like lifting the clothesline and locking the pin. One photo and one short line per step, up to 6. They print as numbered photos in two columns.</p>
     ${p.steps.map((t, i) => `<div class="gmark"><i>${i + 1}</i><div>${t.photo ? `<img src="${esc(t.photo.startsWith('data:') ? t.photo : '')}" data-sti="${i}" class="gstim">` : ''}<input data-st="${i}" value="${esc(t.text)}" placeholder="What to do, e.g. Lift the frame up"><span><button class="mini" data-stc="${i}">📷 Take</button> <button class="mini" data-stp="${i}">Choose</button>${t.photo ? ` <button class="mini" data-std="${i}">✏ Draw</button>` : ''}</span></div><button class="mini" data-stx="${i}" title="Remove">✕</button></div>`).join('')}
@@ -176,6 +183,7 @@ function side() {
     <h4>Source documents</h4><p class="muted small">Link the manual or care guide for this item. The AI then writes the steps from it, and can check the page against it.</p>
     ${linked().map(d => `<div class="aedoc">📄 <a href="#" data-gd="${esc(d.id)}">${esc(d.title || d.fileName)}</a>${ro ? '' : ` <button class="mini" data-gdx="${esc(d.id)}" title="Unlink">✕</button>`}</div>`).join('')}
     ${ro ? '' : `${suggest().map(d => `<div class="aedoc small">Looks related: ${esc(d.title)} <button class="mini" data-gdl="${esc(d.id)}">Link it</button></div>`).join('')}
+    ${p.docIds.length ? `<label class="dvall"><input type="checkbox" id="geQr" ${p.qr !== false ? 'checked' : ''}> Print a QR code to ${linked().length > 1 ? 'the first document' : 'this document'} on the page. Anyone who scans it can open the document, with no sign-in.</label>` : ''}
     <input id="geDq" placeholder="Find a document: type part of its name"><div id="geDl"></div>
     ${p.docIds.length ? '<p><button class="mini" id="geChk">✨ Check this page against the document</button> <span class="muted small" id="geChkSt"></span></p><div id="geChkOut"></div>' : ''}`}
     <h4>Short lines under the photo</h4><textarea id="geL" rows="5" placeholder="One line each. Start a line with ! to make it stand out.">${esc(p.lines)}</textarea>
@@ -184,7 +192,7 @@ function side() {
     <label class="f" style="margin-top:10px">Which guide<select id="geA"><option value="both" ${p.aud !== 'fm' ? 'selected' : ''}>Both guides (residents and facilities)</option><option value="fm" ${p.aud === 'fm' ? 'selected' : ''}>Facilities Guide only</option></select></label>
     <label class="f" style="margin-top:10px">Preview for unit<input id="geU" value="${esc(E.unit || '')}" placeholder="e.g. 15"></label>
     <p class="muted small">Keep it short: residents need to know what it is and what to do. {unit} and {code} are filled in for each unit.</p>`;
-  const upd = () => { p.title = $('geT').value; p.lines = $('geL').value; p.wide = $('geW').checked; p.codeBox = $('geCB').checked; p.table = $('geTb').checked; p.aud = $('geA').value; E.unit = $('geU').value.trim(); document.querySelectorAll('#geSide [data-ml]').forEach(i => p.marks[+i.dataset.ml].label = i.value); document.querySelectorAll('#geSide [data-ms]').forEach(i => p.marks[+i.dataset.ms].sub = i.value); document.querySelectorAll('#geSide [data-zl]').forEach(i => p.zooms[+i.dataset.zl].label = i.value); document.querySelectorAll('#geSide [data-st]').forEach(i => p.steps[+i.dataset.st].text = i.value); clearTimeout(E.t); E.t = setTimeout(redraw, 250); };
+  const upd = () => { p.title = $('geT').value; p.lines = $('geL').value; p.wide = $('geW').checked; p.codeBox = $('geCB').checked; p.table = $('geTb').checked; p.aud = $('geA').value; if ($('geQr')) p.qr = $('geQr').checked; E.unit = $('geU').value.trim(); document.querySelectorAll('#geSide [data-ml]').forEach(i => p.marks[+i.dataset.ml].label = i.value); document.querySelectorAll('#geSide [data-ms]').forEach(i => p.marks[+i.dataset.ms].sub = i.value); document.querySelectorAll('#geSide [data-zl]').forEach(i => p.zooms[+i.dataset.zl].label = i.value); document.querySelectorAll('#geSide [data-st]').forEach(i => p.steps[+i.dataset.st].text = i.value); clearTimeout(E.t); E.t = setTimeout(redraw, 250); };
   $('geSide').querySelectorAll('input,textarea').forEach(i => { if (i.type !== 'file' && i.id !== 'geDq') i.oninput = i.onchange = upd; });
   $('geSide').querySelectorAll('[data-zx]').forEach(b => b.onclick = () => { upd(); const k = +b.dataset.zx; p.zooms.splice(k, 1); p.marks = p.marks.filter(m => m.z !== k).map(m => m.z > k ? { ...m, z: m.z - 1 } : m); side(); redraw(); });
   // steps
@@ -201,9 +209,9 @@ function side() {
     markup(src, data => { if (!E) return; if (!p.photoOrig) p.photoOrig = p.photo; p.photo = data; side(); redraw(); }, p.title || 'Guide photo'); };
   if ($('geUndraw')) $('geUndraw').onclick = () => { upd(); p.photo = p.photoOrig; delete p.photoOrig; side(); redraw(); };
   // source documents
-  const linkDoc = id => { upd(); if (!p.docIds.includes(id)) p.docIds.push(id); side(); };
+  const linkDoc = id => { upd(); if (!p.docIds.includes(id)) p.docIds.push(id); setQr(); side(); redraw(); };
   $('geSide').querySelectorAll('[data-gdl]').forEach(b => b.onclick = () => linkDoc(b.dataset.gdl));
-  $('geSide').querySelectorAll('[data-gdx]').forEach(b => b.onclick = () => { upd(); p.docIds = p.docIds.filter(i => i !== b.dataset.gdx); side(); });
+  $('geSide').querySelectorAll('[data-gdx]').forEach(b => b.onclick = () => { upd(); p.docIds = p.docIds.filter(i => i !== b.dataset.gdx); setQr(); side(); redraw(); });
   $('geSide').querySelectorAll('[data-gd]').forEach(a => a.onclick = async e => { e.preventDefault(); const d = libDocs().find(x => x.id === a.dataset.gd); if (d) try { window.open(await S.store.resolveUrl(d.url), '_blank'); } catch (x) {} });
   if ($('geDq')) $('geDq').oninput = () => { const q = $('geDq').value.trim().toLowerCase(); if (q.length < 2) { $('geDl').innerHTML = ''; return; }
     const hits = libDocs().filter(d => !p.docIds.includes(d.id) && [d.title, d.fileName, d.party].join(' ').toLowerCase().includes(q)).slice(0, 8);
@@ -211,6 +219,7 @@ function side() {
     $('geDl').querySelectorAll('[data-gdh]').forEach(x => x.onclick = () => linkDoc(x.dataset.gdh)); };
   if ($('geChk')) $('geChk').onclick = () => { upd(); checkPage(); };
   $('geSide').querySelectorAll('[data-mx]').forEach(b => b.onclick = () => { upd(); p.marks.splice(+b.dataset.mx, 1); side(); redraw(); });
+  $('geSide').querySelectorAll('[data-mz]').forEach(b => b.onclick = () => { upd(); const m = p.marks[+b.dataset.mz], nz = m.z == null ? 0 : m.z + 1 < p.zooms.length ? m.z + 1 : null; if (nz == null) delete m.z; else m.z = nz; m.tx = 0.5; m.ty = 0.55; m.nx = 0.22; m.ny = 0.22; side(); redraw(); });
   if ($('geAdd')) $('geAdd').onclick = () => { upd(); E.adding = !E.adding; side(); handles(); };
   if ($('geTk')) { $('geTk').oninput = () => { E.talk = $('geTk').value; };
     $('geMic').onclick = () => dictate($('geTk'), $('geMic'), (m, bad) => { $('geSt').textContent = m || ''; $('geSt').style.color = bad ? '#c0392b' : ''; }, () => { E.talk = $('geTk').value; });
@@ -221,6 +230,7 @@ function side() {
 }
 // The documents a page is written from: manuals, care guides, product data and warranties in the library
 const libDocs = () => ((S.fm && S.fm.docs) || []).filter(d => d.url && !d.superseded && !d.restricted);
+const setQr = () => { const d = linked()[0]; E.p.qrUrl = d && /^https?:/.test(d.url || '') ? d.url : ''; };
 const linked = () => (E.p.docIds || []).map(id => libDocs().find(d => d.id === id)).filter(Boolean);
 const GWORDS = new Set(['your', 'the', 'and', 'for', 'unit', 'units', 'how', 'use', 'using', 'with', 'page', 'guide', 'home', 'new']);
 function suggest() { const p = E.p; if ((p.docIds || []).length) return [];
@@ -256,7 +266,7 @@ async function writePage() {
 Residents are older New Zealanders. Write plainly and warmly, New Zealand English, no em dashes, no jargon. One topic per page. Say what it is and what to do, never how it is built.
 They call ${g.org || 'Haumaru Housing'}${g.phone ? ' on ' + g.phone : ''} if something is not working; never tell them to fix, open or adjust anything themselves beyond normal use. Use {unit} or {code} only if the unit number or visitor code is needed.
 CURRENT PAGE: title "${p.title || ''}"; pointers: ${JSON.stringify((p.marks || []).map(m => ({ label: m.label, sub: m.sub })))}; lines: ${JSON.stringify(p.lines || '')}.
-WHAT TONY SAID AT THE ITEM: ${talk || '(nothing; work from the photo)'}
+WHAT TONY SAID (a description of the item, or an instruction about what to change on this page; follow it exactly and change nothing else he did not ask for): ${talk || '(nothing; work from the photo)'}
 ${src.text ? "THE MANUFACTURER'S DOCUMENTS FOR THIS ITEM (take the exact steps, button names, hold times and safety points from these; do not invent any):" + src.text.slice(0, 20000) : ''}
 ${img ? 'The photo of the item is attached.' : 'There is no photo yet, so return no pointers.'}
 Return JSON only: {"title":"2 to 4 words","marks":[{"label":"what it is, 1 to 3 words","sub":"what to do, up to 7 words","x":0.0,"y":0.0}],"lines":["short line","..."],"closeup":{"x":0.0,"y":0.0,"w":0.0,"h":0.0,"label":"short caption"}}
