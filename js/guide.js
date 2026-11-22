@@ -112,9 +112,12 @@ function settings() {
 /* ---------- editor ---------- */
 function shell() {
   if ($('ge')) return; const el = document.createElement('div'); el.id = 'ge';
-  el.innerHTML = `<div class="dvh"><button id="geX">‹ Back</button><b>Guide page</b><span class="sp"></span><button id="geDel" class="ic" title="Delete this page">🗑</button><button id="geSave" class="go">Save</button></div>
+  el.innerHTML = `<div class="dvh"><button id="geX">‹ Back</button><b>Guide page</b><span class="sp"></span><button id="geZo" class="ic" title="Zoom out">−</button><button id="geZi" class="ic" title="Zoom in, to place pointers and close-ups exactly">＋</button><button id="geDel" class="ic" title="Delete this page">🗑</button><button id="geSave" class="go">Save</button></div>
     <div class="dvb"><div class="dvpage" id="geScroll"><div id="geWrap"><canvas id="geC"></canvas><div id="geO"></div></div></div><aside class="dvside" id="geSide"></aside></div>`;
   document.body.appendChild(el);
+  let zm = 1; const zoom = k => { const sc = $('geScroll'), w = $('geWrap'), cx = (sc.scrollLeft + sc.clientWidth / 2) / w.offsetWidth, cy = (sc.scrollTop + sc.clientHeight / 2) / w.offsetHeight;
+    zm = Math.max(1, Math.min(5, zm * k)); w.style.maxWidth = (760 * zm) + 'px'; w.style.width = zm > 1 ? (760 * zm) + 'px' : ''; sc.scrollLeft = cx * w.offsetWidth - sc.clientWidth / 2; sc.scrollTop = cy * w.offsetHeight - sc.clientHeight / 2; };
+  $('geZi').onclick = () => zoom(1.5); $('geZo').onclick = () => zoom(1 / 1.5);
   $('geX').onclick = tryClose; $('geSave').onclick = save; $('geDel').onclick = async () => { if (E.isNew) return close(); if (!(await confirmBox('Delete this page of the guide?', 'Delete'))) return; await S.store.deleteItem(S.project.id, 'guide', E.p.id); toast('Deleted'); close(); };
   const o = $('geO'); let drag = null;
   const frac = e => { const b = o.getBoundingClientRect(), r = E.rect, sx = W / b.width; return { x: Math.max(0, Math.min(1, ((e.clientX - b.left) * sx - r.x) / r.w)), y: Math.max(0, Math.min(1, ((e.clientY - b.top) * sx - r.y) / r.h)) }; };
@@ -127,7 +130,7 @@ function shell() {
   });
   o.addEventListener('pointermove', e => { if (!drag) return; const p = frac(e), m = E.p.marks[drag.i];
     if (drag.k === 'zm') { const z = E.p.zooms[drag.i]; z.x = cl(p.x - drag.dx, 0, 1 - z.w); z.y = cl(p.y - drag.dy, 0, 1 - z.h); }
-    else if (drag.k === 'zr') { const z = E.p.zooms[drag.i]; z.w = cl(p.x - z.x, 0.06, 1 - z.x); z.h = cl(p.y - z.y, 0.06, 1 - z.y); }
+    else if (drag.k === 'zr') { const z = E.p.zooms[drag.i]; z.w = cl(p.x - z.x, 0.025, 1 - z.x); z.h = cl(p.y - z.y, 0.025, 1 - z.y); }
     else if (drag.k === 't') { m.tx = p.x; m.ty = p.y; } else { m.nx = p.x; m.ny = p.y; } handles(); cancelAnimationFrame(E.raf); E.raf = requestAnimationFrame(redraw); });
   o.addEventListener('pointerup', () => { if (drag) { drag = null; redraw(); } });
 }
