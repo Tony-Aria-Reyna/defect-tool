@@ -59,6 +59,15 @@ export async function draw(cv, pg, unit) {
         rowH = Math.max(rowH, b.bh); x += maxW + gap; });
       y += rowH + capB + 50; }
   }
+  // step by step: numbered photos in two columns, each with what to do
+  const ST = (pg.steps || []).filter(t => t.photo || t.text).slice(0, 6);
+  if (ST.length) { const gap = 34, cw = (W - PX * 2 - gap) / 2, ph = 380; let col = 0, rowTop = y, rowH = 0;
+    for (const [i, t] of ST.entries()) { const im = await loadImg(t.photo), x = PX + col * (cw + gap); let yy = rowTop;
+      if (im) { const sc = Math.min(cw / im.width, ph / im.height), w = im.width * sc, h = im.height * sc; c.drawImage(im, x, yy, w, h); c.strokeStyle = NAVY; c.lineWidth = 4; c.strokeRect(x, yy, w, h);
+        (t.marks || []).forEach(m => arrow(c, { x: x + m.nx * w, y: yy + m.ny * h }, { x: x + m.tx * w, y: yy + m.ty * h })); yy += h; }
+      dot(c, x + 40, rowTop + 40, i + 1, 30); c.font = font(34, 1); c.fillStyle = NAVY; yy += 46; for (const l of wrap(c, fill(t.text, unit), cw)) { c.fillText(l, x, yy); yy += 44; }
+      rowH = Math.max(rowH, yy - rowTop); if (++col === 2) { col = 0; rowTop += rowH + 30; rowH = 0; } }
+    y = rowTop + rowH + (col ? 30 : 0); }
   if (pg.codeBox) { c.fillStyle = NAVY; c.beginPath(); c.roundRect(PX, y, W - PX * 2, 250, 24); c.fill(); c.fillStyle = '#fff'; c.textAlign = 'center'; c.font = font(44, 1); c.fillText(unit ? `Your unit is ${unit}. Your visitors press:` : 'Your visitors press:', W / 2, y + 74); c.font = font(120, 1); c.fillText(unit ? unitCode(unit).split('').join('  ') : '_  _  _', W / 2, y + 205); c.textAlign = 'left'; y += 300; }
   if (pg.table) { // lines as a table: first line is the heading, cells split with |
     const R = String(pg.lines || '').split('\n').map(s => s.trim()).filter(Boolean).map(l => l.split('|').map(x => fill(x.trim(), unit))), n = Math.max(1, ...R.map(r => r.length)), tw = W - PX * 2;
@@ -128,7 +137,7 @@ async function tryClose() { if (E && E.snap !== snap() && !(await X.askDiscard('
 function close(nav) { if (!E) return; $('ge').classList.remove('show'); E = null; if (nav !== true) Nav.closed('guide-ed'); view(); }
 function edit(p) {
   shell(); const isNew = !p; p = p ? JSON.parse(JSON.stringify(p)) : { id: uid(), order: pages().length + 1, title: '', photo: '', marks: [], lines: '', wide: false, codeBox: false };
-  p.marks = p.marks || []; p.zooms = p.zooms || []; p.docIds = p.docIds || []; E = { p, isNew, adding: false, addingZoom: false, rect: null }; E.snap = isNew ? '' : snap();
+  p.marks = p.marks || []; p.zooms = p.zooms || []; p.steps = p.steps || []; p.docIds = p.docIds || []; E = { p, isNew, adding: false, addingZoom: false, rect: null }; E.snap = isNew ? '' : snap();
   Nav.open('guide-ed', () => close(true)); $('ge').classList.add('show'); $('geSave').style.display = $('geDel').style.display = can.edit() ? '' : 'none';
   side(); redraw();
 }
@@ -150,6 +159,9 @@ function side() {
     <h4>Pointers</h4><p class="muted small">Press “Add a pointer”, then click the item in the photo. Drag the arrow tip onto the item and the number clear of it, so nothing is covered.</p>
     ${p.marks.map((m, i) => `<div class="gmark"><i>${i + 1}</i><div><input data-ml="${i}" value="${esc(m.label)}" placeholder="What it is, e.g. Timer"><input data-ms="${i}" value="${esc(m.sub)}" placeholder="What to do, in a few words"></div><button class="mini" data-mx="${i}" title="Remove">✕</button></div>`).join('')}
     ${p.photo && !ro ? `<p><button class="mini${E.adding ? ' on' : ''}" id="geAdd">${E.adding ? 'Now click the item in the photo…' : '+ Add a pointer'}</button></p>` : ''}
+    <h4>Step by step</h4><p class="muted small">For things done in order, like lifting the clothesline and locking the pin. One photo and one short line per step, up to 6. They print as numbered photos in two columns.</p>
+    ${p.steps.map((t, i) => `<div class="gmark"><i>${i + 1}</i><div>${t.photo ? `<img src="${esc(t.photo.startsWith('data:') ? t.photo : '')}" data-sti="${i}" class="gstim">` : ''}<input data-st="${i}" value="${esc(t.text)}" placeholder="What to do, e.g. Lift the frame up"><span><button class="mini" data-stc="${i}">📷 Take</button> <button class="mini" data-stp="${i}">Choose</button>${t.photo ? ` <button class="mini" data-std="${i}">✏ Draw</button>` : ''}</span></div><button class="mini" data-stx="${i}" title="Remove">✕</button></div>`).join('')}
+    ${ro || p.steps.length >= 6 ? '' : '<p><button class="mini" id="geStA">+ Add a step</button></p>'}<input type="file" id="geStF" accept="image/*" hidden><input type="file" id="geStC" accept="image/*" capture="environment" hidden>
     <h4>Close-ups</h4><p class="muted small">Show a small part of the photo larger, such as a dial or a control panel. Press “Add a close-up”, click the part, then drag the box to fit it.</p>
     ${p.zooms.map((z, i) => `<div class="gmark"><i>🔍</i><div><input data-zl="${i}" value="${esc(z.label)}" placeholder="Caption, e.g. The heat dial: 1 is low, 9 is high"></div><button class="mini" data-zx="${i}" title="Remove">✕</button></div>`).join('')}
     ${p.photo && !ro && p.zooms.length < 2 ? `<p><button class="mini${E.addingZoom ? ' on' : ''}" id="geZoom">${E.addingZoom ? 'Now click the part of the photo…' : '+ Add a close-up'}</button></p>` : ''}
@@ -164,9 +176,18 @@ function side() {
     <label class="f" style="margin-top:10px">Which guide<select id="geA"><option value="both" ${p.aud !== 'fm' ? 'selected' : ''}>Both guides (residents and facilities)</option><option value="fm" ${p.aud === 'fm' ? 'selected' : ''}>Facilities Guide only</option></select></label>
     <label class="f" style="margin-top:10px">Preview for unit<input id="geU" value="${esc(E.unit || '')}" placeholder="e.g. 15"></label>
     <p class="muted small">Keep it short: residents need to know what it is and what to do. {unit} and {code} are filled in for each unit.</p>`;
-  const upd = () => { p.title = $('geT').value; p.lines = $('geL').value; p.wide = $('geW').checked; p.codeBox = $('geCB').checked; p.table = $('geTb').checked; p.aud = $('geA').value; E.unit = $('geU').value.trim(); document.querySelectorAll('#geSide [data-ml]').forEach(i => p.marks[+i.dataset.ml].label = i.value); document.querySelectorAll('#geSide [data-ms]').forEach(i => p.marks[+i.dataset.ms].sub = i.value); document.querySelectorAll('#geSide [data-zl]').forEach(i => p.zooms[+i.dataset.zl].label = i.value); clearTimeout(E.t); E.t = setTimeout(redraw, 250); };
+  const upd = () => { p.title = $('geT').value; p.lines = $('geL').value; p.wide = $('geW').checked; p.codeBox = $('geCB').checked; p.table = $('geTb').checked; p.aud = $('geA').value; E.unit = $('geU').value.trim(); document.querySelectorAll('#geSide [data-ml]').forEach(i => p.marks[+i.dataset.ml].label = i.value); document.querySelectorAll('#geSide [data-ms]').forEach(i => p.marks[+i.dataset.ms].sub = i.value); document.querySelectorAll('#geSide [data-zl]').forEach(i => p.zooms[+i.dataset.zl].label = i.value); document.querySelectorAll('#geSide [data-st]').forEach(i => p.steps[+i.dataset.st].text = i.value); clearTimeout(E.t); E.t = setTimeout(redraw, 250); };
   $('geSide').querySelectorAll('input,textarea').forEach(i => { if (i.type !== 'file' && i.id !== 'geDq') i.oninput = i.onchange = upd; });
   $('geSide').querySelectorAll('[data-zx]').forEach(b => b.onclick = () => { upd(); p.zooms.splice(+b.dataset.zx, 1); side(); redraw(); });
+  // steps
+  let stAt = -1; const stPick = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f || stAt < 0) return; upd(); const b = busy('Preparing the photo…'); try { p.steps[stAt].photo = (await compressImage(f, 1400, 0.82)).dataUrl; b.done(); side(); redraw(); } catch (x) { b.done(); toast('Could not read that photo: ' + x.message, 5000); } };
+  $('geStF').onchange = stPick; $('geStC').onchange = stPick;
+  if ($('geStA')) $('geStA').onclick = () => { upd(); p.steps.push({ photo: '', text: '' }); side(); };
+  $('geSide').querySelectorAll('[data-stc]').forEach(b => b.onclick = () => { stAt = +b.dataset.stc; $('geStC').click(); });
+  $('geSide').querySelectorAll('[data-stp]').forEach(b => b.onclick = () => { stAt = +b.dataset.stp; $('geStF').click(); });
+  $('geSide').querySelectorAll('[data-stx]').forEach(b => b.onclick = () => { upd(); p.steps.splice(+b.dataset.stx, 1); side(); redraw(); });
+  $('geSide').querySelectorAll('[data-std]').forEach(b => b.onclick = async () => { upd(); const t = p.steps[+b.dataset.std]; let src = t.photo; try { if (!src.startsWith('data:')) src = await urlToDataUrl(src); } catch (e) { return toast('Could not open the photo: ' + e.message, 6000); } markup(src, d => { if (!E) return; t.photo = d; side(); redraw(); }, (p.title || 'Guide') + ' step ' + (+b.dataset.std + 1)); });
+  $('geSide').querySelectorAll('[data-sti]').forEach(async im => { if (!im.src || im.src === location.href) { try { im.src = await S.store.resolveUrl(p.steps[+im.dataset.sti].photo); } catch (e) {} } });
   if ($('geZoom')) $('geZoom').onclick = () => { upd(); E.addingZoom = !E.addingZoom; E.adding = false; side(); handles(); };
   if ($('geDraw')) $('geDraw').onclick = async () => { upd(); let src = p.photo; try { if (!src.startsWith('data:')) src = await urlToDataUrl(src); } catch (e) { return toast('Could not open the photo for drawing: ' + e.message, 6000); }
     markup(src, data => { if (!E) return; if (!p.photoOrig) p.photoOrig = p.photo; p.photo = data; side(); redraw(); }, p.title || 'Guide photo'); };
@@ -248,6 +269,7 @@ async function save() {
   const p = E.p; if (!p.title.trim()) return toast('Give the page a title');
   const b = busy('Saving…');
   try { if (p.photo && p.photo.startsWith('data:')) { const src = p.photo; p.photo = await S.store.putFile(`projects/${S.project.id}/docs/guide-${p.id}/photo-${Date.now()}.jpg`, dataUrlToBlob(src), true); imgCache[p.photo] = imgCache[src]; }
+    for (const [i, t] of (p.steps || []).entries()) if (t.photo && t.photo.startsWith('data:')) { const src = t.photo; t.photo = await S.store.putFile(`projects/${S.project.id}/docs/guide-${p.id}/step${i + 1}-${Date.now()}.jpg`, dataUrlToBlob(src), true); imgCache[t.photo] = imgCache[src]; }
     if (p.photoOrig && p.photoOrig.startsWith('data:')) p.photoOrig = await S.store.putFile(`projects/${S.project.id}/docs/guide-${p.id}/photo-orig-${Date.now()}.jpg`, dataUrlToBlob(p.photoOrig), true);
     await S.store.saveItem(S.project.id, 'guide', { ...p, updated: new Date().toISOString(), updatedBy: S.user.email }); b.done(); toast('Saved'); E.snap = snap(); close(); }
   catch (e) { b.done(); toast('Could not save: ' + e.message, 6000); }
