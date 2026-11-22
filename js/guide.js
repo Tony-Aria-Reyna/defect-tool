@@ -35,7 +35,7 @@ function arrow(c, a, b) {
   c.beginPath(); c.moveTo(b.x, b.y); c.lineTo(b.x - L * Math.cos(ang - 0.45), b.y - L * Math.sin(ang - 0.45)); c.lineTo(b.x - L * Math.cos(ang + 0.45), b.y - L * Math.sin(ang + 0.45)); c.closePath(); c.fillStyle = RED; c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 3; c.stroke();
 }
 export async function draw(cv, pg, unit) {
-  cv.width = W; cv.height = H; const c = cv.getContext('2d'), g = cfg();
+  const ZR = []; cv.width = W; cv.height = H; const c = cv.getContext('2d'), g = cfg();
   c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
   // header: client logo on white, then the title bar
   const logo = await loadImg(S.project.clientLogo); if (logo) { const lh = 62, lw = logo.width * lh / logo.height; c.drawImage(logo, W - PX - lw, 20, lw, lh); }
@@ -43,7 +43,7 @@ export async function draw(cv, pg, unit) {
   const img = await loadImg(pg.photo), r = photoRect(pg, img); let y = PH0;
   if (img) {
     c.drawImage(img, r.x, r.y, r.w, r.h); c.strokeStyle = NAVY; c.lineWidth = 4; c.strokeRect(r.x, r.y, r.w, r.h);
-    const marks = pg.marks || []; marks.forEach((m, i) => { arrow(c, { x: r.x + m.nx * r.w, y: r.y + m.ny * r.h }, { x: r.x + m.tx * r.w, y: r.y + m.ty * r.h }); dot(c, r.x + m.nx * r.w, r.y + m.ny * r.h, i + 1); });
+    const marks = pg.marks || []; marks.forEach((m, i) => { if (m.z != null) return; arrow(c, { x: r.x + m.nx * r.w, y: r.y + m.ny * r.h }, { x: r.x + m.tx * r.w, y: r.y + m.ty * r.h }); dot(c, r.x + m.nx * r.w, r.y + m.ny * r.h, i + 1); });
     // the key: beside a narrow photo, under a wide one
     const side = !pg.wide && r.w <= 700, lx = side ? r.x + r.w + 40 : PX, lw = W - lx - PX - 90; let ly = side ? PH0 + 10 : r.y + r.h + 40;
     marks.forEach((m, i) => { dot(c, lx + 34, ly + 34, i + 1); c.fillStyle = NAVY; c.font = font(37, 1); let yy = ly + 36; for (const t of wrap(c, fill(m.label, unit), lw)) { c.fillText(t, lx + 88, yy); yy += 46; } c.fillStyle = '#333'; c.font = font(32); for (const t of wrap(c, fill(m.sub, unit), lw)) { if (t) { c.fillText(t, lx + 88, yy); yy += 42; } } ly = Math.max(yy, ly + 90) + 16; });
@@ -52,12 +52,13 @@ export async function draw(cv, pg, unit) {
     const Z = (pg.zooms || []).slice(0, 2);
     if (Z.length) { const gap = 30, n = Z.length, maxW = n === 1 ? 560 : (W - PX * 2 - gap) / 2, maxH = 400; let x = PX, rowH = 0, capB = 0;
       const B = Z.map(z => { const sw = z.w * img.width, sh = z.h * img.height, sc = Math.min(maxW / sw, maxH / sh); return { z, sw, sh, bw: Math.round(sw * sc), bh: Math.round(sh * sc) }; });
-      B.forEach(b => { const z = b.z, sx = r.x + z.x * r.w, sy = r.y + z.y * r.h, sW = z.w * r.w, sH = z.h * r.h;
+      B.forEach((b, bi) => { ZR[bi] = { x, y, w: b.bw, h: b.bh }; const z = b.z, sx = r.x + z.x * r.w, sy = r.y + z.y * r.h, sW = z.w * r.w, sH = z.h * r.h;
         for (const [col, wd] of [['#fff', 12], [RED, 5]]) { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(sx + sW / 2, sy + sH); c.lineTo(x + b.bw / 2, y); c.stroke(); c.beginPath(); c.roundRect(sx, sy, sW, sH, 10); c.stroke(); }
         c.drawImage(img, z.x * img.width, z.y * img.height, b.sw, b.sh, x, y, b.bw, b.bh); c.strokeStyle = '#fff'; c.lineWidth = 12; c.strokeRect(x, y, b.bw, b.bh); c.strokeStyle = RED; c.lineWidth = 6; c.strokeRect(x, y, b.bw, b.bh);
         const cap = fill(z.label, unit); if (cap) { const cx = n === 1 ? x + b.bw + 34 : x, cw = n === 1 ? W - PX - cx : maxW; let cy = n === 1 ? y + 44 : y + b.bh + 48; c.fillStyle = NAVY; c.font = font(36, 1); for (const t of wrap(c, cap, cw)) { c.fillText(t, cx, cy); cy += 46; } if (n > 1) capB = Math.max(capB, cy - (y + b.bh)); }
         rowH = Math.max(rowH, b.bh); x += maxW + gap; });
       y += rowH + capB + 50; }
+    marks.forEach((m, i) => { const q = m.z != null && ZR[m.z]; if (!q) return; arrow(c, { x: q.x + m.nx * q.w, y: q.y + m.ny * q.h }, { x: q.x + m.tx * q.w, y: q.y + m.ty * q.h }); dot(c, q.x + m.nx * q.w, q.y + m.ny * q.h, i + 1); });
   }
   // step by step: numbered photos in two columns, each with what to do
   const ST = (pg.steps || []).filter(t => t.photo || t.text).slice(0, 6);
@@ -82,6 +83,7 @@ export async function draw(cv, pg, unit) {
     for (const u of wrap(c, t, W - PX * 2 - 60)) { c.fillText(u, PX + 50, y + 40); y += 56; } y += 18;
   }
   c.fillStyle = TEAL; c.fillRect(0, H - 170, W, 170); c.fillStyle = '#fff'; c.font = font(40, 1); c.fillText(g.footer || 'Something not working?', PX, H - 104); c.font = font(46, 1); c.fillText(`Call ${g.org || 'us'}  ${g.phone || ''}`.trim(), PX, H - 44);
+  return ZR;
 }
 
 /* ---------- list ---------- */
@@ -120,15 +122,15 @@ function shell() {
   $('geZi').onclick = () => zoom(1.5); $('geZo').onclick = () => zoom(1 / 1.5);
   $('geX').onclick = tryClose; $('geSave').onclick = save; $('geDel').onclick = async () => { if (E.isNew) return close(); if (!(await confirmBox('Delete this page of the guide?', 'Delete'))) return; await S.store.deleteItem(S.project.id, 'guide', E.p.id); toast('Deleted'); close(); };
   const o = $('geO'); let drag = null;
-  const frac = e => { const b = o.getBoundingClientRect(), r = E.rect, sx = W / b.width; return { x: Math.max(0, Math.min(1, ((e.clientX - b.left) * sx - r.x) / r.w)), y: Math.max(0, Math.min(1, ((e.clientY - b.top) * sx - r.y) / r.h)) }; };
+  const frac = (e, zi) => { const b = o.getBoundingClientRect(), r = zi != null && E.zr[zi] ? E.zr[zi] : E.rect, sx = W / b.width; return { x: Math.max(0, Math.min(1, ((e.clientX - b.left) * sx - r.x) / r.w)), y: Math.max(0, Math.min(1, ((e.clientY - b.top) * sx - r.y) / r.h)) }; };
   o.addEventListener('pointerdown', e => {
     if (!E.rect) return; const h = e.target.closest('[data-h]');
     if (h) { drag = { i: +h.dataset.i, k: h.dataset.h }; if (drag.k === 'zm') { const q = frac(e), z = E.p.zooms[drag.i]; drag.dx = q.x - z.x; drag.dy = q.y - z.y; } o.setPointerCapture(e.pointerId); e.preventDefault(); return; }
     if (E.addingZoom) { const q = frac(e); E.p.zooms.push({ x: cl(q.x - 0.11, 0, 0.78), y: cl(q.y - 0.11, 0, 0.78), w: 0.22, h: 0.22, label: '' }); E.addingZoom = false; side(); redraw(); return; }
-    if (!E.adding) return; const p = frac(e); const nx = Math.max(0.08, Math.min(0.92, p.x + (p.x > 0.5 ? -0.22 : 0.22))), ny = Math.max(0.08, Math.min(0.92, p.y + (p.y > 0.3 ? -0.2 : 0.2)));
-    E.p.marks.push({ tx: p.x, ty: p.y, nx, ny, label: '', sub: '' }); E.adding = false; side(); redraw(); setTimeout(() => { const L = document.querySelectorAll('#geSide [data-ml]'); if (L.length) L[L.length - 1].focus(); }, 50);
+    if (!E.adding) return; const za = e.target.closest('[data-za]'), zi = za ? +za.dataset.za : null, p = frac(e, zi); const nx = Math.max(0.08, Math.min(0.92, p.x + (p.x > 0.5 ? -0.22 : 0.22))), ny = Math.max(0.08, Math.min(0.92, p.y + (p.y > 0.3 ? -0.2 : 0.2)));
+    E.p.marks.push({ tx: p.x, ty: p.y, nx, ny, label: '', sub: '', ...(zi != null ? { z: zi } : {}) }); E.adding = false; side(); redraw(); setTimeout(() => { const L = document.querySelectorAll('#geSide [data-ml]'); if (L.length) L[L.length - 1].focus(); }, 50);
   });
-  o.addEventListener('pointermove', e => { if (!drag) return; const p = frac(e), m = E.p.marks[drag.i];
+  o.addEventListener('pointermove', e => { if (!drag) return; const m = E.p.marks[drag.i], p = frac(e, (drag.k === 't' || drag.k === 'n') && m && m.z != null ? m.z : null);
     if (drag.k === 'zm') { const z = E.p.zooms[drag.i]; z.x = cl(p.x - drag.dx, 0, 1 - z.w); z.y = cl(p.y - drag.dy, 0, 1 - z.h); }
     else if (drag.k === 'zr') { const z = E.p.zooms[drag.i]; z.w = cl(p.x - z.x, 0.025, 1 - z.x); z.h = cl(p.y - z.y, 0.025, 1 - z.y); }
     else if (drag.k === 't') { m.tx = p.x; m.ty = p.y; } else { m.nx = p.x; m.ny = p.y; } handles(); cancelAnimationFrame(E.raf); E.raf = requestAnimationFrame(redraw); });
@@ -144,13 +146,14 @@ function edit(p) {
   Nav.open('guide-ed', () => close(true)); $('ge').classList.add('show'); $('geSave').style.display = $('geDel').style.display = can.edit() ? '' : 'none';
   side(); redraw();
 }
-async function redraw() { if (!E) return; const tok = (E.tok = (E.tok || 0) + 1), cv = document.createElement('canvas'); await draw(cv, E.p, E.unit || ''); if (!E || tok !== E.tok) return; const c = $('geC'); c.width = W; c.height = H; c.getContext('2d').drawImage(cv, 0, 0); const img = await loadImg(E.p.photo); E.rect = photoRect(E.p, img); handles(); }
+async function redraw() { if (!E) return; const tok = (E.tok = (E.tok || 0) + 1), cv = document.createElement('canvas'); const zr = await draw(cv, E.p, E.unit || ''); if (!E || tok !== E.tok) return; const c = $('geC'); c.width = W; c.height = H; c.getContext('2d').drawImage(cv, 0, 0); const img = await loadImg(E.p.photo); E.rect = photoRect(E.p, img); E.zr = zr || []; handles(); }
 function handles() {
   const o = $('geO'), r = E.rect; if (!r || !can.edit()) { o.innerHTML = ''; return; }
-  const pc = (x, y) => `left:${(r.x + x * r.w) / W * 100}%;top:${(r.y + y * r.h) / H * 100}%`;
+  const pc = (x, y, m) => { const q = m && m.z != null && E.zr[m.z] ? E.zr[m.z] : r; return `left:${(q.x + x * q.w) / W * 100}%;top:${(q.y + y * q.h) / H * 100}%`; };
   o.innerHTML = `<div class="gphoto${E.adding || E.addingZoom ? ' adding' : ''}" style="left:${r.x / W * 100}%;top:${r.y / H * 100}%;width:${r.w / W * 100}%;height:${r.h / H * 100}%"></div>`
+    + (E.zr || []).map((q, i) => `<div class="gphoto${E.adding ? ' adding' : ''}" data-za="${i}" style="left:${q.x / W * 100}%;top:${q.y / H * 100}%;width:${q.w / W * 100}%;height:${q.h / H * 100}%"></div>`).join('')
     + (E.p.zooms || []).map((z, i) => `<div class="gz" data-h="zm" data-i="${i}" title="Drag to move the close-up area" style="left:${(r.x + z.x * r.w) / W * 100}%;top:${(r.y + z.y * r.h) / H * 100}%;width:${z.w * r.w / W * 100}%;height:${z.h * r.h / H * 100}%"><i class="gzr" data-h="zr" data-i="${i}" title="Drag to resize"></i></div>`).join('')
-    + E.p.marks.map((m, i) => `<div class="gh gt" data-h="t" data-i="${i}" style="${pc(m.tx, m.ty)}" title="Drag the arrow tip onto the item"></div><div class="gh gn" data-h="n" data-i="${i}" style="${pc(m.nx, m.ny)}" title="Drag the number clear of the item"></div>`).join('');
+    + E.p.marks.map((m, i) => `<div class="gh gt" data-h="t" data-i="${i}" style="${pc(m.tx, m.ty, m)}" title="Drag the arrow tip onto the item"></div><div class="gh gn" data-h="n" data-i="${i}" style="${pc(m.nx, m.ny, m)}" title="Drag the number clear of the item"></div>`).join('');
 }
 function side() {
   const p = E.p, ro = !can.edit();
@@ -161,7 +164,7 @@ function side() {
     <label class="dvall"><input type="checkbox" id="geW" ${p.wide ? 'checked' : ''}> Full-width photo (for plans and wide pictures)</label>
     <h4>Pointers</h4><p class="muted small">Press “Add a pointer”, then click the item in the photo. Drag the arrow tip onto the item and the number clear of it, so nothing is covered.</p>
     ${p.marks.map((m, i) => `<div class="gmark"><i>${i + 1}</i><div><input data-ml="${i}" value="${esc(m.label)}" placeholder="What it is, e.g. Timer"><input data-ms="${i}" value="${esc(m.sub)}" placeholder="What to do, in a few words"></div><button class="mini" data-mx="${i}" title="Remove">✕</button></div>`).join('')}
-    ${p.photo && !ro ? `<p><button class="mini${E.adding ? ' on' : ''}" id="geAdd">${E.adding ? 'Now click the item in the photo…' : '+ Add a pointer'}</button></p>` : ''}
+    ${p.photo && !ro ? `<p><button class="mini${E.adding ? ' on' : ''}" id="geAdd">${E.adding ? 'Now click the item, in the photo or a close-up…' : '+ Add a pointer'}</button></p>` : ''}
     <h4>Step by step</h4><p class="muted small">For things done in order, like lifting the clothesline and locking the pin. One photo and one short line per step, up to 6. They print as numbered photos in two columns.</p>
     ${p.steps.map((t, i) => `<div class="gmark"><i>${i + 1}</i><div>${t.photo ? `<img src="${esc(t.photo.startsWith('data:') ? t.photo : '')}" data-sti="${i}" class="gstim">` : ''}<input data-st="${i}" value="${esc(t.text)}" placeholder="What to do, e.g. Lift the frame up"><span><button class="mini" data-stc="${i}">📷 Take</button> <button class="mini" data-stp="${i}">Choose</button>${t.photo ? ` <button class="mini" data-std="${i}">✏ Draw</button>` : ''}</span></div><button class="mini" data-stx="${i}" title="Remove">✕</button></div>`).join('')}
     ${ro || p.steps.length >= 6 ? '' : '<p><button class="mini" id="geStA">+ Add a step</button></p>'}<input type="file" id="geStF" accept="image/*" hidden><input type="file" id="geStC" accept="image/*" capture="environment" hidden>
@@ -181,7 +184,7 @@ function side() {
     <p class="muted small">Keep it short: residents need to know what it is and what to do. {unit} and {code} are filled in for each unit.</p>`;
   const upd = () => { p.title = $('geT').value; p.lines = $('geL').value; p.wide = $('geW').checked; p.codeBox = $('geCB').checked; p.table = $('geTb').checked; p.aud = $('geA').value; E.unit = $('geU').value.trim(); document.querySelectorAll('#geSide [data-ml]').forEach(i => p.marks[+i.dataset.ml].label = i.value); document.querySelectorAll('#geSide [data-ms]').forEach(i => p.marks[+i.dataset.ms].sub = i.value); document.querySelectorAll('#geSide [data-zl]').forEach(i => p.zooms[+i.dataset.zl].label = i.value); document.querySelectorAll('#geSide [data-st]').forEach(i => p.steps[+i.dataset.st].text = i.value); clearTimeout(E.t); E.t = setTimeout(redraw, 250); };
   $('geSide').querySelectorAll('input,textarea').forEach(i => { if (i.type !== 'file' && i.id !== 'geDq') i.oninput = i.onchange = upd; });
-  $('geSide').querySelectorAll('[data-zx]').forEach(b => b.onclick = () => { upd(); p.zooms.splice(+b.dataset.zx, 1); side(); redraw(); });
+  $('geSide').querySelectorAll('[data-zx]').forEach(b => b.onclick = () => { upd(); const k = +b.dataset.zx; p.zooms.splice(k, 1); p.marks = p.marks.filter(m => m.z !== k).map(m => m.z > k ? { ...m, z: m.z - 1 } : m); side(); redraw(); });
   // steps
   let stAt = -1; const stPick = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f || stAt < 0) return; upd(); const b = busy('Preparing the photo…'); try { p.steps[stAt].photo = (await compressImage(f, 1400, 0.82)).dataUrl; b.done(); side(); redraw(); } catch (x) { b.done(); toast('Could not read that photo: ' + x.message, 5000); } };
   $('geStF').onchange = stPick; $('geStC').onchange = stPick;
