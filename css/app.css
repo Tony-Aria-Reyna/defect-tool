@@ -730,3 +730,7 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .aelink input{width:100%;margin-top:4px}.aehit{padding:6px 8px;border-bottom:1px solid var(--line);cursor:pointer}.aehit:hover{background:#f2f6fa}
 .aedoc{padding:4px 0}.aesum{margin:6px 0}.aefile{border:1px solid #cfe0f3;border-radius:10px;padding:10px;margin-top:8px;background:#f7fbff}.aefrow{border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
 .ckrow{border-bottom:1px solid var(--line);padding:8px 2px}.ckrow .small{margin:2px 0 2px 10px}.ckact{margin-top:4px}
+.gz{position:absolute;border:2px dashed #C8282D;background:rgba(200,40,45,.08);cursor:move;touch-action:none;border-radius:6px}
+.gzr{position:absolute;right:-11px;bottom:-11px;width:22px;height:22px;background:#fff;border:2px solid #C8282D;border-radius:5px;cursor:nwse-resize;touch-action:none}
+.gchk{border:1px solid #e6d9a8;border-left:4px solid #e39b1b;background:#fffaf0;border-radius:8px;padding:8px 10px;font-size:13px}.gchk>div{padding:4px 0;border-bottom:1px solid #f0e6c8}.gchk>div:last-child{border:0}
+#geDq{width:100%;margin-top:4px}

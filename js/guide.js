@@ -5,6 +5,8 @@ import * as Nav from './nav.js';
 import { warrantyExpiry, freqText } from './fm.js';
 import { $, esc, toast, busy, confirmBox, uid, compressImage, dataUrlToBlob, deliver, loadScript, safeName, stamp, natural, urlToDataUrl } from './util.js';
 import { dictate, stopDictation, aiCall } from './ai.js';
+import { markup } from './photos.js';
+import * as FT from './filetext.js';
 
 let X = null, E = null;
 const W = 1240, H = 1754, PH0 = 250, PX = 60;           // page size (A4 at 150 dpi), photo top, side margin
@@ -46,6 +48,16 @@ export async function draw(cv, pg, unit) {
     const side = !pg.wide && r.w <= 700, lx = side ? r.x + r.w + 40 : PX, lw = W - lx - PX - 90; let ly = side ? PH0 + 10 : r.y + r.h + 40;
     marks.forEach((m, i) => { dot(c, lx + 34, ly + 34, i + 1); c.fillStyle = NAVY; c.font = font(37, 1); let yy = ly + 36; for (const t of wrap(c, fill(m.label, unit), lw)) { c.fillText(t, lx + 88, yy); yy += 46; } c.fillStyle = '#333'; c.font = font(32); for (const t of wrap(c, fill(m.sub, unit), lw)) { if (t) { c.fillText(t, lx + 88, yy); yy += 42; } } ly = Math.max(yy, ly + 90) + 16; });
     y = Math.max(r.y + r.h + 55, side ? ly + 10 : ly + 20);
+    // close-ups: part of the photo shown larger under it, joined to where it came from
+    const Z = (pg.zooms || []).slice(0, 2);
+    if (Z.length) { const gap = 30, n = Z.length, maxW = n === 1 ? 560 : (W - PX * 2 - gap) / 2, maxH = 400; let x = PX, rowH = 0, capB = 0;
+      const B = Z.map(z => { const sw = z.w * img.width, sh = z.h * img.height, sc = Math.min(maxW / sw, maxH / sh); return { z, sw, sh, bw: Math.round(sw * sc), bh: Math.round(sh * sc) }; });
+      B.forEach(b => { const z = b.z, sx = r.x + z.x * r.w, sy = r.y + z.y * r.h, sW = z.w * r.w, sH = z.h * r.h;
+        for (const [col, wd] of [['#fff', 12], [RED, 5]]) { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(sx + sW / 2, sy + sH); c.lineTo(x + b.bw / 2, y); c.stroke(); c.beginPath(); c.roundRect(sx, sy, sW, sH, 10); c.stroke(); }
+        c.drawImage(img, z.x * img.width, z.y * img.height, b.sw, b.sh, x, y, b.bw, b.bh); c.strokeStyle = '#fff'; c.lineWidth = 12; c.strokeRect(x, y, b.bw, b.bh); c.strokeStyle = RED; c.lineWidth = 6; c.strokeRect(x, y, b.bw, b.bh);
+        const cap = fill(z.label, unit); if (cap) { const cx = n === 1 ? x + b.bw + 34 : x, cw = n === 1 ? W - PX - cx : maxW; let cy = n === 1 ? y + 44 : y + b.bh + 48; c.fillStyle = NAVY; c.font = font(36, 1); for (const t of wrap(c, cap, cw)) { c.fillText(t, cx, cy); cy += 46; } if (n > 1) capB = Math.max(capB, cy - (y + b.bh)); }
+        rowH = Math.max(rowH, b.bh); x += maxW + gap; });
+      y += rowH + capB + 50; }
   }
   if (pg.codeBox) { c.fillStyle = NAVY; c.beginPath(); c.roundRect(PX, y, W - PX * 2, 250, 24); c.fill(); c.fillStyle = '#fff'; c.textAlign = 'center'; c.font = font(44, 1); c.fillText(unit ? `Your unit is ${unit}. Your visitors press:` : 'Your visitors press:', W / 2, y + 74); c.font = font(120, 1); c.fillText(unit ? unitCode(unit).split('').join('  ') : '_  _  _', W / 2, y + 205); c.textAlign = 'left'; y += 300; }
   if (pg.table) { // lines as a table: first line is the heading, cells split with |
@@ -99,19 +111,24 @@ function shell() {
   const frac = e => { const b = o.getBoundingClientRect(), r = E.rect, sx = W / b.width; return { x: Math.max(0, Math.min(1, ((e.clientX - b.left) * sx - r.x) / r.w)), y: Math.max(0, Math.min(1, ((e.clientY - b.top) * sx - r.y) / r.h)) }; };
   o.addEventListener('pointerdown', e => {
     if (!E.rect) return; const h = e.target.closest('[data-h]');
-    if (h) { drag = { i: +h.dataset.i, k: h.dataset.h }; o.setPointerCapture(e.pointerId); e.preventDefault(); return; }
+    if (h) { drag = { i: +h.dataset.i, k: h.dataset.h }; if (drag.k === 'zm') { const q = frac(e), z = E.p.zooms[drag.i]; drag.dx = q.x - z.x; drag.dy = q.y - z.y; } o.setPointerCapture(e.pointerId); e.preventDefault(); return; }
+    if (E.addingZoom) { const q = frac(e); E.p.zooms.push({ x: cl(q.x - 0.11, 0, 0.78), y: cl(q.y - 0.11, 0, 0.78), w: 0.22, h: 0.22, label: '' }); E.addingZoom = false; side(); redraw(); return; }
     if (!E.adding) return; const p = frac(e); const nx = Math.max(0.08, Math.min(0.92, p.x + (p.x > 0.5 ? -0.22 : 0.22))), ny = Math.max(0.08, Math.min(0.92, p.y + (p.y > 0.3 ? -0.2 : 0.2)));
     E.p.marks.push({ tx: p.x, ty: p.y, nx, ny, label: '', sub: '' }); E.adding = false; side(); redraw(); setTimeout(() => { const L = document.querySelectorAll('#geSide [data-ml]'); if (L.length) L[L.length - 1].focus(); }, 50);
   });
-  o.addEventListener('pointermove', e => { if (!drag) return; const p = frac(e), m = E.p.marks[drag.i]; if (drag.k === 't') { m.tx = p.x; m.ty = p.y; } else { m.nx = p.x; m.ny = p.y; } handles(); cancelAnimationFrame(E.raf); E.raf = requestAnimationFrame(redraw); });
+  o.addEventListener('pointermove', e => { if (!drag) return; const p = frac(e), m = E.p.marks[drag.i];
+    if (drag.k === 'zm') { const z = E.p.zooms[drag.i]; z.x = cl(p.x - drag.dx, 0, 1 - z.w); z.y = cl(p.y - drag.dy, 0, 1 - z.h); }
+    else if (drag.k === 'zr') { const z = E.p.zooms[drag.i]; z.w = cl(p.x - z.x, 0.06, 1 - z.x); z.h = cl(p.y - z.y, 0.06, 1 - z.y); }
+    else if (drag.k === 't') { m.tx = p.x; m.ty = p.y; } else { m.nx = p.x; m.ny = p.y; } handles(); cancelAnimationFrame(E.raf); E.raf = requestAnimationFrame(redraw); });
   o.addEventListener('pointerup', () => { if (drag) { drag = null; redraw(); } });
 }
+const cl = (v, a, b) => Math.max(a, Math.min(b, v));
 const snap = () => JSON.stringify(E.p);
 async function tryClose() { if (E && E.snap !== snap() && !(await X.askDiscard('Your changes to this page have not been saved.'))) return; close(); }
 function close(nav) { if (!E) return; $('ge').classList.remove('show'); E = null; if (nav !== true) Nav.closed('guide-ed'); view(); }
 function edit(p) {
   shell(); const isNew = !p; p = p ? JSON.parse(JSON.stringify(p)) : { id: uid(), order: pages().length + 1, title: '', photo: '', marks: [], lines: '', wide: false, codeBox: false };
-  p.marks = p.marks || []; E = { p, isNew, adding: false, rect: null }; E.snap = isNew ? '' : snap();
+  p.marks = p.marks || []; p.zooms = p.zooms || []; p.docIds = p.docIds || []; E = { p, isNew, adding: false, addingZoom: false, rect: null }; E.snap = isNew ? '' : snap();
   Nav.open('guide-ed', () => close(true)); $('ge').classList.add('show'); $('geSave').style.display = $('geDel').style.display = can.edit() ? '' : 'none';
   side(); redraw();
 }
@@ -119,49 +136,101 @@ async function redraw() { if (!E) return; const tok = (E.tok = (E.tok || 0) + 1)
 function handles() {
   const o = $('geO'), r = E.rect; if (!r || !can.edit()) { o.innerHTML = ''; return; }
   const pc = (x, y) => `left:${(r.x + x * r.w) / W * 100}%;top:${(r.y + y * r.h) / H * 100}%`;
-  o.innerHTML = `<div class="gphoto${E.adding ? ' adding' : ''}" style="left:${r.x / W * 100}%;top:${r.y / H * 100}%;width:${r.w / W * 100}%;height:${r.h / H * 100}%"></div>` + E.p.marks.map((m, i) => `<div class="gh gt" data-h="t" data-i="${i}" style="${pc(m.tx, m.ty)}" title="Drag the arrow tip onto the item"></div><div class="gh gn" data-h="n" data-i="${i}" style="${pc(m.nx, m.ny)}" title="Drag the number clear of the item"></div>`).join('');
+  o.innerHTML = `<div class="gphoto${E.adding || E.addingZoom ? ' adding' : ''}" style="left:${r.x / W * 100}%;top:${r.y / H * 100}%;width:${r.w / W * 100}%;height:${r.h / H * 100}%"></div>`
+    + (E.p.zooms || []).map((z, i) => `<div class="gz" data-h="zm" data-i="${i}" title="Drag to move the close-up area" style="left:${(r.x + z.x * r.w) / W * 100}%;top:${(r.y + z.y * r.h) / H * 100}%;width:${z.w * r.w / W * 100}%;height:${z.h * r.h / H * 100}%"><i class="gzr" data-h="zr" data-i="${i}" title="Drag to resize"></i></div>`).join('')
+    + E.p.marks.map((m, i) => `<div class="gh gt" data-h="t" data-i="${i}" style="${pc(m.tx, m.ty)}" title="Drag the arrow tip onto the item"></div><div class="gh gn" data-h="n" data-i="${i}" style="${pc(m.nx, m.ny)}" title="Drag the number clear of the item"></div>`).join('');
 }
 function side() {
   const p = E.p, ro = !can.edit();
   $('geSide').innerHTML = `${ro ? '' : `<div class="gtalk"><h4>🎤 Talk it through</h4><p class="muted small">Stand at the item, take the photo, then say what it is and how residents use it. Claude writes the page: title, pointers on the photo and short lines.</p>
     <textarea id="geTk" rows="3" placeholder="e.g. This is the oven. Dial on the left is the function, right is temperature. Timer in the middle. Child lock: hold the key for three seconds.">${esc(E.talk || '')}</textarea>
     <p class="gtbtn"><button class="mini" id="geMic">🎤 Speak</button> <button class="mini go" id="geAi">✨ Write this page</button> <span class="muted small" id="geSt"></span></p></div>`}<label class="f">Page title<input id="geT" value="${esc(p.title)}" placeholder="e.g. Oven"></label>
-    <h4>Photo</h4><p><button class="mini" id="geP">${p.photo ? 'Replace the photo' : '⬆ Add a photo'}</button> ${p.photo ? '<button class="mini" id="gePx">Remove</button>' : ''}<input type="file" id="gePF" accept="image/*" hidden></p>
+    <h4>Photo</h4><p><button class="mini" id="geP">${p.photo ? 'Replace the photo' : '⬆ Add a photo'}</button> ${p.photo && !ro ? '<button class="mini" id="geDraw" title="Circle, arrow, box, text and freehand, the same tools as on defect photos">✏ Draw on the photo</button>' : ''} ${p.photoOrig && !ro ? '<button class="mini" id="geUndraw">↩ Remove the drawing</button>' : ''} ${p.photo ? '<button class="mini" id="gePx">Remove</button>' : ''}<input type="file" id="gePF" accept="image/*" hidden></p>
     <label class="dvall"><input type="checkbox" id="geW" ${p.wide ? 'checked' : ''}> Full-width photo (for plans and wide pictures)</label>
     <h4>Pointers</h4><p class="muted small">Press “Add a pointer”, then click the item in the photo. Drag the arrow tip onto the item and the number clear of it, so nothing is covered.</p>
     ${p.marks.map((m, i) => `<div class="gmark"><i>${i + 1}</i><div><input data-ml="${i}" value="${esc(m.label)}" placeholder="What it is, e.g. Timer"><input data-ms="${i}" value="${esc(m.sub)}" placeholder="What to do, in a few words"></div><button class="mini" data-mx="${i}" title="Remove">✕</button></div>`).join('')}
     ${p.photo && !ro ? `<p><button class="mini${E.adding ? ' on' : ''}" id="geAdd">${E.adding ? 'Now click the item in the photo…' : '+ Add a pointer'}</button></p>` : ''}
+    <h4>Close-ups</h4><p class="muted small">Show a small part of the photo larger, such as a dial or a control panel. Press “Add a close-up”, click the part, then drag the box to fit it.</p>
+    ${p.zooms.map((z, i) => `<div class="gmark"><i>🔍</i><div><input data-zl="${i}" value="${esc(z.label)}" placeholder="Caption, e.g. The heat dial: 1 is low, 9 is high"></div><button class="mini" data-zx="${i}" title="Remove">✕</button></div>`).join('')}
+    ${p.photo && !ro && p.zooms.length < 2 ? `<p><button class="mini${E.addingZoom ? ' on' : ''}" id="geZoom">${E.addingZoom ? 'Now click the part of the photo…' : '+ Add a close-up'}</button></p>` : ''}
+    <h4>Source documents</h4><p class="muted small">Link the manual or care guide for this item. The AI then writes the steps from it, and can check the page against it.</p>
+    ${linked().map(d => `<div class="aedoc">📄 <a href="#" data-gd="${esc(d.id)}">${esc(d.title || d.fileName)}</a>${ro ? '' : ` <button class="mini" data-gdx="${esc(d.id)}" title="Unlink">✕</button>`}</div>`).join('')}
+    ${ro ? '' : `${suggest().map(d => `<div class="aedoc small">Looks related: ${esc(d.title)} <button class="mini" data-gdl="${esc(d.id)}">Link it</button></div>`).join('')}
+    <input id="geDq" placeholder="Find a document: type part of its name"><div id="geDl"></div>
+    ${p.docIds.length ? '<p><button class="mini" id="geChk">✨ Check this page against the document</button> <span class="muted small" id="geChkSt"></span></p><div id="geChkOut"></div>' : ''}`}
     <h4>Short lines under the photo</h4><textarea id="geL" rows="5" placeholder="One line each. Start a line with ! to make it stand out.">${esc(p.lines)}</textarea>
     <label class="dvall"><input type="checkbox" id="geTb" ${p.table ? 'checked' : ''}> Show the lines as a table (first line is the heading, split columns with |)</label>
     <label class="dvall" style="margin-top:8px"><input type="checkbox" id="geCB" ${p.codeBox ? 'checked' : ''}> Show the unit's visitor code in a large box</label>
     <label class="f" style="margin-top:10px">Which guide<select id="geA"><option value="both" ${p.aud !== 'fm' ? 'selected' : ''}>Both guides (residents and facilities)</option><option value="fm" ${p.aud === 'fm' ? 'selected' : ''}>Facilities Guide only</option></select></label>
     <label class="f" style="margin-top:10px">Preview for unit<input id="geU" value="${esc(E.unit || '')}" placeholder="e.g. 15"></label>
     <p class="muted small">Keep it short: residents need to know what it is and what to do. {unit} and {code} are filled in for each unit.</p>`;
-  const upd = () => { p.title = $('geT').value; p.lines = $('geL').value; p.wide = $('geW').checked; p.codeBox = $('geCB').checked; p.table = $('geTb').checked; p.aud = $('geA').value; E.unit = $('geU').value.trim(); document.querySelectorAll('#geSide [data-ml]').forEach(i => p.marks[+i.dataset.ml].label = i.value); document.querySelectorAll('#geSide [data-ms]').forEach(i => p.marks[+i.dataset.ms].sub = i.value); clearTimeout(E.t); E.t = setTimeout(redraw, 250); };
-  $('geSide').querySelectorAll('input,textarea').forEach(i => { if (i.type !== 'file') i.oninput = i.onchange = upd; });
+  const upd = () => { p.title = $('geT').value; p.lines = $('geL').value; p.wide = $('geW').checked; p.codeBox = $('geCB').checked; p.table = $('geTb').checked; p.aud = $('geA').value; E.unit = $('geU').value.trim(); document.querySelectorAll('#geSide [data-ml]').forEach(i => p.marks[+i.dataset.ml].label = i.value); document.querySelectorAll('#geSide [data-ms]').forEach(i => p.marks[+i.dataset.ms].sub = i.value); document.querySelectorAll('#geSide [data-zl]').forEach(i => p.zooms[+i.dataset.zl].label = i.value); clearTimeout(E.t); E.t = setTimeout(redraw, 250); };
+  $('geSide').querySelectorAll('input,textarea').forEach(i => { if (i.type !== 'file' && i.id !== 'geDq') i.oninput = i.onchange = upd; });
+  $('geSide').querySelectorAll('[data-zx]').forEach(b => b.onclick = () => { upd(); p.zooms.splice(+b.dataset.zx, 1); side(); redraw(); });
+  if ($('geZoom')) $('geZoom').onclick = () => { upd(); E.addingZoom = !E.addingZoom; E.adding = false; side(); handles(); };
+  if ($('geDraw')) $('geDraw').onclick = async () => { upd(); let src = p.photo; try { if (!src.startsWith('data:')) src = await urlToDataUrl(src); } catch (e) { return toast('Could not open the photo for drawing: ' + e.message, 6000); }
+    markup(src, data => { if (!E) return; if (!p.photoOrig) p.photoOrig = p.photo; p.photo = data; side(); redraw(); }, p.title || 'Guide photo'); };
+  if ($('geUndraw')) $('geUndraw').onclick = () => { upd(); p.photo = p.photoOrig; delete p.photoOrig; side(); redraw(); };
+  // source documents
+  const linkDoc = id => { upd(); if (!p.docIds.includes(id)) p.docIds.push(id); side(); };
+  $('geSide').querySelectorAll('[data-gdl]').forEach(b => b.onclick = () => linkDoc(b.dataset.gdl));
+  $('geSide').querySelectorAll('[data-gdx]').forEach(b => b.onclick = () => { upd(); p.docIds = p.docIds.filter(i => i !== b.dataset.gdx); side(); });
+  $('geSide').querySelectorAll('[data-gd]').forEach(a => a.onclick = async e => { e.preventDefault(); const d = libDocs().find(x => x.id === a.dataset.gd); if (d) try { window.open(await S.store.resolveUrl(d.url), '_blank'); } catch (x) {} });
+  if ($('geDq')) $('geDq').oninput = () => { const q = $('geDq').value.trim().toLowerCase(); if (q.length < 2) { $('geDl').innerHTML = ''; return; }
+    const hits = libDocs().filter(d => !p.docIds.includes(d.id) && [d.title, d.fileName, d.party].join(' ').toLowerCase().includes(q)).slice(0, 8);
+    $('geDl').innerHTML = hits.map(d => `<div class="aehit" data-gdh="${esc(d.id)}">${esc(d.title || d.fileName)} <span class="muted small">${esc(d.type || '')}</span></div>`).join('') || '<p class="muted small">Nothing in the library matches.</p>';
+    $('geDl').querySelectorAll('[data-gdh]').forEach(x => x.onclick = () => linkDoc(x.dataset.gdh)); };
+  if ($('geChk')) $('geChk').onclick = () => { upd(); checkPage(); };
   $('geSide').querySelectorAll('[data-mx]').forEach(b => b.onclick = () => { upd(); p.marks.splice(+b.dataset.mx, 1); side(); redraw(); });
   if ($('geAdd')) $('geAdd').onclick = () => { upd(); E.adding = !E.adding; side(); handles(); };
   if ($('geTk')) { $('geTk').oninput = () => { E.talk = $('geTk').value; };
     $('geMic').onclick = () => dictate($('geTk'), $('geMic'), (m, bad) => { $('geSt').textContent = m || ''; $('geSt').style.color = bad ? '#c0392b' : ''; }, () => { E.talk = $('geTk').value; });
     $('geAi').onclick = () => { upd(); writePage(); }; }
-  $('geP').onclick = () => $('gePF').click(); if ($('gePx')) $('gePx').onclick = () => { upd(); p.photo = ''; p.marks = []; side(); redraw(); };
-  $('gePF').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; upd(); const b = busy('Preparing the photo…'); try { p.photo = (await compressImage(f, 1600, 0.82)).dataUrl; b.done(); side(); redraw(); } catch (x) { b.done(); toast('Could not read that photo: ' + x.message, 5000); } };
+  $('geP').onclick = () => $('gePF').click(); if ($('gePx')) $('gePx').onclick = () => { upd(); p.photo = ''; p.marks = []; p.zooms = []; delete p.photoOrig; side(); redraw(); };
+  $('gePF').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; upd(); const b = busy('Preparing the photo…'); try { p.photo = (await compressImage(f, 1600, 0.82)).dataUrl; delete p.photoOrig; b.done(); side(); redraw(); } catch (x) { b.done(); toast('Could not read that photo: ' + x.message, 5000); } };
+}
+// The documents a page is written from: manuals, care guides, product data and warranties in the library
+const libDocs = () => ((S.fm && S.fm.docs) || []).filter(d => d.url && !d.superseded && !d.restricted);
+const linked = () => (E.p.docIds || []).map(id => libDocs().find(d => d.id === id)).filter(Boolean);
+const GWORDS = new Set(['your', 'the', 'and', 'for', 'unit', 'units', 'how', 'use', 'using', 'with', 'page', 'guide', 'home', 'new']);
+function suggest() { const p = E.p; if ((p.docIds || []).length) return [];
+  const ws = [...new Set((p.title + ' ' + (E.talk || '')).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3 && !GWORDS.has(w)))]; if (!ws.length) return [];
+  return libDocs().filter(d => /manual|care|maintenance|product data|warrant/i.test(d.type || '')).map(d => { const t = (d.title || '').toLowerCase(); return [d, ws.filter(w => t.includes(w) || t.includes(w.replace(/s$/, ''))).length + (/manual|care/i.test(d.type || '') ? 0.5 : 0)]; }).filter(x => x[1] >= 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]); }
+async function docsText(max = 7000) { let out = ''; const scans = [];
+  for (const d of linked().slice(0, 3)) { let t = ''; try { t = await FT.textOf(await X.getBytes(d.url), d.fileName || 'x.pdf', max); } catch (e) {} if (t.trim().length > 80) out += `\n--- ${d.title} (${d.type || ''})\n${t}\n`; else scans.push(d.title); }
+  return { text: out, scans }; }
+// The AI compares the page with the linked documents and lists anything that does not match or is missing
+async function checkPage() {
+  const st = $('geChkSt'), outEl = $('geChkOut'), p = E.p; st.textContent = 'Reading the document…'; $('geChk').disabled = true; outEl.innerHTML = '';
+  try { const { text, scans } = await docsText(9000); if (!text) throw new Error(scans.length ? 'the linked document is a scan with no readable text' : 'no document could be read');
+    st.textContent = 'Checking…';
+    const ans = await aiCall(`You check one page of a Home User Guide for residents (older New Zealanders) against the manufacturer's documents. The page must be right, short and safe.
+THE PAGE: title "${p.title}"; pointers ${JSON.stringify(p.marks.map(m => ({ label: m.label, sub: m.sub })))}; close-up captions ${JSON.stringify(p.zooms.map(z => z.label))}; lines ${JSON.stringify(p.lines)}.
+THE DOCUMENTS:${text.slice(0, 26000)}
+List only real problems: a step, button name, time, setting or number on the page that differs from the documents; an important safety point or everyday step from the documents that is missing; anything on the page the documents do not support. Do not ask for more detail than a resident needs. New Zealand English, no em dashes.
+Return JSON only: {"ok": true or false, "issues": [{"what": "the problem in one short sentence", "fix": "the corrected wording to use"}]}`);
+    const j = JSON.parse(String(ans).replace(/^[^{]*/, '').replace(/[^}]*$/, '')), I = (j.issues || []).slice(0, 8);
+    st.textContent = ''; outEl.innerHTML = I.length ? `<div class="gchk">${I.map(x => `<div><b>${esc(x.what || '')}</b>${x.fix ? `<br><span class="small">Use: ${esc(x.fix)}</span>` : ''}</div>`).join('')}</div>` : '<p class="ok small">✔ The page matches the document.</p>';
+    if (scans.length) outEl.insertAdjacentHTML('beforeend', `<p class="muted small">Not read (scanned, no text): ${esc(scans.join('; '))}</p>`);
+  } catch (e) { st.textContent = ''; toast('Could not check the page: ' + (e.message === 'nokey' ? 'set up the AI helper first' : e.message), 7000); } finally { if ($('geChk')) $('geChk').disabled = false; }
 }
 // Claude turns what was said at the item (and the photo) into a guide page: title, pointers placed on the photo, short lines.
 async function writePage() {
   stopDictation(); const p = E.p, talk = ($('geTk').value || '').trim(); E.talk = talk;
-  if (!talk && !p.photo) return toast('Take the photo and say a few words about the item first');
+  if (!talk && !p.photo && !p.docIds.length) return toast('Take the photo and say a few words about the item first');
   const st = $('geSt'); st.style.color = ''; st.textContent = 'Claude is writing the page…'; $('geAi').disabled = true;
   try {
     let img = ''; if (p.photo) { try { img = p.photo.startsWith('data:') ? p.photo : await urlToDataUrl(p.photo); } catch (e) { img = ''; } }
-    const pj = S.project || {}, g = cfg();
+    const pj = S.project || {}, g = cfg(); let src = { text: '', scans: [] }; if (p.docIds.length) { st.textContent = 'Reading the linked document…'; src = await docsText(); st.textContent = 'Claude is writing the page…'; }
     const prompt = `You write one page of a Home User Guide for residents of a new apartment for older people. ${pj.aiContext ? 'PROJECT KNOWLEDGE: ' + String(pj.aiContext).slice(0, 12000) + '\n' : ''}
 Residents are older New Zealanders. Write plainly and warmly, New Zealand English, no em dashes, no jargon. One topic per page. Say what it is and what to do, never how it is built.
 They call ${g.org || 'Haumaru Housing'}${g.phone ? ' on ' + g.phone : ''} if something is not working; never tell them to fix, open or adjust anything themselves beyond normal use. Use {unit} or {code} only if the unit number or visitor code is needed.
 CURRENT PAGE: title "${p.title || ''}"; pointers: ${JSON.stringify((p.marks || []).map(m => ({ label: m.label, sub: m.sub })))}; lines: ${JSON.stringify(p.lines || '')}.
 WHAT TONY SAID AT THE ITEM: ${talk || '(nothing; work from the photo)'}
+${src.text ? "THE MANUFACTURER'S DOCUMENTS FOR THIS ITEM (take the exact steps, button names, hold times and safety points from these; do not invent any):" + src.text.slice(0, 20000) : ''}
 ${img ? 'The photo of the item is attached.' : 'There is no photo yet, so return no pointers.'}
-Return JSON only: {"title":"2 to 4 words","marks":[{"label":"what it is, 1 to 3 words","sub":"what to do, up to 7 words","x":0.0,"y":0.0}],"lines":["short line","..."]}
+Return JSON only: {"title":"2 to 4 words","marks":[{"label":"what it is, 1 to 3 words","sub":"what to do, up to 7 words","x":0.0,"y":0.0}],"lines":["short line","..."],"closeup":{"x":0.0,"y":0.0,"w":0.0,"h":0.0,"label":"short caption"}}
+"closeup" is optional: include it only when the controls or markings are too small to read in the photo. x,y is its top left corner and w,h its size, all as fractions of the photo; the caption says what the close-up shows and how to read it, in up to 12 words.
 Rules: up to 6 pointers, each placed with x,y as fractions 0 to 1 of the photo width and height on the exact item, measured from the top left. Up to 5 lines, each under 14 words. Start a line with ! if it is about safety or something that must not be done. Keep anything in the current page that is still right, and use what Tony said where it differs.`;
     const out = String(await aiCall(prompt, img || undefined) || '').replace(/^```(?:json)?\s*|\s*```$/g, '');
     let j = null; try { j = JSON.parse(out); } catch (e) { const m = /\{[\s\S]*\}/.exec(out); if (m) j = JSON.parse(m[0]); }
@@ -169,7 +238,8 @@ Rules: up to 6 pointers, each placed with x,y as fractions 0 to 1 of the photo w
     if (j.title) p.title = String(j.title).slice(0, 60);
     if (Array.isArray(j.lines)) p.lines = j.lines.map(String).join('\n');
     if (p.photo && Array.isArray(j.marks) && j.marks.length) p.marks = j.marks.slice(0, 6).map(m => { const x = Math.max(0.02, Math.min(0.98, +m.x || 0.5)), y = Math.max(0.02, Math.min(0.98, +m.y || 0.5)); return { tx: x, ty: y, nx: Math.max(0.08, Math.min(0.92, x + (x > 0.5 ? -0.22 : 0.22))), ny: Math.max(0.08, Math.min(0.92, y + (y > 0.3 ? -0.2 : 0.2))), label: String(m.label || ''), sub: String(m.sub || '') }; });
-    side(); redraw(); const s2 = $('geSt'); if (s2) s2.textContent = 'Done. Check the pointers sit on the right things (drag them if not), then Save.';
+    const cu = j.closeup; if (p.photo && !p.zooms.length && cu && +cu.w > 0.04 && +cu.h > 0.04) { const w = cl(+cu.w, 0.06, 0.9), h = cl(+cu.h, 0.06, 0.9); p.zooms = [{ x: cl(+cu.x || 0, 0, 1 - w), y: cl(+cu.y || 0, 0, 1 - h), w, h, label: String(cu.label || '').slice(0, 120) }]; }
+    side(); redraw(); const s2 = $('geSt'); if (s2) s2.textContent = 'Done' + (src.text ? ', written from the linked document' : src.scans.length ? ' (the linked document is a scan and could not be read)' : '') + '. Check the pointers sit on the right things (drag them if not), then Save.';
   } catch (e) { const s2 = $('geSt'); if (s2) { s2.style.color = '#c0392b'; s2.textContent = e.message === 'nokey' ? 'Set up the AI helper first (Menu).' : e.message === 'offline' ? 'No connection. Your words are kept; try again when you have reception.' : 'Could not write the page: ' + e.message; } }
   finally { const b = $('geAi'); if (b) b.disabled = false; }
 }
@@ -177,6 +247,7 @@ async function save() {
   const p = E.p; if (!p.title.trim()) return toast('Give the page a title');
   const b = busy('Saving…');
   try { if (p.photo && p.photo.startsWith('data:')) { const src = p.photo; p.photo = await S.store.putFile(`projects/${S.project.id}/docs/guide-${p.id}/photo-${Date.now()}.jpg`, dataUrlToBlob(src), true); imgCache[p.photo] = imgCache[src]; }
+    if (p.photoOrig && p.photoOrig.startsWith('data:')) p.photoOrig = await S.store.putFile(`projects/${S.project.id}/docs/guide-${p.id}/photo-orig-${Date.now()}.jpg`, dataUrlToBlob(p.photoOrig), true);
     await S.store.saveItem(S.project.id, 'guide', { ...p, updated: new Date().toISOString(), updatedBy: S.user.email }); b.done(); toast('Saved'); E.snap = snap(); close(); }
   catch (e) { b.done(); toast('Could not save: ' + e.message, 6000); }
 }
