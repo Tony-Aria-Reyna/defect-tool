@@ -51,15 +51,20 @@ export async function draw(cv, pg, unit) {
     // close-ups: part of the photo shown larger under it, joined to where it came from
     const Z = (pg.zooms || []).slice(0, 2);
     // with the key beside the photo, the close-ups sit under the photo in the left column, so they do not wait for the key to end
-    const keyEnd = y; if (Z.length && side) y = r.y + r.h + 60;
-    if (Z.length) { const gap = 30, n = Z.length, colW = side ? r.w : W - PX * 2, maxW = n === 1 ? Math.min(560, colW) : (colW - gap) / 2, maxH = Math.max(180, Math.min(400, H - 190 - y - 260)); let x = PX, rowH = 0, capB = 0;
-      const B = Z.map(z => { const sw = z.w * img.width, sh = z.h * img.height, sc = Math.min(maxW / sw, maxH / sh); return { z, sw, sh, bw: Math.round(sw * sc), bh: Math.round(sh * sc) }; });
-      B.forEach((b, bi) => { ZR[bi] = { x, y, w: b.bw, h: b.bh }; const z = b.z, sx = r.x + z.x * r.w, sy = r.y + z.y * r.h, sW = z.w * r.w, sH = z.h * r.h;
-        for (const [col, wd] of [['#fff', 12], [RED, 5]]) { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(sx + sW / 2, sy + sH); c.lineTo(x + b.bw / 2, y); c.stroke(); c.beginPath(); c.roundRect(sx, sy, sW, sH, 10); c.stroke(); }
-        c.drawImage(img, z.x * img.width, z.y * img.height, b.sw, b.sh, x, y, b.bw, b.bh); c.strokeStyle = '#fff'; c.lineWidth = 12; c.strokeRect(x, y, b.bw, b.bh); c.strokeStyle = RED; c.lineWidth = 6; c.strokeRect(x, y, b.bw, b.bh);
-        const cap = fill(z.label, unit); if (cap) { const beside = n === 1 && !side, cx = beside ? x + b.bw + 34 : x, cw = beside ? W - PX - cx : maxW; let cy = beside ? y + 44 : y + b.bh + 48; c.fillStyle = NAVY; c.font = font(36, 1); for (const t of wrap(c, cap, cw)) { c.fillText(t, cx, cy); cy += 46; } if (!beside) capB = Math.max(capB, cy - (y + b.bh)); }
-        rowH = Math.max(rowH, b.bh); x += maxW + gap; });
-      y += rowH + capB + 50; if (side) y = Math.max(y, keyEnd); }
+    // a close-up you have placed by hand (px, py, pw as fractions of the page) stays there, even over the photo; the rest are laid out in a row
+    const keyEnd = y, n = Z.filter(z => z.px == null).length; if (n && side) y = r.y + r.h + 60;
+    if (Z.length) { const gap = 30, colW = side ? r.w : W - PX * 2, maxW = n <= 1 ? Math.min(560, colW) : (colW - gap) / 2, maxH = Math.max(180, Math.min(400, H - 190 - y - 260)); let x = PX, rowH = 0, capB = 0;
+      const edge = (R, tx, ty) => { const cx = R.x + R.w / 2, cy = R.y + R.h / 2, dx = tx - cx, dy = ty - cy, k = Math.min(dx ? R.w / 2 / Math.abs(dx) : 1e9, dy ? R.h / 2 / Math.abs(dy) : 1e9); return { x: cx + dx * k, y: cy + dy * k }; };
+      Z.forEach((z, bi) => { const sw = z.w * img.width, sh = z.h * img.height, fl = z.px != null, sc = fl ? z.pw * W / sw : Math.min(maxW / sw, maxH / sh), bw = Math.round(sw * sc), bh = Math.round(sh * sc), bx = fl ? z.px * W : x, by = fl ? z.py * H : y;
+        ZR[bi] = { x: bx, y: by, w: bw, h: bh }; const SR = { x: r.x + z.x * r.w, y: r.y + z.y * r.h, w: z.w * r.w, h: z.h * r.h }, apart = bx > SR.x + SR.w || bx + bw < SR.x || by > SR.y + SR.h || by + bh < SR.y;
+        const a = edge(SR, bx + bw / 2, by + bh / 2), e2 = edge(ZR[bi], SR.x + SR.w / 2, SR.y + SR.h / 2);
+        for (const [col, wd] of [['#fff', 12], [RED, 5]]) { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; if (apart) { c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(e2.x, e2.y); c.stroke(); } c.beginPath(); c.roundRect(SR.x, SR.y, SR.w, SR.h, 10); c.stroke(); }
+        c.drawImage(img, z.x * img.width, z.y * img.height, sw, sh, bx, by, bw, bh); c.strokeStyle = '#fff'; c.lineWidth = 12; c.strokeRect(bx, by, bw, bh); c.strokeStyle = RED; c.lineWidth = 6; c.strokeRect(bx, by, bw, bh);
+        const cap = fill(z.label, unit); if (cap) { const beside = !fl && n === 1 && !side, cx = beside ? bx + bw + 34 : bx, cw = beside ? W - PX - cx : fl ? Math.max(bw, 300) : maxW; let cy = beside ? by + 44 : by + bh + 48; c.font = font(36, 1); const L = wrap(c, cap, cw);
+          if (fl) { c.fillStyle = 'rgba(255,255,255,.88)'; c.fillRect(cx - 6, by + bh + 8, Math.max(...L.map(t => c.measureText(t).width)) + 12, L.length * 46 + 8); }
+          c.fillStyle = NAVY; for (const t of L) { c.fillText(t, cx, cy); cy += 46; } if (!beside && !fl) capB = Math.max(capB, cy - (by + bh)); }
+        if (!fl) { rowH = Math.max(rowH, bh); x += maxW + gap; } });
+      if (n) y += rowH + capB + 50; if (side) y = Math.max(y, keyEnd); }
     marks.forEach((m, i) => { const q = m.z != null && ZR[m.z]; if (!q) return; arrow(c, { x: q.x + m.nx * q.w, y: q.y + m.ny * q.h }, { x: q.x + m.tx * q.w, y: q.y + m.ty * q.h }); dot(c, q.x + m.nx * q.w, q.y + m.ny * q.h, i + 1); });
   }
   // step by step: numbered photos in two columns, each with what to do
@@ -81,14 +86,15 @@ export async function draw(cv, pg, unit) {
   } else
   for (let t of String(pg.lines || '').split('\n').map(s => s.trim()).filter(Boolean)) {
     const big = t.startsWith('!'); t = fill(t.replace(/^!\s*/, ''), unit); c.font = font(40, big);
+    if (y + 40 + (wrap(c, t, W - PX * 2 - 60).length - 1) * 56 > H - 185) { ZR.over = true; break; }   // no room left above the footer
     c.beginPath(); c.arc(PX + 14, y + 26, 10, 0, 7); c.fillStyle = big ? RED : NAVY; c.fill(); c.fillStyle = big ? NAVY : INK;
     for (const u of wrap(c, t, W - PX * 2 - 60)) { c.fillText(u, PX + 50, y + 40); y += 56; } y += 18;
   }
-  c.fillStyle = TEAL; c.fillRect(0, H - 170, W, 170); c.fillStyle = '#fff'; c.font = font(40, 1); c.fillText(g.footer || 'Something not working?', PX, H - 104); c.font = font(46, 1); c.fillText(`Call ${g.org || 'us'}  ${g.phone || ''}`.trim(), PX, H - 44);
+  c.fillStyle = TEAL; c.fillRect(0, H - 170, W, 170); c.fillStyle = '#fff'; c.font = font(40, 1); c.fillText(g.footer || 'Something not working?', PX, H - 104); { const hasQr = pg.qrUrl && pg.qr !== false, call = `Call ${g.org || 'us'}  ${g.phone || ''}`.trim(), room = (hasQr ? W - PX - 190 - 30 : W - PX) - PX; let fs = 46; c.font = font(fs, 1); while (fs > 30 && c.measureText(call).width > room) c.font = font(--fs, 1); c.fillText(call, PX, H - 44); }
   // a QR code to the item's manual: the link opens the document itself, with no sign-in
   if (pg.qrUrl && pg.qr !== false) { try { if (!window.qrcode) await loadScript('lib/qrcode.js'); const q = window.qrcode(0, 'L'); q.addData(pg.qrUrl); q.make(); const n = q.getModuleCount(), box = 190, bx = W - PX - box, by = H - 180, pad = 15, m = (box - pad * 2) / n;
     c.fillStyle = '#fff'; c.beginPath(); c.roundRect(bx, by, box, box, 10); c.fill(); c.fillStyle = '#000'; for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) c.fillRect(bx + pad + k * m, by + pad + r * m, m + 0.4, m + 0.4);
-    c.fillStyle = '#fff'; c.font = font(28, 1); c.textAlign = 'right'; c.fillText('Scan for', bx - 18, H - 96); c.fillText('the full manual', bx - 18, H - 60); c.textAlign = 'left'; } catch (e) { console.warn('qr', e); } }
+    c.fillStyle = '#fff'; c.font = font(28, 1); c.textAlign = 'right'; c.fillText('Scan for the full manual', bx - 18, H - 108); c.textAlign = 'left'; } catch (e) { console.warn('qr', e); } }
   return ZR;
 }
 
@@ -133,12 +139,19 @@ function shell() {
   const frac = (e, zi) => { const b = o.getBoundingClientRect(), r = zi != null && E.zr[zi] ? E.zr[zi] : E.rect, sx = W / b.width; return { x: Math.max(0, Math.min(1, ((e.clientX - b.left) * sx - r.x) / r.w)), y: Math.max(0, Math.min(1, ((e.clientY - b.top) * sx - r.y) / r.h)) }; };
   o.addEventListener('pointerdown', e => {
     if (!E.rect) return; const h = e.target.closest('[data-h]');
-    if (h) { drag = { i: +h.dataset.i, k: h.dataset.h }; if (drag.k === 'zm') { const q = frac(e), z = E.p.zooms[drag.i]; drag.dx = q.x - z.x; drag.dy = q.y - z.y; } o.setPointerCapture(e.pointerId); e.preventDefault(); return; }
+    const pgXY = ev => { const b = o.getBoundingClientRect(), sx = W / b.width; return { x: (ev.clientX - b.left) * sx, y: (ev.clientY - b.top) * sx }; };
+    if (h && (h.dataset.h === 'pm' || h.dataset.h === 'pr') && !E.adding) { const i = +h.dataset.i, z = E.p.zooms[i], q = E.zr[i], at = pgXY(e); if (!q) return;
+      if (z.px == null) { z.px = q.x / W; z.py = q.y / H; z.pw = q.w / W; }
+      drag = { i, k: h.dataset.h, dx: at.x - z.px * W, dy: at.y - z.py * H, pg: pgXY, ar: q.h / q.w }; o.setPointerCapture(e.pointerId); e.preventDefault(); return; }
+    if (h && h.dataset.h !== 'pm' && h.dataset.h !== 'pr') { drag = { i: +h.dataset.i, k: h.dataset.h }; if (drag.k === 'zm') { const q = frac(e), z = E.p.zooms[drag.i]; drag.dx = q.x - z.x; drag.dy = q.y - z.y; } o.setPointerCapture(e.pointerId); e.preventDefault(); return; }
     if (E.addingZoom) { const q = frac(e); E.p.zooms.push({ x: cl(q.x - 0.11, 0, 0.78), y: cl(q.y - 0.11, 0, 0.78), w: 0.22, h: 0.22, label: '' }); E.addingZoom = false; side(); redraw(); return; }
     if (!E.adding) return; const za = e.target.closest('[data-za]'), zi = za ? +za.dataset.za : null, p = frac(e, zi); const nx = Math.max(0.08, Math.min(0.92, p.x + (p.x > 0.5 ? -0.22 : 0.22))), ny = Math.max(0.08, Math.min(0.92, p.y + (p.y > 0.3 ? -0.2 : 0.2)));
     E.p.marks.push({ tx: p.x, ty: p.y, nx, ny, label: '', sub: '', ...(zi != null ? { z: zi } : {}) }); E.adding = false; side(); redraw(); setTimeout(() => { const L = document.querySelectorAll('#geSide [data-ml]'); if (L.length) L[L.length - 1].focus(); }, 50);
   });
   o.addEventListener('pointermove', e => { if (!drag) return; const m = E.p.marks[drag.i], p = frac(e, (drag.k === 't' || drag.k === 'n') && m && m.z != null ? m.z : null);
+    if (drag.k === 'pm' || drag.k === 'pr') { const z = E.p.zooms[drag.i], at = drag.pg(e);
+      if (drag.k === 'pm') { z.px = cl((at.x - drag.dx) / W, 0, 1 - z.pw); z.py = cl((at.y - drag.dy) / H, 100 / H, (H - 180 - z.pw * W * drag.ar) / H); } else z.pw = cl((at.x - z.px * W) / W, 0.1, Math.min(0.9, 1 - z.px));
+      cancelAnimationFrame(E.raf); E.raf = requestAnimationFrame(redraw); return; }
     if (drag.k === 'zm') { const z = E.p.zooms[drag.i]; z.x = cl(p.x - drag.dx, 0, 1 - z.w); z.y = cl(p.y - drag.dy, 0, 1 - z.h); }
     else if (drag.k === 'zr') { const z = E.p.zooms[drag.i]; z.w = cl(p.x - z.x, 0.025, 1 - z.x); z.h = cl(p.y - z.y, 0.025, 1 - z.y); }
     else if (drag.k === 't') { m.tx = p.x; m.ty = p.y; } else { m.nx = p.x; m.ny = p.y; } handles(); cancelAnimationFrame(E.raf); E.raf = requestAnimationFrame(redraw); });
@@ -156,12 +169,12 @@ function edit(p) {
   side(); redraw();
 }
 const ro0 = () => !can.edit();
-async function redraw() { if (!E) return; const tok = (E.tok = (E.tok || 0) + 1), cv = document.createElement('canvas'); const zr = await draw(cv, E.p, E.unit || ''); if (!E || tok !== E.tok) return; const c = $('geC'); c.width = W; c.height = H; c.getContext('2d').drawImage(cv, 0, 0); const img = await loadImg(E.p.photo); E.rect = photoRect(E.p, img); E.zr = zr || []; handles(); }
+async function redraw() { if (!E) return; const tok = (E.tok = (E.tok || 0) + 1), cv = document.createElement('canvas'); const zr = await draw(cv, E.p, E.unit || ''); if (!E || tok !== E.tok) return; const c = $('geC'); c.width = W; c.height = H; c.getContext('2d').drawImage(cv, 0, 0); const img = await loadImg(E.p.photo); E.rect = photoRect(E.p, img); E.zr = zr || []; handles(); if (E.zr.over && !E.over) toast('The page is full: the last lines do not fit above the footer. Shorten the text, or make the photo or close-up smaller.', 8000); E.over = !!E.zr.over; }
 function handles() {
   const o = $('geO'), r = E.rect; if (!r || !can.edit()) { o.innerHTML = ''; return; }
   const pc = (x, y, m) => { const q = m && m.z != null && E.zr[m.z] ? E.zr[m.z] : r; return `left:${(q.x + x * q.w) / W * 100}%;top:${(q.y + y * q.h) / H * 100}%`; };
   o.innerHTML = `<div class="gphoto${E.adding || E.addingZoom ? ' adding' : ''}" style="left:${r.x / W * 100}%;top:${r.y / H * 100}%;width:${r.w / W * 100}%;height:${r.h / H * 100}%"></div>`
-    + (E.zr || []).map((q, i) => `<div class="gphoto${E.adding ? ' adding' : ''}" data-za="${i}" style="left:${q.x / W * 100}%;top:${q.y / H * 100}%;width:${q.w / W * 100}%;height:${q.h / H * 100}%"></div>`).join('')
+    + (E.zr || []).map((q, i) => `<div class="gphoto gzi${E.adding ? ' adding' : ''}" data-za="${i}" data-h="pm" data-i="${i}" title="Drag to move the close-up anywhere on the page" style="left:${q.x / W * 100}%;top:${q.y / H * 100}%;width:${q.w / W * 100}%;height:${q.h / H * 100}%"><i class="gzr" data-h="pr" data-i="${i}" title="Drag to make the close-up bigger or smaller"></i></div>`).join('')
     + (E.p.zooms || []).map((z, i) => `<div class="gz" data-h="zm" data-i="${i}" title="Drag to move the close-up area" style="left:${(r.x + z.x * r.w) / W * 100}%;top:${(r.y + z.y * r.h) / H * 100}%;width:${z.w * r.w / W * 100}%;height:${z.h * r.h / H * 100}%"><i class="gzr" data-h="zr" data-i="${i}" title="Drag to resize"></i></div>`).join('')
     + E.p.marks.map((m, i) => `<div class="gh gt" data-h="t" data-i="${i}" style="${pc(m.tx, m.ty, m)}" title="Drag the arrow tip onto the item"></div><div class="gh gn" data-h="n" data-i="${i}" style="${pc(m.nx, m.ny, m)}" title="Drag the number clear of the item"></div>`).join('');
 }
@@ -180,7 +193,8 @@ function side() {
     ${p.steps.map((t, i) => `<div class="gmark"><i>${i + 1}</i><div>${t.photo ? `<img src="${esc(t.photo.startsWith('data:') ? t.photo : '')}" data-sti="${i}" class="gstim">` : ''}<input data-st="${i}" value="${esc(t.text)}" placeholder="What to do, e.g. Lift the frame up"><span><button class="mini" data-stc="${i}">📷 Take</button> <button class="mini" data-stp="${i}">Choose</button>${t.photo ? ` <button class="mini" data-std="${i}">✏ Draw</button>` : ''}</span></div><button class="mini" data-stx="${i}" title="Remove">✕</button></div>`).join('')}
     ${ro || p.steps.length >= 6 ? '' : '<p><button class="mini" id="geStA">+ Add a step</button></p>'}<input type="file" id="geStF" accept="image/*" hidden><input type="file" id="geStC" accept="image/*" capture="environment" hidden>
     <h4>Close-ups</h4><p class="muted small">Show a small part of the photo larger, such as a dial or a control panel. Press “Add a close-up”, click the part, then drag the box to fit it.</p>
-    ${p.zooms.map((z, i) => `<div class="gmark"><i>🔍</i><div><input data-zl="${i}" value="${esc(z.label)}" placeholder="Caption, e.g. The heat dial: 1 is low, 9 is high"></div><button class="mini" data-zx="${i}" title="Remove">✕</button></div>`).join('')}
+    ${p.zooms.map((z, i) => `<div class="gmark"><i>🔍</i><div><input data-zl="${i}" value="${esc(z.label)}" placeholder="Caption, e.g. The heat dial: 1 is low, 9 is high"></div>${z.px != null && !ro ? `<button class="mini" data-za0="${i}" title="Put it back under the photo automatically">↺</button>` : ''}<button class="mini" data-zx="${i}" title="Remove">✕</button></div>`).join('')}
+    ${p.zooms.length && !ro ? '<p class="muted small">Drag the enlarged close-up on the page to move it anywhere, including over the photo. Drag its corner to resize it. ↺ puts it back under the photo.</p>' : ''}
     ${p.photo && !ro && p.zooms.length < 2 ? `<p><button class="mini${E.addingZoom ? ' on' : ''}" id="geZoom">${E.addingZoom ? 'Now click the part of the photo…' : '+ Add a close-up'}</button></p>` : ''}
     <h4>Source documents</h4><p class="muted small">Link the manual or care guide for this item. The AI then writes the steps from it, and can check the page against it.</p>
     ${linked().map(d => `<div class="aedoc">📄 <a href="#" data-gd="${esc(d.id)}">${esc(d.title || d.fileName)}</a>${ro ? '' : ` <button class="mini" data-gdx="${esc(d.id)}" title="Unlink">✕</button>`}</div>`).join('')}
@@ -206,6 +220,7 @@ function side() {
   $('geSide').querySelectorAll('[data-stx]').forEach(b => b.onclick = () => { upd(); p.steps.splice(+b.dataset.stx, 1); side(); redraw(); });
   $('geSide').querySelectorAll('[data-std]').forEach(b => b.onclick = async () => { upd(); const t = p.steps[+b.dataset.std]; let src = t.photo; try { if (!src.startsWith('data:')) src = await urlToDataUrl(src); } catch (e) { return toast('Could not open the photo: ' + e.message, 6000); } markup(src, d => { if (!E) return; t.photo = d; side(); redraw(); }, (p.title || 'Guide') + ' step ' + (+b.dataset.std + 1)); });
   $('geSide').querySelectorAll('[data-sti]').forEach(async im => { if (!im.src || im.src === location.href) { try { im.src = await S.store.resolveUrl(p.steps[+im.dataset.sti].photo); } catch (e) {} } });
+  $('geSide').querySelectorAll('[data-za0]').forEach(b => b.onclick = () => { upd(); const z = p.zooms[+b.dataset.za0]; delete z.px; delete z.py; delete z.pw; side(); redraw(); });
   if ($('geZoom')) $('geZoom').onclick = () => { upd(); E.addingZoom = !E.addingZoom; E.adding = false; side(); handles(); };
   if ($('geDraw')) $('geDraw').onclick = async () => { upd(); let src = p.photo; try { if (!src.startsWith('data:')) src = await urlToDataUrl(src); } catch (e) { return toast('Could not open the photo for drawing: ' + e.message, 6000); }
     markup(src, data => { if (!E) return; if (!p.photoOrig) p.photoOrig = p.photo; p.photo = data; side(); redraw(); }, p.title || 'Guide photo'); };

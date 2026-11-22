@@ -737,3 +737,4 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .gstim{width:90px;height:68px;object-fit:cover;border-radius:6px;display:block;margin-bottom:4px}
 #geTab{display:none}
 @media(max-width:800px){#ge .dvside{max-height:none;flex:0 0 var(--gs,45%)}#geTab{display:flex;align-items:center;justify-content:center;gap:14px;flex:0 0 auto;background:#fff;border-top:1px solid var(--line);padding:3px 0;font-size:12px;color:#556}#geTab button{border:1px solid var(--line);background:#f4f7fa;border-radius:14px;padding:5px 16px;font-size:15px;font-weight:700;color:var(--navy)}#geTab i{font-style:normal}}
+.gzi{touch-action:none;cursor:move}.gzi.adding{cursor:crosshair}
