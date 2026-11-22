@@ -121,10 +121,12 @@ function settings() {
 function shell() {
   if ($('ge')) return; const el = document.createElement('div'); el.id = 'ge';
   el.innerHTML = `<div class="dvh"><button id="geX">‹ Back</button><b>Guide page</b><span class="sp"></span><button id="geZo" class="ic" title="Zoom out">−</button><button id="geZi" class="ic" title="Zoom in, to place pointers and close-ups exactly">＋</button><button id="geDel" class="ic" title="Delete this page">🗑</button><button id="geSave" class="go">Save</button></div>
-    <div class="dvb"><div class="dvpage" id="geScroll"><div id="geWrap"><canvas id="geC"></canvas><div id="geO"></div></div></div><aside class="dvside" id="geSide"></aside></div>`;
+    <div class="dvb"><div class="dvpage" id="geScroll"><div id="geWrap"><canvas id="geC"></canvas><div id="geO"></div></div></div><div id="geTab"><button id="geTU" title="Show more of the page">▼</button><i>page / editing</i><button id="geTD" title="Show more of the editing panel">▲</button></div><aside class="dvside" id="geSide"></aside></div>`;
   document.body.appendChild(el);
   let zm = 1; const zoom = k => { const sc = $('geScroll'), w = $('geWrap'), cx = (sc.scrollLeft + sc.clientWidth / 2) / w.offsetWidth, cy = (sc.scrollTop + sc.clientHeight / 2) / w.offsetHeight;
     zm = Math.max(1, Math.min(5, zm * k)); w.style.maxWidth = (760 * zm) + 'px'; w.style.width = zm > 1 ? (760 * zm) + 'px' : ''; sc.scrollLeft = cx * w.offsetWidth - sc.clientWidth / 2; sc.scrollTop = cy * w.offsetHeight - sc.clientHeight / 2; };
+  const SZ = ['12%', '28%', '45%', '70%']; let si = 2; const setSz = d => { si = Math.max(0, Math.min(SZ.length - 1, si + d)); el.style.setProperty('--gs', SZ[si]); };
+  $('geTU').onclick = () => setSz(-1); $('geTD').onclick = () => setSz(1);
   $('geZi').onclick = () => zoom(1.5); $('geZo').onclick = () => zoom(1 / 1.5);
   $('geX').onclick = tryClose; $('geSave').onclick = save; $('geDel').onclick = async () => { if (E.isNew) return close(); if (!(await confirmBox('Delete this page of the guide?', 'Delete'))) return; await S.store.deleteItem(S.project.id, 'guide', E.p.id); toast('Deleted'); close(); };
   const o = $('geO'); let drag = null;
