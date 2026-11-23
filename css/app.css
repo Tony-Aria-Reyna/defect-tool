@@ -770,3 +770,6 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .smcats{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.smcats .mini.on{background:var(--navy);color:#fff}
 .smff{display:flex;gap:6px;margin-bottom:8px}.smff input{flex:1;min-width:0;padding:7px;border:1px solid var(--line);border-radius:7px}
 .smres{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}.smres small{display:block;color:#666}
+.smlbl{position:absolute;height:20px;line-height:20px;font:600 12px "Segoe UI",system-ui,-apple-system,Arial;color:#1a1a1a;background:rgba(255,255,255,.93);border-radius:5px;box-shadow:0 1px 3px #0003;text-align:center;white-space:nowrap;padding:0 6px;box-sizing:border-box}
+.smlbl.on{background:#FFF3C4;outline:2px solid #FFC400}
+.smlead{position:absolute;height:1.5px;background:rgba(23,43,77,.8);transform-origin:0 50%}

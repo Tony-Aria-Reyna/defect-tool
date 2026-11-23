@@ -95,7 +95,7 @@ export async function view(onBack) {
   setBase(M.base);
   map.createPane('plan').style.zIndex = 250; map.getPane('plan').style.pointerEvents = 'none';
   layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map); hl = L.layerGroup().addTo(map); ovImg = null; V.adj = keepAdj; keepAdj = false; crop = null; pinMode = false;
-  map.on('zoomend viewreset', ovPaint);
+  map.on('zoomend viewreset', ovPaint); map.createPane('lbl').style.zIndex = 640; map.getPane('lbl').style.pointerEvents = 'none'; map.on('zoomend viewreset', () => labels());
   map.on('click', onClick); map.on('dblclick', () => { if (crop) return cropFinish(); draw && finish(); });
   map.on('moveend', () => { const c = map.getCenter(); M.view = { center: [c.lat, c.lng], zoom: map.getZoom() }; });
   $('smA').onclick = () => { setBase('aerial'); $('smA').classList.add('on'); $('smS').classList.remove('on'); if (ed()) { M.base = 'aerial'; save(); } };
@@ -251,8 +251,54 @@ function cropEnd() { crop = null; tmp.clearLayers(); $('smMap') && $('smMap').cl
 function setBase(k) { if (base) map.removeLayer(base); const b = BASES[k] || BASES.aerial; base = L.tileLayer(b.url, { maxZoom: b.max, maxNativeZoom: b.nat, attribution: b.attr, crossOrigin: 'anonymous' }).addTo(map); }
 
 const icon = (f, n) => { const t = T(f), on = sel === f.id; return L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: `<div class="smpin${on ? ' on' : ''}" style="background:${t.color}">${esc(t.sym || '•')}${n ? `<b>${n}</b>` : ''}</div>` }); };
+/* ---------- labels that never sit on each other or on a pin: each label tries spots around its pin (nearest first), then further out with a
+   thin leader line; if nothing fits it is left off (on screen it shows when you hover the pin) ---------- */
+const MC = document.createElement('canvas').getContext('2d');
+function anchorOf(f, P) {   // P: points in screen units
+  const k = T(f).kind; if (k === 'point') return P[0];
+  if (k === 'line') { let tot = 0; const seg = []; for (let i = 1; i < P.length; i++) { const d = Math.hypot(P[i].x - P[i - 1].x, P[i].y - P[i - 1].y); seg.push(d); tot += d; } let h = tot / 2; for (let i = 1; i < P.length; i++) { if (h <= seg[i - 1]) { const r = h / (seg[i - 1] || 1); return { x: P[i - 1].x + (P[i].x - P[i - 1].x) * r, y: P[i - 1].y + (P[i].y - P[i - 1].y) * r }; } h -= seg[i - 1]; } return P[0]; }
+  let a = 0, cx = 0, cy = 0; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const cr = P[j].x * P[i].y - P[i].x * P[j].y; a += cr; cx += (P[j].x + P[i].x) * cr; cy += (P[j].y + P[i].y) * cr; }
+  return Math.abs(a) > 1 ? { x: cx / (3 * a), y: cy / (3 * a) } : P.reduce((m, q) => ({ x: m.x + q.x / P.length, y: m.y + q.y / P.length }), { x: 0, y: 0 });
+}
+// items: [{ id, text, x, y, pin }] in priority order; pins: [{ x, y }] obstacles; s: scale (1 on screen, 2 in pictures)
+function layout(items, pins, s, W, H, font) {
+  MC.font = font; const R = 17 * s, hgt = 20 * s, gap = 3 * s, boxes = [], out = {};
+  const hit = b => boxes.some(o => b.x < o.x + o.w + gap && b.x + b.w + gap > o.x && b.y < o.y + o.h + gap && b.y + b.h + gap > o.y)
+    || pins.some(q => { const nx = Math.max(b.x, Math.min(q.x, b.x + b.w)), ny = Math.max(b.y, Math.min(q.y, b.y + b.h)); return Math.hypot(q.x - nx, q.y - ny) < R; })
+    || (W && (b.x < 2 || b.y < 2 || b.x + b.w > W - 2 || b.y + b.h > H - 2));
+  // a leader line must not run through another pin
+  const crosses = (it, b) => { const ex = Math.max(b.x, Math.min(it.x, b.x + b.w)), ey = Math.max(b.y, Math.min(it.y, b.y + b.h)), dx = ex - it.x, dy = ey - it.y, L2 = dx * dx + dy * dy || 1;
+    return pins.some(q => { if (Math.hypot(q.x - it.x, q.y - it.y) < 1) return false; const t = Math.max(0, Math.min(1, ((q.x - it.x) * dx + (q.y - it.y) * dy) / L2)); return Math.hypot(it.x + t * dx - q.x, it.y + t * dy - q.y) < R * 0.9; }); };
+  for (const it of items) {
+    const w = MC.measureText(it.text).width + 12 * s; let got = null;
+    const rings = it.pin ? [R + 3 * s, R + 26 * s, R + 54 * s, R + 86 * s, R + 124 * s] : [0, 24 * s, 50 * s, 80 * s, 120 * s];
+    for (const pass of [0, 1]) for (const d of rings) { if (got) break;
+      const c = d === 0 ? [[it.x - w / 2, it.y - hgt / 2]] : [[it.x + d, it.y - hgt / 2], [it.x - d - w, it.y - hgt / 2], [it.x - w / 2, it.y - d - hgt], [it.x - w / 2, it.y + d], [it.x + d * 0.7, it.y - d * 0.7 - hgt], [it.x + d * 0.7, it.y + d * 0.7], [it.x - d * 0.7 - w, it.y - d * 0.7 - hgt], [it.x - d * 0.7 - w, it.y + d * 0.7]];
+      for (const [x, y] of c) { const b = { x, y, w, h: hgt }, lead = it.pin ? d > R + 3 * s : d > 0; if (hit(b) || (lead && !pass && crosses(it, b))) continue; got = { ...b, lead }; break; } }
+    if (got) { boxes.push(got); out[it.id] = got; }
+  }
+  return out;
+}
+const LBL_FONT = '600 12px "Segoe UI", system-ui, -apple-system, Arial';
+let LYR = {};
+function labels() {
+  const pane = map.getPane('lbl'); pane.innerHTML = ''; Object.values(LYR).forEach(g => g.unbindTooltip && g.unbindTooltip());
+  if (!V.labels) return;
+  const F = M.feats.filter(shown), proj = ll => map.latLngToLayerPoint(ll), pins = F.filter(f => T(f).kind === 'point').map(f => proj(pts(f)[0]));
+  const rank = f => (f.id === sel ? 0 : T(f).kind === 'point' ? (f.label ? 1 : 3) : 2);
+  const items = F.filter(f => pts(f).length).map(f => { const P = pts(f).map(proj), a = anchorOf(f, P); return { f, id: f.id, text: f.label || T(f).label, x: a.x, y: a.y, pin: T(f).kind === 'point' }; }).sort((a, b) => rank(a.f) - rank(b.f));
+  const tl = map.containerPointToLayerPoint([0, 0]);
+  const pl = layout(items.map(i => ({ ...i, x: i.x - tl.x, y: i.y - tl.y })), pins.map(q => ({ x: q.x - tl.x, y: q.y - tl.y })), 1, 0, 0, LBL_FONT);
+  for (const it of items) { const b = pl[it.id];
+    if (!b) { LYR[it.id] && LYR[it.id].bindTooltip(esc(it.text), { direction: 'top', className: 'smtip', offset: [0, -14] }); continue; }
+    const x = b.x + tl.x, y = b.y + tl.y;
+    if (b.lead) { const cx = Math.max(x, Math.min(it.x, x + b.w)), cy = Math.max(y, Math.min(it.y, y + b.h)), len = Math.hypot(cx - it.x, cy - it.y), ang = Math.atan2(cy - it.y, cx - it.x);
+      pane.insertAdjacentHTML('beforeend', `<div class="smlead" style="left:${it.x}px;top:${it.y}px;width:${len}px;transform:rotate(${ang}rad)"></div>`); }
+    pane.insertAdjacentHTML('beforeend', `<div class="smlbl${it.f.id === sel ? ' on' : ''}" style="left:${x}px;top:${y}px;width:${b.w}px">${esc(it.text)}</div>`); }
+}
+
 function paint() {
-  layer.clearLayers();
+  layer.clearLayers(); LYR = {};
   M.feats.filter(shown).forEach(f => {
     const t = T(f), P = pts(f), on = sel === f.id; let g;
     if (!P.length) return;
@@ -260,14 +306,15 @@ function paint() {
     else if (t.kind === 'line') g = L.polyline(P, { color: t.color, weight: on ? 7 : 5, opacity: 0.95, dashArray: f.t === 'path' ? '1 9' : f.t === 'swpipe' ? '8 6' : null, lineCap: 'round' });
     else g = L.polygon(P, { color: t.color, weight: on ? 4 : 2, fillColor: t.color, fillOpacity: f.t === 'boundary' ? 0 : on ? 0.4 : 0.25, dashArray: f.t === 'boundary' ? '10 6' : null });
     g.on('click', e => { L.DomEvent.stop(e); if (draw || crop || pinMode) return onClick(e); select(f.id); });
-    if (V.labels && (f.label || t.kind !== 'point')) g.bindTooltip(esc(f.label || t.label), { permanent: true, direction: t.kind === 'point' ? 'right' : 'center', className: 'smtip', offset: t.kind === 'point' ? [14, 0] : [0, 0] });
-    if (t.kind === 'point' && ed() && on) g.on('dragend', () => { f.p = flat([g.getLatLng()]); save(); side(); });
+    LYR[f.id] = g;
+    if (t.kind === 'point' && ed() && on) g.on('dragend', () => { f.p = flat([g.getLatLng()]); save(); side(); labels(); });
     g.addTo(layer);
     if (ed() && on && t.kind !== 'point') P.forEach((ll, i) => { const h = L.marker(ll, { draggable: true, icon: L.divIcon({ className: '', iconSize: [16, 16], iconAnchor: [8, 8], html: '<div class="smvx"></div>' }) }).addTo(layer);
       h.on('drag', () => { const q = pts(f); q[i] = [h.getLatLng().lat, h.getLatLng().lng]; g.setLatLngs(q); });
       h.on('dragend', () => { const q = pts(f); q[i] = [h.getLatLng().lat, h.getLatLng().lng]; f.p = q.flat().map(v => +v.toFixed(7)); save(); });
       h.on('contextmenu', () => { const q = pts(f); if (q.length <= (t.kind === 'area' ? 3 : 2)) return; q.splice(i, 1); f.p = q.flat(); save(); paint(); }); });
   });
+  labels();
 }
 
 function select(id) { sel = sel === id ? null : id; paint(); side(); const f = M.feats.find(x => x.id === sel); if (f && !map.getBounds().contains(pts(f)[0])) map.panTo(pts(f)[0]); }
@@ -359,17 +406,25 @@ export async function snapshot(opt = {}) {
   await Promise.all(jobs);
   if (ovImg && M.ov && M.ov.p && V.ov) { const [a, b2, d] = pts(M.ov).map(proj), w = ovImg.naturalWidth, h = ovImg.naturalHeight; c.save(); c.globalAlpha = M.ov.op || 0.75; c.setTransform((b2.x - a.x) / w, (b2.y - a.y) / w, (d.x - a.x) / h, (d.y - a.y) / h, a.x, a.y); if (M.ov.crop && M.ov.crop.length >= 6) { c.beginPath(); pts({ p: M.ov.crop }).forEach((q, i) => i ? c.lineTo(q[0] * w, q[1] * h) : c.moveTo(q[0] * w, q[1] * h)); c.closePath(); c.clip(); } c.drawImage(ovImg, 0, 0); c.restore(); }
   const F = M.feats.filter(f => inGuide(f, opt.guide || V.show));
-  const lab = (t, x, y, col) => { c.font = '700 26px "Segoe UI", system-ui, Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 7; c.strokeStyle = 'rgba(255,255,255,0.92)'; c.strokeText(t, x, y); c.fillStyle = col || '#1a1a1a'; c.fillText(t, x, y); };
   for (const kind of ['area', 'line']) F.filter(f => T(f).kind === kind).forEach(f => { const t = T(f), P = pts(f).map(proj); if (P.length < 2) return;
     c.beginPath(); P.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); if (kind === 'area') c.closePath();
     c.setLineDash(f.t === 'boundary' ? [20, 12] : f.t === 'path' ? [2, 16] : f.t === 'swpipe' ? [16, 12] : []); c.lineCap = 'round';
     if (kind === 'area' && f.t !== 'boundary') { c.fillStyle = t.color + '55'; c.fill(); }
     c.strokeStyle = t.color; c.lineWidth = kind === 'line' ? 9 : 5; c.stroke(); c.setLineDash([]);
-    if (opt.labels != null ? opt.labels : V.labels) { const m = P.reduce((a, p) => ({ x: a.x + p.x / P.length, y: a.y + p.y / P.length }), { x: 0, y: 0 }); lab(f.label || t.label, m.x, m.y, t.color === '#D81B60' ? '#D81B60' : '#1a1a1a'); } });
+  });
   if (!opt.noPins) F.filter(f => T(f).kind === 'point').forEach(f => { const t = T(f), p = proj(pts(f)[0]);
     c.beginPath(); c.arc(p.x, p.y, 25, 0, 7); c.fillStyle = '#fff'; c.fill(); c.beginPath(); c.arc(p.x, p.y, 21, 0, 7); c.fillStyle = t.color; c.fill();
     c.fillStyle = '#fff'; c.font = '24px "Segoe UI Emoji", "Apple Color Emoji", system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.sym || '•', p.x, p.y + 1);
-    if (opt.pinLabel ? opt.pinLabel(f) : V.labels) { const s2 = f.label || t.label; c.font = '700 26px "Segoe UI", system-ui, Arial'; lab(s2, p.x + 34 + c.measureText(s2).width / 2, p.y); } });
+  });
+  // labels, laid out so none overlap (pins with a numbered pointer in the guide are left unlabelled)
+  const SF = '600 24px "Segoe UI", system-ui, Arial', want = f => T(f).kind === 'point' ? (opt.pinLabel ? opt.pinLabel(f) : V.labels) : (opt.labels != null ? opt.labels : V.labels);
+  const its = F.filter(f => pts(f).length && want(f)).map(f => { const a = anchorOf(f, pts(f).map(proj)); return { f, id: f.id, text: f.label || T(f).label, x: a.x, y: a.y, pin: T(f).kind === 'point' }; }).sort((a, b) => (a.pin ? (a.f.label ? 0 : 2) : 1) - (b.pin ? (b.f.label ? 0 : 2) : 1));
+  const PL = layout(its, opt.noPins ? [] : F.filter(f => T(f).kind === 'point').map(f => proj(pts(f)[0])), 2, W, H, SF);
+  c.font = SF; c.textBaseline = 'middle'; c.textAlign = 'center';
+  for (const it of its) { const b = PL[it.id]; if (!b) continue;
+    if (b.lead) { const cx = Math.max(b.x, Math.min(it.x, b.x + b.w)), cy = Math.max(b.y, Math.min(it.y, b.y + b.h)); c.strokeStyle = 'rgba(23,43,77,0.85)'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(it.x, it.y); c.lineTo(cx, cy); c.stroke(); }
+    c.fillStyle = 'rgba(255,255,255,0.93)'; c.beginPath(); c.roundRect ? c.roundRect(b.x, b.y, b.w, b.h, 8) : c.rect(b.x, b.y, b.w, b.h); c.fill(); c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = T(it.f).color === '#D81B60' ? '#D81B60' : '#1a1a1a'; c.fillText(it.text, b.x + b.w / 2, b.y + b.h / 2 + 1); }
   // north arrow and credit
   c.fillStyle = 'rgba(255,255,255,0.9)'; c.fillRect(W - 80, 20, 56, 76); c.fillStyle = '#172B4D'; c.beginPath(); c.moveTo(W - 52, 30); c.lineTo(W - 66, 70); c.lineTo(W - 52, 60); c.lineTo(W - 38, 70); c.closePath(); c.fill(); c.font = '700 20px system-ui'; c.textAlign = 'center'; c.fillText('N', W - 52, 86);
   c.font = '16px system-ui'; c.textAlign = 'right'; c.fillStyle = 'rgba(255,255,255,0.85)'; const cr = B.attr; c.fillRect(W - c.measureText(cr).width - 20, H - 28, c.measureText(cr).width + 20, 28); c.fillStyle = '#333'; c.fillText(cr, W - 10, H - 13);
