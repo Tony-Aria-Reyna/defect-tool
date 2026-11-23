@@ -116,7 +116,7 @@ let mapOpen = false;
 export function view() {
   if (mapOpen && $('smMap')) return;   // the site map is open: a page saved from it must not close it
   mapOpen = false; const P = pages(), g = cfg(), ed = can.edit();
-  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}${ed ? '<button class="btn2" id="gFn" title="How each building system works, what the facilities team does and what not to do: the words for the Facilities Guide">🛠 Facilities notes</button>' : ''}<button class="btn2" id="gMap" title="The map of the site: mark where the bins, bike store, washing lines, gardens and tanks are, then add it to the guide as a page">🗺 Site map</button><button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Cover, phone and codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}${ed ? '<button class="btn2" id="gFn" title="How each building system works, what the facilities team does and what not to do: the words for the Facilities Guide">🛠 Facilities notes</button>' : ''}<button class="btn2" id="gMap" title="The map of the site: mark where the bins, bike store, washing lines, gardens and tanks are, then add it to the guide as a page">🗺 Site map</button><button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
   <p class="muted small">${P.length} page${P.length === 1 ? '' : 's'} · ${P.filter(p => p.aud !== 'fm').length} in the Home User Guide, all ${P.length} plus the registers in the Facilities Guide. ${ed ? 'Drag a page to move it. ' : ''}The PDF adds a contents page and page numbers by itself. ${g.phone ? 'Footer: call ' + esc(g.org) + ' ' + esc(g.phone) + '.' : 'Set the phone number for the footer in “Phone and unit codes”.'}</p>
   ${P.length ? `<div class="ggrid">${P.map((p, i) => `<div class="gcard" data-id="${esc(p.id)}"${ed ? ' draggable="true"' : ''}><canvas data-cv="${esc(p.id)}"></canvas><div class="gcap"><b>${i + 1}. ${esc(p.title || 'Untitled')}${p.aud === 'fm' ? ' <span class="badge">Facilities only</span>' : ''}</b>${ed ? `<span><button class="mini" data-up="${esc(p.id)}" title="Move earlier">↑</button><button class="mini" data-dn="${esc(p.id)}" title="Move later">↓</button></span>` : ''}</div></div>`).join('')}</div>` : '<div class="empty2">No pages yet. Add a page, or import a set of pages.</div>'}`;
   $('gMap').onclick = () => { mapOpen = true; SM.view(() => { mapOpen = false; view(); }); };
@@ -143,11 +143,17 @@ export function view() {
 }
 function settings() {
   const g = cfg();
-  X.modal(`<h2>Phone and unit codes</h2><div class="grid"><label class="f full">Who residents call (shown in the footer)<input id="gO" value="${esc(g.org)}"></label><label class="f full">Phone number<input id="gP" value="${esc(g.phone)}" placeholder="e.g. 0800 430 101"></label>
+  X.modal(`<h2>Cover, phone and unit codes</h2><div class="grid"><label class="f full">Who residents call (shown in the footer)<input id="gO" value="${esc(g.org)}"></label><label class="f full">Phone number<input id="gP" value="${esc(g.phone)}" placeholder="e.g. 0800 430 101"></label>
+    <label class="f full">Cover page: words above the title<input id="gCw" value="${esc(g.coverLine ?? 'Welcome home')}" placeholder="Welcome home"></label>
+    <div class="f full"><span>Cover photo</span><div style="display:flex;gap:10px;align-items:center;margin-top:4px"><img id="gCi" src="${esc(g.coverPhoto || '')}" style="height:70px;border-radius:6px;${g.coverPhoto ? '' : 'display:none'}"><button type="button" class="btn2" id="gCb">Choose a photo…</button><button type="button" class="btn2" id="gCx" ${g.coverPhoto ? '' : 'hidden'}>Remove</button><span class="note" id="gCn">${g.coverPhoto ? '' : 'Without one, the cover uses the photo from the first page.'}</span><input type="file" id="gCf" accept="image/*" hidden></div></div>
     <label class="f">Visitor code starts with<input id="gC" value="${esc(g.codePrefix)}" placeholder="e.g. 7"></label><label class="f">Digits for the unit number<input id="gD" type="number" min="1" max="4" value="${esc(g.codeDigits)}"></label></div>
     <p class="note">The visitor code is the starting number followed by the unit number, for example 7 then 15 gives 7 1 5. Use {unit} and {code} in any page text; they are filled in when the guide is exported for a unit.</p><div class="act"><button id="gsX">Cancel</button><button class="go" id="gsOk">Save</button></div>`);
+  let cover = g.coverPhoto || '', fresh = null;
+  $('gCb').onclick = () => $('gCf').click(); $('gCx').onclick = () => { cover = ''; fresh = null; $('gCi').style.display = 'none'; $('gCx').hidden = true; $('gCn').textContent = 'Without one, the cover uses the photo from the first page.'; };
+  $('gCf').onchange = async e => { const f = e.target.files[0]; if (!f) return; fresh = (await compressImage(f, 2000, 0.85)).dataUrl; $('gCi').src = fresh; $('gCi').style.display = ''; $('gCx').hidden = false; $('gCn').textContent = ''; };
   $('gsX').onclick = X.closeModal;
-  $('gsOk').onclick = async () => { const o = { org: $('gO').value.trim(), phone: $('gP').value.trim(), codePrefix: $('gC').value.trim(), codeDigits: +$('gD').value || 2 }; try { await S.store.updateProject(S.project.id, { guideCfg: o }); S.project.guideCfg = o; X.closeModal(); toast('Saved'); view(); } catch (e) { toast(e.message, 6000); } };
+  $('gsOk').onclick = async () => { if (fresh) { const b = busy('Saving the photo…'); try { cover = await S.store.putFile(`projects/${S.project.id}/docs/guide-cover/cover-${Date.now()}.jpg`, dataUrlToBlob(fresh), true); } catch (e) { b.done(); return toast('The photo could not be saved: ' + e.message, 6000); } b.done(); }
+    const o = { coverPhoto: cover, coverLine: $('gCw').value.trim(), org: $('gO').value.trim(), phone: $('gP').value.trim(), codePrefix: $('gC').value.trim(), codeDigits: +$('gD').value || 2 }; try { await S.store.updateProject(S.project.id, { guideCfg: o }); S.project.guideCfg = o; X.closeModal(); toast('Saved'); view(); } catch (e) { toast(e.message, 6000); } };
 }
 
 /* ---------- editor ---------- */
@@ -378,12 +384,31 @@ async function pdf(unit, kind = 'home') {
   if (P.length > 4) { const rows = P.map((p, i) => ({ t: fill(p.title || 'Untitled', unit), i })), per = 60, nC = Math.ceil(rows.length / per);
     const num = i => (i === 0 ? 1 : i + 1 + nC);
     for (let k = 0; k < nC; k++) list.splice(1 + k, 0, { contents: rows.slice(k * per, (k + 1) * per).map(r => ({ t: r.t, n: num(r.i) })), title: nC > 1 ? `What is in this guide (${k + 1} of ${nC})` : 'What is in this guide' }); }
+  if (kind !== 'fm') { await drawCover(cv, unit, (P.find(x => x.photo) || {}).photo); const im = await doc.embedJpg(await (await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9))).arrayBuffer()); doc.addPage([595.28, 841.89]).drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
   for (const [n, p] of list.entries()) {
     if (p.contents) await drawContents(cv, p, unit); else await draw(cv, p, unit);
     if (list.length > 1) { const c = cv.getContext('2d'); c.fillStyle = '#5a6675'; c.font = font(26); c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(`Page ${n + 1}`, PX, 66); }
     const bytes = await (await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.86))).arrayBuffer(); const im = await doc.embedJpg(bytes), pg = doc.addPage([595.28, 841.89]); pg.drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
   if (kind === 'fm') await registers(doc);
   return new Blob([await doc.save()], { type: 'application/pdf' });
+}
+// the cover: a full-width photo, the owner's logo, and the home it belongs to. It is not numbered, so page 1 is still the welcome page.
+export async function drawCover(cv, unit, fallback) {
+  cv.width = W; cv.height = H; const c = cv.getContext('2d'), g = cfg(), p = S.project, TEAL = '#3DAFBE', top = 1090;
+  c.fillStyle = NAVY; c.fillRect(0, 0, W, H);
+  const img = await loadImg(g.coverPhoto || fallback);
+  if (img) { const k = Math.max(W / img.width, top / img.height), w = img.width * k, h = img.height * k; c.save(); c.beginPath(); c.rect(0, 0, W, top); c.clip(); c.drawImage(img, (W - w) / 2, (top - h) / 2, w, h);
+    const gr = c.createLinearGradient(0, top - 260, 0, top); gr.addColorStop(0, 'rgba(23,43,77,0)'); gr.addColorStop(1, 'rgba(23,43,77,0.55)'); c.fillStyle = gr; c.fillRect(0, top - 260, W, 260); c.restore(); }
+  c.fillStyle = TEAL; c.fillRect(0, top, W, 14);
+  const logo = await loadImg(p.clientLogo); if (logo) { const lh = 84, lw = logo.width * lh / logo.height; c.fillStyle = '#fff'; c.beginPath(); c.roundRect ? c.roundRect(PX - 26, 52, lw + 52, lh + 44, 14) : c.rect(PX - 26, 52, lw + 52, lh + 44); c.fill(); c.drawImage(logo, PX, 74, lw, lh); }
+  c.textBaseline = 'alphabetic'; c.textAlign = 'left'; let y = top + 118;
+  const line = (g.coverLine ?? 'Welcome home').trim(); if (line) { c.fillStyle = TEAL; c.font = font(44, 1); c.fillText(line, PX, y); y += 104; } else y += 40;
+  c.fillStyle = '#fff'; c.font = font(104, 1); let nm = p.name || ''; while (c.measureText(nm).width > W - PX * 2 && nm.length > 6) nm = nm.slice(0, -2); c.fillText(nm, PX, y); y += 74;
+  c.font = font(46); c.fillStyle = '#DCE6F2'; c.fillText('Home User Guide', PX, y); y += 96;
+  const area = String(p.address || '').split(',').slice(1).join(',').trim(), addr = unit ? [String(p.unitAddress || '').replace(/\{n\}/g, unit) || `Unit ${unit}`, area].filter(Boolean).join(', ') : p.address || '';
+  if (unit) { c.fillStyle = '#fff'; c.font = font(54, 1); c.fillText(`Unit ${unit}`, PX, y); y += 60; }
+  c.font = font(36); c.fillStyle = '#DCE6F2'; wrap(c, addr, W - PX * 2).slice(0, 2).forEach(l => { c.fillText(l, PX, y); y += 46; });
+  if (g.phone) { c.fillStyle = TEAL; c.fillRect(0, H - 150, W, 150); c.fillStyle = '#fff'; c.font = font(34); c.fillText('Something not working?', PX, H - 92); c.font = font(46, 1); c.fillText(`Call ${g.org || 'us'}  ${g.phone}`, PX, H - 38); }
 }
 // the contents page: the usual header and footer (from an empty page), then each topic with a dotted line to its page number
 export async function drawContents(cv, pg, unit) {
