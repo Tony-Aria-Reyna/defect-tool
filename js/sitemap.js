@@ -24,7 +24,21 @@ export const TYPES = {
   backflow: { label: 'Backflow preventer', color: '#01579B', sym: '⛉', kind: 'point', aud: 'fm' },
   fire: { label: 'Fire panel / sprinkler valve', color: '#C62828', sym: '🔥', kind: 'point', aud: 'fm' },
   power: { label: 'Electrical / meter board', color: '#F9A825', sym: '⚡', kind: 'point', aud: 'fm' },
+  aed: { label: 'Defibrillator (AED)', color: '#C62828', sym: '♥', kind: 'point' },
   note: { label: 'Note', color: '#455A64', sym: 'i', kind: 'point' },
+  // nearby places for the Home user guide (Homestar: local transport and community amenities)
+  shops: { label: 'Supermarket / shops', color: '#6A1B9A', sym: '🛒', kind: 'point', aud: 'res', grp: 'local' },
+  medical: { label: 'Medical centre / GP', color: '#D32F2F', sym: '✚', kind: 'point', aud: 'res', grp: 'local' },
+  pharmacy: { label: 'Pharmacy', color: '#2E7D32', sym: '💊', kind: 'point', aud: 'res', grp: 'local' },
+  dentist: { label: 'Dentist', color: '#00838F', sym: '🦷', kind: 'point', aud: 'res', grp: 'local' },
+  library: { label: 'Library', color: '#5D4037', sym: '📚', kind: 'point', aud: 'res', grp: 'local' },
+  hall: { label: 'Community centre / hall', color: '#AD1457', sym: '⌂', kind: 'point', aud: 'res', grp: 'local' },
+  post: { label: 'Post shop / bank', color: '#C62828', sym: '📮', kind: 'point', aud: 'res', grp: 'local' },
+  cafe: { label: 'Café', color: '#795548', sym: '☕', kind: 'point', aud: 'res', grp: 'local' },
+  park: { label: 'Park / reserve', color: '#388E3C', sym: '🌳', kind: 'point', aud: 'res', grp: 'local' },
+  beach: { label: 'Beach', color: '#0288D1', sym: '🏖', kind: 'point', aud: 'res', grp: 'local' },
+  localbus: { label: 'Bus stop (nearby)', color: '#E65100', sym: '🚌', kind: 'point', aud: 'res', grp: 'local' },
+  place: { label: 'Other local place', color: '#455A64', sym: '★', kind: 'point', aud: 'res', grp: 'local' },
   path: { label: 'Accessible path', color: '#F57C00', kind: 'line' },
   drive: { label: 'Vehicle route', color: '#616161', kind: 'line' },
   stream: { label: 'Stream', color: '#1E88E5', kind: 'line' },
@@ -43,14 +57,15 @@ const BASES = {
 };
 const DEF = { center: [-36.9297, 174.6781], zoom: 18 };   // 81A Godley Road, Green Bay; any project can save its own view
 
-let ovTok = 0, crop = null, pinMode = false, EM = null, keepAdj = false, back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { show: 'all', labels: true, ov: true, adj: false }, ovImg = null, hl = null;
+let FIND = null, ovTok = 0, crop = null, pinMode = false, EM = null, keepAdj = false, back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { show: 'all', labels: true, ov: true, adj: false }, ovImg = null, hl = null;
 const ed = () => can.edit();
 const T = f => TYPES[f.t] || TYPES.note;
 const pts = f => { const o = []; for (let i = 0; i + 1 < (f.p || []).length; i += 2) o.push([f.p[i], f.p[i + 1]]); return o; };   // Firestore can't hold nested arrays, so points are kept flat
 const flat = a => a.flatMap(x => [+x.lat.toFixed(7), +x.lng.toFixed(7)]);
 // which guide an item shows in: 'both', 'res' (Home user guide only) or 'fm' (Facilities guide only); each item can be set, otherwise its type decides
 const AUD = { both: 'Both guides', res: 'Home user guide only', fm: 'Facilities guide only' };
-export const audOf = f => f.aud || (T(f).aud === 'fm' ? 'fm' : 'both');
+const audDef = t => (TYPES[t] && TYPES[t].aud) || 'both';
+export const audOf = f => f.aud || audDef(f.t);
 const inGuide = (f, g) => g === 'all' || (g === 'res' ? audOf(f) !== 'fm' : audOf(f) !== 'res');
 const shown = f => inGuide(f, V.show);
 const load = () => { const s = S.project.siteMap || {}; return { center: s.center || DEF.center, zoom: s.zoom || DEF.zoom, base: s.base || 'aerial', feats: (s.feats || []).map(f => ({ ...f })), ov: s.ov ? { ...s.ov } : null, ovs: { ...(s.ovs || {}) } }; };
@@ -259,7 +274,7 @@ function select(id) { sel = sel === id ? null : id; paint(); side(); const f = M
 
 function side() {
   const S2 = $('smSide'); if (!S2) return;
-  if (crop) return cropSide(S2); if (V.adj && M.ov && ovImg && ed()) return adjSide(S2);
+  if (crop) return cropSide(S2); if (FIND) return findSide(S2); if (V.adj && M.ov && ovImg && ed()) return adjSide(S2);
   if (draw) { const t = TYPES[draw.t]; S2.innerHTML = `<h3>Adding: ${esc(t.label)}</h3><p class="small">${t.kind === 'point' ? 'Tap the map where it is.' : `Tap the map at each corner${t.kind === 'line' ? ' or bend' : ''}. ${draw.pts.length} so far. Press Finish (or double-tap) when done.`}</p>
     ${t.kind !== 'point' ? `<button class="btn2 go" id="smFin" ${draw.pts.length < (t.kind === 'area' ? 3 : 2) ? 'disabled' : ''}>Finish</button> <button class="btn2" id="smUndo" ${draw.pts.length ? '' : 'disabled'}>Undo last</button> ` : ''}<button class="btn2" id="smCan">Cancel</button>`;
     if ($('smFin')) { $('smFin').onclick = finish; $('smUndo').onclick = () => { draw.pts.pop(); preview(); side(); }; } $('smCan').onclick = cancelDraw; return; }
@@ -274,14 +289,44 @@ function side() {
       <button class="btn2 danger" id="smDel">Delete</button>`}
       <p><a class="small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${pts(f)[0].join(',')}">Directions in Google Maps ↗</a></p>`;
     $('smBack').onclick = () => select(f.id);
-    if (!ro) { $('smT').onchange = e => { f.t = e.target.value; save(); paint(); side(); }; $('smAu').onchange = e => { const t2 = TYPES[f.t] || {}; f.aud = e.target.value; if (f.aud === (t2.aud === 'fm' ? 'fm' : 'both')) delete f.aud; save(); if (!shown(f)) { sel = null; toast(`Moved to the ${AUD[audOf(f)].replace(' only', '').toLowerCase()}. Press All to see it.`); } paint(); side(); }; $('smL').oninput = e => { f.label = e.target.value; save(); paint(); }; $('smN').oninput = e => { f.note = e.target.value; save(); };
+    if (!ro) { $('smT').onchange = e => { f.t = e.target.value; save(); paint(); side(); }; $('smAu').onchange = e => { f.aud = e.target.value; if (f.aud === audDef(f.t)) delete f.aud; save(); if (!shown(f)) { sel = null; toast(`Moved to the ${AUD[audOf(f)].replace(' only', '').toLowerCase()}. Press All to see it.`); } paint(); side(); }; $('smL').oninput = e => { f.label = e.target.value; save(); paint(); }; $('smN').oninput = e => { f.note = e.target.value; save(); };
       $('smDel').onclick = async () => { if (!(await confirmBox(`Delete “${f.label || t.label}” from the map?`, 'Delete'))) return; M.feats = M.feats.filter(x => x !== f); sel = null; save(); paint(); side(); }; }
     return; }
   const list = M.feats.filter(shown), by = ORDER.filter(k => list.some(f => f.t === k));
-  S2.innerHTML = `${ed() ? `<h3>Add to the map</h3><div class="smpal">${ORDER.map(k => { const t = TYPES[k]; return `<button data-add="${k}" title="${esc(t.label)}"><span class="smdot${t.kind !== 'point' ? ' ' + t.kind : ''}" style="background:${t.color}">${t.kind === 'point' ? esc(t.sym) : ''}</span>${esc(t.label)}</button>`; }).join('')}</div>` : ''}
+  S2.innerHTML = `${ed() ? `<h3>Add to the map</h3>${[['On the site', k => TYPES[k].kind === 'point' && !TYPES[k].grp], ['Lines and areas', k => TYPES[k].kind !== 'point'], ['Nearby places (Home user guide)', k => TYPES[k].grp === 'local']].map(([h, fl]) => `<div class="smph">${h}</div><div class="smpal">${ORDER.filter(fl).map(k => { const t = TYPES[k]; return `<button data-add="${k}" title="${esc(t.label)}"><span class="smdot${t.kind !== 'point' ? ' ' + t.kind : ''}" style="background:${t.color}">${t.kind === 'point' ? esc(t.sym) : ''}</span>${esc(t.label)}</button>`; }).join('')}</div>`).join('')}
+    <button class="btn2 go" id="smFind" style="width:100%;margin:2px 0 12px">🔎 Find nearby places (shops, GP, pharmacy, buses…)</button>` : ''}
     <h3>On the map (${list.length})</h3>${by.length ? by.map(k => `<div class="smgrp"><b>${esc(TYPES[k].label)}</b>${list.filter(f => f.t === k).map(f => `<a href="#" data-sel="${f.id}">${esc(f.label || TYPES[k].label)}${audOf(f) !== 'both' ? ` <span class="badge ${audOf(f) === 'fm' ? 'fmb' : 'resb'}">${audOf(f) === 'fm' ? 'Facilities' : 'Home guide'}</span>` : ''}</a>${f.note ? `<small>${esc(f.note)}</small>` : ''}`).join('')}</div>`).join('') : `<p class="muted small">${ed() ? 'Nothing marked yet. Pick a type above, then tap the map.' : 'Nothing has been marked on the map yet.'}</p>`}`;
+  if ($('smFind')) $('smFind').onclick = () => { FIND = { q: '', res: null }; side(); };
   S2.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { draw = { t: b.dataset.add, pts: [] }; sel = null; paint(); side(); $('smMap').classList.add('drawing'); });
   S2.querySelectorAll('[data-sel]').forEach(a => a.onclick = e => { e.preventDefault(); select(a.dataset.sel); });
+}
+
+/* ---------- finding nearby places (OpenStreetMap search), to add the local amenities residents need ---------- */
+const CATS = [['shops', 'Supermarket', 'supermarket'], ['medical', 'Medical centre', 'doctors'], ['pharmacy', 'Pharmacy', 'pharmacy'], ['localbus', 'Bus stops', 'bus stop'], ['library', 'Library', 'library'], ['hall', 'Community centre', 'community centre'], ['dentist', 'Dentist', 'dentist'], ['post', 'Post shop', 'post office'], ['park', 'Parks', 'park'], ['beach', 'Beach', 'beach'], ['cafe', 'Cafés', 'cafe']];
+const guessType = x => { const c = x.category + '/' + x.type; return /supermarket|convenience|mall|marketplace/.test(c) ? 'shops' : /doctors|clinic|hospital/.test(c) ? 'medical' : /pharmacy|chemist/.test(c) ? 'pharmacy' : /dentist/.test(c) ? 'dentist' : /library/.test(c) ? 'library' : /community_centre|social_centre/.test(c) ? 'hall' : /post_office|bank/.test(c) ? 'post' : /cafe|restaurant/.test(c) ? 'cafe' : /bus_stop|platform|bus_station/.test(c) ? 'localbus' : /park|reserve|garden|nature/.test(c) ? 'park' : /beach/.test(c) ? 'beach' : 'place'; };
+const home = () => L.latLng(M.center[0], M.center[1]);
+async function search(q, k) {
+  const h = home(), d = 0.03, vb = [h.lng - d, h.lat + d * 0.8, h.lng + d, h.lat - d * 0.8].map(v => v.toFixed(4)).join(',');
+  FIND = { ...FIND, q, k, res: 'busy' }; side();
+  try { const c = new AbortController(), tm = setTimeout(() => c.abort(), 12000);
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=12&bounded=1&addressdetails=1&viewbox=${vb}&q=${encodeURIComponent(q)}`, { signal: c.signal, headers: { 'Accept-Language': 'en-NZ' } }).then(x => x.json()); clearTimeout(tm);
+    if (!FIND || FIND.q !== q) return;
+    FIND.res = r.filter(x => x.name).map(x => { const ll = L.latLng(+x.lat, +x.lon), a = x.address || {}; return { name: x.name, t: k || guessType(x), ll, m: Math.round(h.distanceTo(ll)), addr: [[a.house_number, a.road].filter(Boolean).join(' '), a.suburb].filter(Boolean).join(', ') }; }).sort((a, b) => a.m - b.m);
+  } catch (e) { if (FIND) FIND.res = 'err'; }
+  side(); prevFind();
+}
+const walk = m => m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`;
+function prevFind() { tmp.clearLayers(); if (!FIND || !Array.isArray(FIND.res)) return; FIND.res.forEach((r, i) => L.circleMarker(r.ll, { radius: 9, color: '#fff', weight: 2, fillColor: '#FFC400', fillOpacity: 1 }).bindTooltip(`${i + 1}. ${esc(r.name)}`, { direction: 'top' }).addTo(tmp)); if (FIND.res.length) map.fitBounds(L.latLngBounds([home(), ...FIND.res.map(r => r.ll)]).pad(0.15), { maxZoom: 18 }); }
+function findSide(S2) {
+  const R = FIND.res, have = r => M.feats.some(f => f.label === r.name && Math.abs(pts(f)[0][0] - r.ll.lat) < 0.0005);
+  S2.innerHTML = `<button class="mini" id="smFX">‹ All items</button><h3>🔎 Find nearby places</h3>
+    <div class="smcats">${CATS.map(([k, l, q]) => `<button class="mini ${FIND.k === k ? 'on' : ''}" data-cat="${k}" data-q="${esc(q)}">${esc(TYPES[k].sym)} ${esc(l)}</button>`).join('')}</div>
+    <form id="smFF" class="smff"><input id="smFQ" placeholder="Or type a name, e.g. Green Bay Library" value="${FIND.k ? '' : esc(FIND.q)}"><button class="btn2">Search</button></form>
+    ${R === 'busy' ? '<p class="small muted">Searching…</p>' : R === 'err' ? '<p class="small">The search did not answer. Try again, or add the place by hand with the buttons in the list.</p>' : Array.isArray(R) ? (R.length ? `<p class="small muted">Nearest first, measured in a straight line from the site. Add the ones residents will use.</p>${R.map((r, i) => `<div class="smres"><div><b>${i + 1}. ${esc(r.name)}</b><small>${esc(r.addr)} · ${walk(r.m)}</small></div>${have(r) ? '<span class="small muted">Added</span>' : `<button class="mini go" data-addr="${i}">+ Add</button>`}</div>`).join('')}` : '<p class="small">Nothing found near the site. Try another word.</p>') : '<p class="small muted">Pick a kind of place, or type a name.</p>'}`;
+  $('smFX').onclick = () => { FIND = null; tmp.clearLayers(); side(); };
+  S2.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => search(b.dataset.q, b.dataset.cat));
+  $('smFF').onsubmit = e => { e.preventDefault(); const q = $('smFQ').value.trim(); if (q) search(q, null); };
+  S2.querySelectorAll('[data-addr]').forEach(b => b.onclick = () => { const r = R[+b.dataset.addr]; M.feats.push({ id: uid(), t: r.t, label: r.name, note: [r.addr, walk(r.m) + ' from the site'].filter(Boolean).join(' · '), p: flat([r.ll]) }); save(); paint(); side(); prevFind(); });
 }
 
 function onClick(e) {
@@ -296,7 +341,7 @@ function preview() { tmp.clearLayers(); if (!draw) return; const t = TYPES[draw.
 function finish() {
   const t = TYPES[draw.t], min = t.kind === 'area' ? 3 : t.kind === 'line' ? 2 : 1;
   if (draw.pts.length < min) return toast(`Tap at least ${min} points first`);
-  const f = { id: uid(), t: draw.t, label: '', note: '', p: flat(draw.pts) }; if (V.show !== 'all') { const a = V.show, d0 = TYPES[f.t].aud === 'fm' ? 'fm' : 'both'; if (a === 'fm' && d0 !== 'fm') f.aud = 'fm'; if (a === 'res' && d0 === 'fm') f.aud = 'res'; } M.feats.push(f);
+  const f = { id: uid(), t: draw.t, label: '', note: '', p: flat(draw.pts) }; if (V.show !== 'all') { const a = V.show, d0 = audDef(f.t); if (a === 'fm' && d0 !== 'fm') f.aud = 'fm'; if (a === 'res' && d0 === 'fm') f.aud = 'res'; } M.feats.push(f);
   cancelDraw(); sel = f.id; save(); paint(); side(); setTimeout(() => $('smL') && $('smL').focus(), 50);
 }
 function cancelDraw() { draw = null; tmp && tmp.clearLayers(); $('smMap') && $('smMap').classList.remove('drawing'); side(); }
