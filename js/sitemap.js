@@ -43,14 +43,14 @@ const BASES = {
 };
 const DEF = { center: [-36.9297, 174.6781], zoom: 18 };   // 81A Godley Road, Green Bay; any project can save its own view
 
-let back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true };
+let back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true, ov: true, adj: false }, ovImg = null, hl = null;
 const ed = () => can.edit();
 const T = f => TYPES[f.t] || TYPES.note;
 const pts = f => { const o = []; for (let i = 0; i + 1 < (f.p || []).length; i += 2) o.push([f.p[i], f.p[i + 1]]); return o; };   // Firestore can't hold nested arrays, so points are kept flat
 const flat = a => a.flatMap(x => [+x.lat.toFixed(7), +x.lng.toFixed(7)]);
 const shown = f => V.fmView || T(f).aud !== 'fm';
-const load = () => { const s = S.project.siteMap || {}; return { center: s.center || DEF.center, zoom: s.zoom || DEF.zoom, base: s.base || 'aerial', feats: (s.feats || []).map(f => ({ ...f })) }; };
-function save(now) { clearTimeout(timer); const go = async () => { try { const v = { center: M.center, zoom: M.zoom, base: M.base, feats: M.feats, updated: new Date().toISOString() }; await S.store.updateProject(pid, { siteMap: v }); S.project.siteMap = v; } catch (e) { toast('The map could not be saved: ' + e.message, 6000); } }; if (now) return go(); timer = setTimeout(go, 700); }
+const load = () => { const s = S.project.siteMap || {}; return { center: s.center || DEF.center, zoom: s.zoom || DEF.zoom, base: s.base || 'aerial', feats: (s.feats || []).map(f => ({ ...f })), ov: s.ov ? { ...s.ov } : null }; };
+function save(now) { clearTimeout(timer); const go = async () => { try { const v = { center: M.center, zoom: M.zoom, base: M.base, feats: M.feats, ov: M.ov || null, updated: new Date().toISOString() }; await S.store.updateProject(pid, { siteMap: v }); S.project.siteMap = v; } catch (e) { toast('The map could not be saved: ' + e.message, 6000); } }; if (now) return go(); timer = setTimeout(go, 700); }
 
 async function leaflet() {
   if (window.L) return (L = window.L);
@@ -65,6 +65,8 @@ export async function view(onBack) {
   $('fmView').innerHTML = `<div class="fbar"><button class="btn2" id="smHome">‹ Home guide</button><h2>Site map</h2>
     <span class="seg"><button id="smA" class="${M.base === 'aerial' ? 'on' : ''}">Aerial</button><button id="smS" class="${M.base === 'street' ? 'on' : ''}">Street</button></span>
     <label class="chk small"><input type="checkbox" id="smFm" ${V.fmView ? 'checked' : ''}> Facilities items</label><label class="chk small"><input type="checkbox" id="smLb" ${V.labels ? 'checked' : ''}> Labels</label>
+    ${ed() ? `<select id="smOv" title="Lay one of the project drawings over the map, for example the site plan"><option value="">No drawing over the map</option>${(S.plans || []).filter(p => p.kind !== 'elevation').map(p => `<option value="${esc(p.id)}" ${M.ov && M.ov.planId === p.id ? 'selected' : ''}>Drawing: ${esc(p.name)}</option>`).join('')}</select>` : M.ov ? `<label class="chk small"><input type="checkbox" id="smOvS" ${V.ov ? 'checked' : ''}> Site plan</label>` : ''}
+    <span id="smOvT" ${M.ov ? '' : 'hidden'}><input type="range" id="smOp" min="15" max="100" value="${Math.round(((M.ov && M.ov.op) || 0.75) * 100)}" title="How solid the drawing is">${ed() ? '<button class="btn2" id="smAdj" title="Move, turn and size the drawing until it sits on the site">✥ Line it up</button>' : ''}</span>
     <span class="sp"></span>${ed() ? '<button class="btn2" id="smView" title="Use the map as it is now framed as the starting view and for the Home guide page">Save this view</button><button class="btn2 go" id="smGuide">📖 Add to Home guide</button>' : ''}<button class="btn2" id="smPng">⬇ Picture</button></div>
     <div id="smWrap"><div id="smMap"></div><aside id="smSide"></aside></div>`;
   $('smHome').onclick = () => { clearTimeout(timer); if (map) { map.remove(); map = null; } back && back(); };
@@ -72,17 +74,57 @@ export async function view(onBack) {
   if (map) map.remove();
   map = L.map('smMap', { zoomSnap: 1, maxZoom: 20, doubleClickZoom: false, attributionControl: true }).setView(M.center, M.zoom);
   setBase(M.base);
-  layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map);
+  map.createPane('plan').style.zIndex = 250; map.getPane('plan').style.pointerEvents = 'none';
+  layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map); hl = L.layerGroup().addTo(map); ovImg = null; V.adj = false;
+  map.on('zoomend viewreset', ovPaint);
   map.on('click', onClick); map.on('dblclick', () => draw && finish());
   map.on('moveend', () => { const c = map.getCenter(); M.view = { center: [c.lat, c.lng], zoom: map.getZoom() }; });
   $('smA').onclick = () => { setBase('aerial'); $('smA').classList.add('on'); $('smS').classList.remove('on'); if (ed()) { M.base = 'aerial'; save(); } };
   $('smS').onclick = () => { setBase('street'); $('smS').classList.add('on'); $('smA').classList.remove('on'); if (ed()) { M.base = 'street'; save(); } };
   $('smFm').onchange = e => { V.fmView = e.target.checked; const f = M.feats.find(x => x.id === sel); if (f && !shown(f)) sel = null; paint(); side(); };
   $('smLb').onchange = e => { V.labels = e.target.checked; paint(); };
+  if ($('smOv')) $('smOv').onchange = e => { const id = e.target.value; M.ov = id ? { planId: id, op: (M.ov && M.ov.op) || 0.75, p: M.ov && M.ov.planId === id ? M.ov.p : null } : null; V.adj = !!id; $('smOvT').hidden = !id; save(); ovLoad(); };
+  if ($('smOvS')) $('smOvS').onchange = e => { V.ov = e.target.checked; ovLoad(); };
+  $('smOp').oninput = e => { if (!M.ov) return; M.ov.op = +e.target.value / 100; if (ovImg) ovImg.style.opacity = M.ov.op; if (ed()) save(); };
+  if ($('smAdj')) $('smAdj').onclick = () => { V.adj = !V.adj; ovHandles(); };
+  ovLoad();
   $('smPng').onclick = async () => { const b = busy('Drawing the map…'); try { const cv = await snapshot(); b.done(); cv.toBlob(bl => deliver(bl, `${safeName(S.project.name)} - site map - ${stamp()}.png`, 'Site map'), 'image/png'); } catch (e) { b.done(); toast(e.message, 6000); } };
   if (ed()) { $('smView').onclick = () => { const c = map.getCenter(); M.center = [+c.lat.toFixed(6), +c.lng.toFixed(6)]; M.zoom = map.getZoom(); save(true); toast('Saved as the starting view'); }; $('smGuide').onclick = toGuide; }
   if (!window.__smKey) { window.__smKey = 1; document.addEventListener('keydown', e => { if (e.key === 'Escape' && draw && $('smMap')) cancelDraw(); }); }
   paint(); side(); setTimeout(() => map && map.invalidateSize(), 150);
+}
+
+/* ---------- a project drawing laid over the map: kept as three corners, lined up with a move handle and a turn-and-size handle ---------- */
+const ZP = 22, pj = ll => map.project(ll, ZP), un = q => map.unproject(q, ZP);
+function ovSet(C, r) {   // C: centre, r: centre to the top right corner, both in map pixels at zoom ZP; the drawing keeps its shape
+  const a = ovImg.naturalHeight / ovImg.naturalWidth, ang = Math.atan2(r.y, r.x) - Math.atan2(-a, 1), sz = Math.hypot(r.x, r.y) / Math.hypot(1, a);
+  const hx = L.point(sz * Math.cos(ang), sz * Math.sin(ang)), hy = L.point(-sz * a * Math.sin(ang), sz * a * Math.cos(ang));
+  M.ov.p = flat([un(C.subtract(hx).subtract(hy)), un(C.add(hx).subtract(hy)), un(C.subtract(hx).add(hy))]);
+}
+const ovC = () => { const [, tr, bl] = pts(M.ov).map(pj); return tr.add(bl).divideBy(2); };
+async function ovLoad() {
+  if (ovImg) { ovImg.remove(); ovImg = null; } hl && hl.clearLayers();
+  const adj = $('smAdj'); if (adj) adj.classList.toggle('go', V.adj);
+  if (!M.ov || !V.ov) return; const pl = (S.plans || []).find(x => x.id === M.ov.planId); if (!pl || !pl.img) return;
+  const myMap = map, im = new Image(); im.crossOrigin = 'anonymous'; im.className = 'smov leaflet-zoom-hide';
+  try { im.src = await S.store.resolveUrl(pl.img); await im.decode(); } catch (e) { return toast('The drawing could not be loaded'); }
+  if (map !== myMap || !M.ov || M.ov.planId !== pl.id) return;
+  ovImg = im; im.style.opacity = M.ov.op || 0.75; map.getPane('plan').appendChild(im);
+  if (!M.ov.p || M.ov.p.length !== 6) { const sz = map.getSize(), k = 2 ** (ZP - map.getZoom()), w = sz.x * 0.6 * k; ovSet(pj(map.getCenter()), L.point(w / 2, -w / 2 * im.naturalHeight / im.naturalWidth)); if (ed()) save(); }
+  ovPaint(); ovHandles();
+}
+function ovPaint() {
+  if (!ovImg || !M.ov || !M.ov.p) return; const [tl, tr, bl] = pts(M.ov).map(ll => map.latLngToLayerPoint(ll)), w = ovImg.naturalWidth, h = ovImg.naturalHeight;
+  ovImg.style.transform = `matrix(${(tr.x - tl.x) / w},${(tr.y - tl.y) / w},${(bl.x - tl.x) / h},${(bl.y - tl.y) / h},${tl.x},${tl.y})`;
+}
+function ovHandles() {
+  hl.clearLayers(); const adj = $('smAdj'); if (adj) { adj.classList.toggle('go', V.adj); adj.textContent = V.adj ? '✓ Done lining up' : '✥ Line it up'; }
+  if (!V.adj || !ovImg || !M.ov || !ed()) return;
+  const hd = (ll, sym, tip) => L.marker(ll, { draggable: true, zIndexOffset: 2000, title: tip, icon: L.divIcon({ className: '', iconSize: [38, 38], iconAnchor: [19, 19], html: `<div class="smoh">${sym}</div>` }) }).addTo(hl);
+  const P = pts(M.ov), c = hd(un(ovC()), '✥', 'Drag to move the drawing'), r = hd(P[1], '⟳', 'Drag to turn and size the drawing');
+  c.on('drag', () => { const C0 = ovC(), C1 = pj(c.getLatLng()), d = C1.subtract(C0); M.ov.p = flat(pts(M.ov).map(ll => un(pj(ll).add(d)))); ovPaint(); r.setLatLng(pts(M.ov)[1]); });
+  r.on('drag', () => { const C = ovC(); ovSet(C, pj(r.getLatLng()).subtract(C)); ovPaint(); });
+  c.on('dragend', () => save()); r.on('dragend', () => save());
 }
 
 function setBase(k) { if (base) map.removeLayer(base); const b = BASES[k] || BASES.aerial; base = L.tileLayer(b.url, { maxZoom: b.max, maxNativeZoom: b.nat, attribution: b.attr, crossOrigin: 'anonymous' }).addTo(map); }
@@ -160,6 +202,7 @@ export async function snapshot(opt = {}) {
   const ts = 256 * k, x0 = Math.floor(tl.x / ts), y0 = Math.floor(tl.y / ts), x1 = Math.floor((tl.x + W) / ts), y1 = Math.floor((tl.y + H) / ts), jobs = [];
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(tileImg(B.url.replace('{z}', zt).replace('{x}', x).replace('{y}', y)).then(im => im && c.drawImage(im, x * ts - tl.x, y * ts - tl.y, ts, ts)));
   await Promise.all(jobs);
+  if (ovImg && M.ov && M.ov.p && V.ov) { const [a, b2, d] = pts(M.ov).map(proj), w = ovImg.naturalWidth, h = ovImg.naturalHeight; c.save(); c.globalAlpha = M.ov.op || 0.75; c.setTransform((b2.x - a.x) / w, (b2.y - a.y) / w, (d.x - a.x) / h, (d.y - a.y) / h, a.x, a.y); c.drawImage(ovImg, 0, 0); c.restore(); }
   const F = M.feats.filter(f => opt.residents ? T(f).aud !== 'fm' : shown(f));
   const lab = (t, x, y, col) => { c.font = '700 26px "Segoe UI", system-ui, Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 7; c.strokeStyle = 'rgba(255,255,255,0.92)'; c.strokeText(t, x, y); c.fillStyle = col || '#1a1a1a'; c.fillText(t, x, y); };
   for (const kind of ['area', 'line']) F.filter(f => T(f).kind === kind).forEach(f => { const t = T(f), P = pts(f).map(proj); if (P.length < 2) return;
