@@ -43,7 +43,7 @@ const BASES = {
 };
 const DEF = { center: [-36.9297, 174.6781], zoom: 18 };   // 81A Godley Road, Green Bay; any project can save its own view
 
-let keepAdj = false, back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true, ov: true, adj: false }, ovImg = null, hl = null;
+let crop = null, pinMode = false, EM = null, keepAdj = false, back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true, ov: true, adj: false }, ovImg = null, hl = null;
 const ed = () => can.edit();
 const T = f => TYPES[f.t] || TYPES.note;
 const pts = f => { const o = []; for (let i = 0; i + 1 < (f.p || []).length; i += 2) o.push([f.p[i], f.p[i + 1]]); return o; };   // Firestore can't hold nested arrays, so points are kept flat
@@ -75,22 +75,22 @@ export async function view(onBack) {
   map = L.map('smMap', { zoomSnap: 1, maxZoom: 20, doubleClickZoom: false, attributionControl: true }).setView(M.center, M.zoom);
   setBase(M.base);
   map.createPane('plan').style.zIndex = 250; map.getPane('plan').style.pointerEvents = 'none';
-  layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map); hl = L.layerGroup().addTo(map); ovImg = null; V.adj = keepAdj; keepAdj = false;
+  layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map); hl = L.layerGroup().addTo(map); ovImg = null; V.adj = keepAdj; keepAdj = false; crop = null; pinMode = false;
   map.on('zoomend viewreset', ovPaint);
-  map.on('click', onClick); map.on('dblclick', () => draw && finish());
+  map.on('click', onClick); map.on('dblclick', () => { if (crop) return cropFinish(); draw && finish(); });
   map.on('moveend', () => { const c = map.getCenter(); M.view = { center: [c.lat, c.lng], zoom: map.getZoom() }; });
   $('smA').onclick = () => { setBase('aerial'); $('smA').classList.add('on'); $('smS').classList.remove('on'); if (ed()) { M.base = 'aerial'; save(); } };
   $('smS').onclick = () => { setBase('street'); $('smS').classList.add('on'); $('smA').classList.remove('on'); if (ed()) { M.base = 'street'; save(); } };
   $('smFm').onchange = e => { V.fmView = e.target.checked; const f = M.feats.find(x => x.id === sel); if (f && !shown(f)) sel = null; paint(); side(); };
   $('smLb').onchange = e => { V.labels = e.target.checked; paint(); };
-  if ($('smOv')) $('smOv').onchange = e => { const id = e.target.value; if (id === '__own') return; if (id === '__up') { e.target.value = M.ov ? (M.ov.img ? '__own' : M.ov.planId) : ''; return ovUpload(); } M.ov = id ? { planId: id, op: (M.ov && M.ov.op) || 0.75, p: M.ov && M.ov.planId === id ? M.ov.p : null } : null; V.adj = !!id; $('smOvT').hidden = !id; save(); ovLoad(); };
+  if ($('smOv')) $('smOv').onchange = e => { const id = e.target.value; if (id === '__own') return; if (id === '__up') { e.target.value = M.ov ? (M.ov.img ? '__own' : M.ov.planId) : ''; return ovUpload(); } M.ov = id ? (M.ov && M.ov.planId === id ? M.ov : { planId: id, op: (M.ov && M.ov.op) || 0.75, p: null }) : null; V.adj = !!id; $('smOvT').hidden = !id; save(); ovLoad(); };
   if ($('smOvS')) $('smOvS').onchange = e => { V.ov = e.target.checked; ovLoad(); };
   $('smOp').oninput = e => { if (!M.ov) return; M.ov.op = +e.target.value / 100; if (ovImg) ovImg.style.opacity = M.ov.op; if (ed()) save(); };
   if ($('smAdj')) $('smAdj').onclick = () => { V.adj = !V.adj; ovHandles(); };
   ovLoad();
   $('smPng').onclick = async () => { const b = busy('Drawing the map…'); try { const cv = await snapshot(); b.done(); cv.toBlob(bl => deliver(bl, `${safeName(S.project.name)} - site map - ${stamp()}.png`, 'Site map'), 'image/png'); } catch (e) { b.done(); toast(e.message, 6000); } };
   if (ed()) { $('smView').onclick = () => { const c = map.getCenter(); M.center = [+c.lat.toFixed(6), +c.lng.toFixed(6)]; M.zoom = map.getZoom(); save(true); toast('Saved as the starting view'); }; $('smGuide').onclick = toGuide; }
-  if (!window.__smKey) { window.__smKey = 1; document.addEventListener('keydown', e => { if (e.key === 'Escape' && draw && $('smMap')) cancelDraw(); }); }
+  if (!window.__smKey) { window.__smKey = 1; document.addEventListener('keydown', e => { if (e.key !== 'Escape' || !$('smMap')) return; if (crop) return cropEnd(); if (pinMode) { pinMode = false; $('smMap').classList.remove('drawing'); return side(); } if (draw) cancelDraw(); }); }
   paint(); side(); setTimeout(() => map && map.invalidateSize(), 150);
 }
 
@@ -122,17 +122,93 @@ function ovUpload() {
 }
 function ovPaint() {
   if (!ovImg || !M.ov || !M.ov.p) return; const [tl, tr, bl] = pts(M.ov).map(ll => map.latLngToLayerPoint(ll)), w = ovImg.naturalWidth, h = ovImg.naturalHeight;
+  ovImg.style.clipPath = M.ov.crop && M.ov.crop.length >= 6 && !crop ? `polygon(${pts({ p: M.ov.crop }).map(q => (q[0] * 100).toFixed(2) + '% ' + (q[1] * 100).toFixed(2) + '%').join(',')})` : '';
   ovImg.style.transform = `matrix(${(tr.x - tl.x) / w},${(tr.y - tl.y) / w},${(bl.x - tl.x) / h},${(bl.y - tl.y) / h},${tl.x},${tl.y})`;
 }
+// where a point on the map falls on the drawing (0 to 1 across and down), and back again
+const ovGeo = () => { const [tl, tr, bl] = pts(M.ov).map(pj); return { tl, ex: tr.subtract(tl), ey: bl.subtract(tl) }; };
+function toUV(ll) { const g = ovGeo(), q = pj(ll).subtract(g.tl), det = g.ex.x * g.ey.y - g.ey.x * g.ex.y; return [(q.x * g.ey.y - g.ey.x * q.y) / det, (g.ex.x * q.y - q.x * g.ex.y) / det]; }
+function fromUV(u, v) { const g = ovGeo(); return un(L.point(g.tl.x + g.ex.x * u + g.ey.x * v, g.tl.y + g.ex.y * u + g.ey.y * v)); }
 function ovHandles() {
   hl.clearLayers(); const adj = $('smAdj'); if (adj) { adj.classList.toggle('go', V.adj); adj.textContent = V.adj ? '✓ Done lining up' : '✥ Line it up'; }
-  if (!V.adj || !ovImg || !M.ov || !ed()) return;
-  const hd = (ll, sym, tip) => L.marker(ll, { draggable: true, zIndexOffset: 2000, title: tip, icon: L.divIcon({ className: '', iconSize: [38, 38], iconAnchor: [19, 19], html: `<div class="smoh">${sym}</div>` }) }).addTo(hl);
-  const P = pts(M.ov), c = hd(un(ovC()), '✥', 'Drag to move the drawing'), r = hd(P[1], '⟳', 'Drag to turn and size the drawing');
-  c.on('drag', () => { const C0 = ovC(), C1 = pj(c.getLatLng()), d = C1.subtract(C0); M.ov.p = flat(pts(M.ov).map(ll => un(pj(ll).add(d)))); ovPaint(); r.setLatLng(pts(M.ov)[1]); });
-  r.on('drag', () => { const C = ovC(); ovSet(C, pj(r.getLatLng()).subtract(C)); ovPaint(); });
-  c.on('dragend', () => save()); r.on('dragend', () => save());
+  if (!V.adj) { crop = null; pinMode = false; tmp && tmp.clearLayers(); ovPaint(); }
+  side(); if (!V.adj || !ovImg || !M.ov || !ed() || crop) return;
+  const hd = (ll, sym, tip, cls) => L.marker(ll, { draggable: true, zIndexOffset: 2000, title: tip, icon: L.divIcon({ className: '', iconSize: [38, 38], iconAnchor: [19, 19], html: `<div class="smoh ${cls || ''}">${sym}</div>` }) }).addTo(hl);
+  const pin = M.ov.pin, P = pts(M.ov), c = hd(un(ovC()), '✥', 'Drag to move the drawing'), r = hd(P[1], '⟳', pin ? 'Drag to turn and size the drawing around the fixed point' : 'Drag to turn and size the drawing'), k = pin ? hd(fromUV(pin[0], pin[1]), '📌', 'The fixed point: the drawing turns and sizes around it. Drag it to another spot on the drawing.', 'pin') : null;
+  const sync = () => { c.setLatLng(un(ovC())); if (k) k.setLatLng(fromUV(M.ov.pin[0], M.ov.pin[1])); };
+  c.on('drag', () => { const d = pj(c.getLatLng()).subtract(ovC()); M.ov.p = flat(pts(M.ov).map(ll => un(pj(ll).add(d)))); ovPaint(); r.setLatLng(pts(M.ov)[1]); if (k) k.setLatLng(fromUV(M.ov.pin[0], M.ov.pin[1])); });
+  let prev = null; r.on('dragstart', () => { prev = pj(pts(M.ov)[1]); });
+  r.on('drag', () => { const A = M.ov.pin ? pj(fromUV(M.ov.pin[0], M.ov.pin[1])) : ovC(), cur = pj(r.getLatLng()), v0 = prev.subtract(A), v1 = cur.subtract(A), l0 = Math.hypot(v0.x, v0.y), l1 = Math.hypot(v1.x, v1.y); if (l0 < 2 || l1 < 2) return;
+    const sc = l1 / l0, da = Math.atan2(v1.y, v1.x) - Math.atan2(v0.y, v0.x), cs = Math.cos(da) * sc, sn = Math.sin(da) * sc;
+    M.ov.p = flat(pts(M.ov).map(ll => { const q = pj(ll).subtract(A); return un(L.point(A.x + q.x * cs - q.y * sn, A.y + q.x * sn + q.y * cs)); })); prev = cur; ovPaint(); sync(); });
+  if (k) { k.on('drag', () => { M.ov.pin = toUV(k.getLatLng()).map(v => +v.toFixed(5)); }); k.on('dragend', () => save()); }
+  c.on('dragend', () => save()); r.on('dragend', () => { r.setLatLng(pts(M.ov)[1]); save(); });
 }
+function adjSide(S2) {
+  if (pinMode) { S2.innerHTML = `<h3>📌 Fixed point</h3><p class="small">Tap the spot on the drawing that is already sitting in the right place on the photo, for example a boundary corner.</p><button class="btn2" id="smPinC">Cancel</button>`; $('smPinC').onclick = () => { pinMode = false; $('smMap').classList.remove('drawing'); side(); }; return; }
+  const has = !!M.ov.pin, cr = M.ov.crop && M.ov.crop.length >= 6;
+  S2.innerHTML = `<h3>Lining up the drawing</h3><ol class="small smsteps"><li>Drag the <b>move</b> handle (the cross) until one point you can recognise (a boundary corner) sits exactly on the photo.</li><li>Press <b>Set a fixed point</b> and tap that point. It will not move again.</li><li>Drag the <b>turn</b> handle (the round arrow). The drawing turns and changes size around the fixed point until a second point lines up.</li></ol>
+    <p><button class="btn2 ${has ? '' : 'go'}" id="smPin">${has ? '📌 Remove the fixed point' : '📌 Set a fixed point'}</button></p>
+    <h3>Crop the drawing</h3><p class="small">Keep only the part inside an outline you trace, so the photo shows around the site.</p>
+    <p><button class="btn2" id="smCrop">✂ ${cr ? 'Trace a new outline' : 'Crop to an outline'}</button> ${cr ? '<button class="btn2" id="smCropX">Remove the crop</button>' : ''}</p>
+    <p><button class="btn2 go" id="smAdjD">✓ Done lining up</button></p>`;
+  $('smPin').onclick = () => { if (M.ov.pin) { delete M.ov.pin; save(); return ovHandles(); } pinMode = true; $('smMap').classList.add('drawing'); side(); };
+  $('smCrop').onclick = () => { crop = { pts: [], segs: [], follow: true }; hl.clearLayers(); $('smMap').classList.add('drawing'); ovPaint(); side(); edges(); };
+  if ($('smCropX')) $('smCropX').onclick = () => { delete M.ov.crop; save(); ovPaint(); side(); };
+  $('smAdjD').onclick = () => { V.adj = false; ovHandles(); };
+}
+
+/* ---------- cropping: tap around the part to keep; with "Follow edges" on, each stretch runs along the drawn line between the taps ---------- */
+function edges() {
+  if (EM && EM.src === ovImg.src) return EM;
+  try { const k = Math.min(1, 1100 / Math.max(ovImg.naturalWidth, ovImg.naturalHeight)), w = Math.round(ovImg.naturalWidth * k), h = Math.round(ovImg.naturalHeight * k), cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const c = cv.getContext('2d', { willReadFrequently: true }); c.drawImage(ovImg, 0, 0, w, h); const d = c.getImageData(0, 0, w, h).data, gr = new Float32Array(w * h), g = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) gr[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
+    let mx = 1; for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const i = y * w + x, gx = gr[i - w + 1] + 2 * gr[i + 1] + gr[i + w + 1] - gr[i - w - 1] - 2 * gr[i - 1] - gr[i + w - 1], gy = gr[i + w - 1] + 2 * gr[i + w] + gr[i + w + 1] - gr[i - w - 1] - 2 * gr[i - w] - gr[i - w + 1]; const m = Math.hypot(gx, gy); g[i] = m; if (m > mx) mx = m; }
+    const nm = mx * 0.45; for (let i = 0; i < g.length; i++) g[i] = Math.min(1, g[i] / nm);
+    return (EM = { src: ovImg.src, w, h, g }); } catch (e) { console.warn('edges', e); return (EM = { src: ovImg.src, w: 0, h: 0, g: null }); }
+}
+function snapPx(E, x, y, rad) { let bx = x, by = y, bg = 0.3; for (let yy = Math.max(1, y - rad); yy <= Math.min(E.h - 2, y + rad); yy++) for (let xx = Math.max(1, x - rad); xx <= Math.min(E.w - 2, x + rad); xx++) { const d = Math.hypot(xx - x, yy - y); if (d > rad) continue; const v = E.g[yy * E.w + xx] - d / rad * 0.25; if (v > bg) { bg = v; bx = xx; by = yy; } } return [bx, by]; }
+function tracePx(E, a, b) {   // cheapest path from a to b where walking along a drawn line is cheap
+  const pad = 36, x0 = Math.max(0, Math.min(a[0], b[0]) - pad), y0 = Math.max(0, Math.min(a[1], b[1]) - pad), x1 = Math.min(E.w - 1, Math.max(a[0], b[0]) + pad), y1 = Math.min(E.h - 1, Math.max(a[1], b[1]) + pad), bw = x1 - x0 + 1, bh = y1 - y0 + 1, n = bw * bh;
+  if (n > 700000) return [a, b];
+  const dist = new Float32Array(n).fill(Infinity), from = new Int32Array(n).fill(-1), done = new Uint8Array(n), heap = [], idx = (x, y) => (y - y0) * bw + (x - x0), s = idx(a[0], a[1]), t = idx(b[0], b[1]);
+  const push = (i, d) => { heap.push([d, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  dist[s] = 0; push(s, 0);
+  while (heap.length) { const [d, i] = pop(); if (done[i]) continue; done[i] = 1; if (i === t) break; const x = i % bw, y = (i - x) / bw;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue; const j = ny * bw + nx; if (done[j]) continue; const gv = E.g[(ny + y0) * E.w + nx + x0], nd = d + (dx && dy ? 1.414 : 1) * (0.04 + (1 - gv) * (1 - gv)); if (nd < dist[j]) { dist[j] = nd; from[j] = i; push(j, nd); } } }
+  const out = []; for (let i = t; i !== -1; i = from[i]) { out.push([i % bw + x0, ((i - i % bw) / bw) + y0]); if (i === s) break; } out.reverse();
+  return out.length > 1 && out[0][0] === a[0] && out[0][1] === a[1] ? thin(out, 1.1) : [a, b];
+}
+function thin(P, tol) { if (P.length < 3) return P; const keep = new Uint8Array(P.length); keep[0] = keep[P.length - 1] = 1; const st = [[0, P.length - 1]];
+  while (st.length) { const [i, j] = st.pop(), [ax, ay] = P[i], [bx, by] = P[j], len = Math.hypot(bx - ax, by - ay) || 1; let md = 0, mk = -1; for (let k = i + 1; k < j; k++) { const d = Math.abs((bx - ax) * (ay - P[k][1]) - (ax - P[k][0]) * (by - ay)) / len; if (d > md) { md = d; mk = k; } } if (md > tol) { keep[mk] = 1; st.push([i, mk], [mk, j]); } }
+  return P.filter((_, k) => keep[k]); }
+function cropClick(ll) {
+  let [u, v] = toUV(ll); u = Math.min(1, Math.max(0, u)); v = Math.min(1, Math.max(0, v)); const E = crop.follow ? edges() : null;
+  if (E && E.g) { const g = ovGeo(), pxPer = Math.hypot(g.ex.x, g.ex.y) / 2 ** (ZP - map.getZoom()) / E.w, rad = Math.round(Math.min(40, Math.max(2, 14 / pxPer)));
+    const q = snapPx(E, Math.round(u * (E.w - 1)), Math.round(v * (E.h - 1)), rad), last = crop.px;
+    const seg = last ? tracePx(E, last, q).slice(1) : [q]; crop.px = q; crop.segs.push(seg.length); seg.forEach(s2 => crop.pts.push([s2[0] / (E.w - 1), s2[1] / (E.h - 1)])); }
+  else { crop.pts.push([u, v]); crop.segs.push(1); crop.px = null; }
+  cropPreview(); side();
+}
+function cropPreview() { tmp.clearLayers(); if (!crop || !crop.pts.length) return; const LL = crop.pts.map(q => fromUV(q[0], q[1])); if (LL.length > 1) L.polyline(LL, { color: '#FFC400', weight: 3 }).addTo(tmp); if (LL.length > 2) L.polyline([LL[LL.length - 1], LL[0]], { color: '#FFC400', weight: 2, dashArray: '5 6' }).addTo(tmp);
+  let k = 0; crop.segs.forEach(n => { k += n; L.circleMarker(LL[k - 1], { radius: 5, color: '#172B4D', weight: 2, fillColor: '#FFC400', fillOpacity: 1 }).addTo(tmp); }); }
+function cropSide(S2) {
+  S2.innerHTML = `<h3>✂ Crop the drawing</h3><p class="small">Tap around the part to keep, a point at each corner or every so often along a curve. ${crop.segs.length} point${crop.segs.length === 1 ? '' : 's'} so far.</p>
+    <label class="chk small"><input type="checkbox" id="smFol" ${crop.follow ? 'checked' : ''}> Follow edges: each tap snaps to the nearest drawn line, and the outline runs along that line from the tap before</label>
+    <p><button class="btn2 go" id="smCrF" ${crop.pts.length < 3 ? 'disabled' : ''}>Finish</button> <button class="btn2" id="smCrU" ${crop.segs.length ? '' : 'disabled'}>Undo last</button> <button class="btn2" id="smCrC">Cancel</button></p>`;
+  $('smFol').onchange = e => { crop.follow = e.target.checked; if (crop.follow && crop.pts.length) { const E = edges(), q = crop.pts[crop.pts.length - 1]; crop.px = E.g ? [Math.round(q[0] * (E.w - 1)), Math.round(q[1] * (E.h - 1))] : null; } };
+  $('smCrF').onclick = cropFinish; $('smCrC').onclick = cropEnd;
+  $('smCrU').onclick = () => { const n = crop.segs.pop(); crop.pts.splice(crop.pts.length - n, n); const q = crop.pts[crop.pts.length - 1], E = EM; crop.px = q && E && E.g ? [Math.round(q[0] * (E.w - 1)), Math.round(q[1] * (E.h - 1))] : null; cropPreview(); side(); };
+}
+function cropFinish() {
+  if (!crop || crop.pts.length < 3) return toast('Tap at least 3 points first');
+  let P = crop.pts; if (crop.follow && crop.px && EM && EM.g) { const f = P[0], back = tracePx(EM, crop.px, [Math.round(f[0] * (EM.w - 1)), Math.round(f[1] * (EM.h - 1))]).slice(1, -1); P = P.concat(back.map(q => [q[0] / (EM.w - 1), q[1] / (EM.h - 1)])); }
+  if (P.length > 900) P = thin(P.map(q => [q[0] * 2000, q[1] * 2000]), 2.5).map(q => [q[0] / 2000, q[1] / 2000]);
+  M.ov.crop = P.flatMap(q => [+q[0].toFixed(4), +q[1].toFixed(4)]); save(); cropEnd();
+}
+function cropEnd() { crop = null; tmp.clearLayers(); $('smMap') && $('smMap').classList.remove('drawing'); ovPaint(); ovHandles(); }
 
 function setBase(k) { if (base) map.removeLayer(base); const b = BASES[k] || BASES.aerial; base = L.tileLayer(b.url, { maxZoom: b.max, maxNativeZoom: b.nat, attribution: b.attr, crossOrigin: 'anonymous' }).addTo(map); }
 
@@ -145,7 +221,7 @@ function paint() {
     if (t.kind === 'point') g = L.marker(P[0], { icon: icon(f), draggable: ed() && on, keyboard: false });
     else if (t.kind === 'line') g = L.polyline(P, { color: t.color, weight: on ? 7 : 5, opacity: 0.95, dashArray: f.t === 'path' ? '1 9' : f.t === 'swpipe' ? '8 6' : null, lineCap: 'round' });
     else g = L.polygon(P, { color: t.color, weight: on ? 4 : 2, fillColor: t.color, fillOpacity: f.t === 'boundary' ? 0 : on ? 0.4 : 0.25, dashArray: f.t === 'boundary' ? '10 6' : null });
-    g.on('click', e => { L.DomEvent.stop(e); if (draw) return onClick(e); select(f.id); });
+    g.on('click', e => { L.DomEvent.stop(e); if (draw || crop || pinMode) return onClick(e); select(f.id); });
     if (V.labels && (f.label || t.kind !== 'point')) g.bindTooltip(esc(f.label || t.label), { permanent: true, direction: t.kind === 'point' ? 'right' : 'center', className: 'smtip', offset: t.kind === 'point' ? [14, 0] : [0, 0] });
     if (t.kind === 'point' && ed() && on) g.on('dragend', () => { f.p = flat([g.getLatLng()]); save(); side(); });
     g.addTo(layer);
@@ -160,6 +236,7 @@ function select(id) { sel = sel === id ? null : id; paint(); side(); const f = M
 
 function side() {
   const S2 = $('smSide'); if (!S2) return;
+  if (crop) return cropSide(S2); if (V.adj && M.ov && ovImg && ed()) return adjSide(S2);
   if (draw) { const t = TYPES[draw.t]; S2.innerHTML = `<h3>Adding: ${esc(t.label)}</h3><p class="small">${t.kind === 'point' ? 'Tap the map where it is.' : `Tap the map at each corner${t.kind === 'line' ? ' or bend' : ''}. ${draw.pts.length} so far. Press Finish (or double-tap) when done.`}</p>
     ${t.kind !== 'point' ? `<button class="btn2 go" id="smFin" ${draw.pts.length < (t.kind === 'area' ? 3 : 2) ? 'disabled' : ''}>Finish</button> <button class="btn2" id="smUndo" ${draw.pts.length ? '' : 'disabled'}>Undo last</button> ` : ''}<button class="btn2" id="smCan">Cancel</button>`;
     if ($('smFin')) { $('smFin').onclick = finish; $('smUndo').onclick = () => { draw.pts.pop(); preview(); side(); }; } $('smCan').onclick = cancelDraw; return; }
@@ -184,6 +261,8 @@ function side() {
 }
 
 function onClick(e) {
+  if (pinMode) { M.ov.pin = toUV(e.latlng).map(v => +v.toFixed(5)); pinMode = false; $('smMap').classList.remove('drawing'); save(); return ovHandles(); }
+  if (crop) return cropClick(e.latlng);
   if (!draw) { if (sel) { sel = null; paint(); side(); } return; }
   const t = TYPES[draw.t]; draw.pts.push(e.latlng);
   if (t.kind === 'point') return finish();
@@ -209,7 +288,7 @@ export async function snapshot(opt = {}) {
   const ts = 256 * k, x0 = Math.floor(tl.x / ts), y0 = Math.floor(tl.y / ts), x1 = Math.floor((tl.x + W) / ts), y1 = Math.floor((tl.y + H) / ts), jobs = [];
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(tileImg(B.url.replace('{z}', zt).replace('{x}', x).replace('{y}', y)).then(im => im && c.drawImage(im, x * ts - tl.x, y * ts - tl.y, ts, ts)));
   await Promise.all(jobs);
-  if (ovImg && M.ov && M.ov.p && V.ov) { const [a, b2, d] = pts(M.ov).map(proj), w = ovImg.naturalWidth, h = ovImg.naturalHeight; c.save(); c.globalAlpha = M.ov.op || 0.75; c.setTransform((b2.x - a.x) / w, (b2.y - a.y) / w, (d.x - a.x) / h, (d.y - a.y) / h, a.x, a.y); c.drawImage(ovImg, 0, 0); c.restore(); }
+  if (ovImg && M.ov && M.ov.p && V.ov) { const [a, b2, d] = pts(M.ov).map(proj), w = ovImg.naturalWidth, h = ovImg.naturalHeight; c.save(); c.globalAlpha = M.ov.op || 0.75; c.setTransform((b2.x - a.x) / w, (b2.y - a.y) / w, (d.x - a.x) / h, (d.y - a.y) / h, a.x, a.y); if (M.ov.crop && M.ov.crop.length >= 6) { c.beginPath(); pts({ p: M.ov.crop }).forEach((q, i) => i ? c.lineTo(q[0] * w, q[1] * h) : c.moveTo(q[0] * w, q[1] * h)); c.closePath(); c.clip(); } c.drawImage(ovImg, 0, 0); c.restore(); }
   const F = M.feats.filter(f => opt.residents ? T(f).aud !== 'fm' : shown(f));
   const lab = (t, x, y, col) => { c.font = '700 26px "Segoe UI", system-ui, Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 7; c.strokeStyle = 'rgba(255,255,255,0.92)'; c.strokeText(t, x, y); c.fillStyle = col || '#1a1a1a'; c.fillText(t, x, y); };
   for (const kind of ['area', 'line']) F.filter(f => T(f).kind === kind).forEach(f => { const t = T(f), P = pts(f).map(proj); if (P.length < 2) return;
