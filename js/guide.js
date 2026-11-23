@@ -61,8 +61,10 @@ export async function draw(cv, pg, unit) {
         for (const [col, wd] of [['#fff', 12], [RED, 5]]) { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; if (apart) { c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(e2.x, e2.y); c.stroke(); } c.beginPath(); c.roundRect(SR.x, SR.y, SR.w, SR.h, 10); c.stroke(); }
         c.drawImage(img, z.x * img.width, z.y * img.height, sw, sh, bx, by, bw, bh); c.strokeStyle = '#fff'; c.lineWidth = 12; c.strokeRect(bx, by, bw, bh); c.strokeStyle = RED; c.lineWidth = 6; c.strokeRect(bx, by, bw, bh);
         const cap = fill(z.label, unit); if (cap) { const beside = !fl && n === 1 && !side, cx = beside ? bx + bw + 34 : bx, cw = beside ? W - PX - cx : fl ? Math.max(bw, 300) : maxW; let cy = beside ? by + 44 : by + bh + 48; c.font = font(36, 1); const L = wrap(c, cap, cw);
-          if (fl) { c.fillStyle = 'rgba(255,255,255,.88)'; c.fillRect(cx - 6, by + bh + 8, Math.max(...L.map(t => c.measureText(t).width)) + 12, L.length * 46 + 8); }
-          c.fillStyle = NAVY; for (const t of L) { c.fillText(t, cx, cy); cy += 46; } if (!beside && !fl) capB = Math.max(capB, cy - (by + bh)); }
+          // under the close-up the caption is centred on it; beside it, it stays left-aligned
+          const mid = !beside, ccx = mid ? bx + bw / 2 : cx, tw = Math.max(...L.map(t => c.measureText(t).width));
+          if (fl) { c.fillStyle = 'rgba(255,255,255,.88)'; c.fillRect(ccx - tw / 2 - 6, by + bh + 8, tw + 12, L.length * 46 + 8); }
+          c.fillStyle = NAVY; c.textAlign = mid ? 'center' : 'left'; for (const t of L) { c.fillText(t, ccx, cy); cy += 46; } c.textAlign = 'left'; if (!beside && !fl) capB = Math.max(capB, cy - (by + bh)); }
         if (!fl) { rowH = Math.max(rowH, bh); x += maxW + gap; } });
       if (n) y += rowH + capB + 50; if (side) y = Math.max(y, keyEnd); }
     marks.forEach((m, i) => { const q = m.z != null && ZR[m.z]; if (!q) return; arrow(c, { x: q.x + m.nx * q.w, y: q.y + m.ny * q.h }, { x: q.x + m.tx * q.w, y: q.y + m.ty * q.h }); dot(c, q.x + m.nx * q.w, q.y + m.ny * q.h, i + 1); });
