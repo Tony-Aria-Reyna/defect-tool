@@ -2,7 +2,7 @@
 // (entrances, bin store, bike store, washing lines, gardens, tanks, stormwater, shut-offs). Admins and editors mark it up;
 // everyone on the project can view it. A snapshot can be added to the Home guide as a page with numbered pointers.
 import { S, can } from './state.js';
-import { $, esc, toast, busy, confirmBox, uid, loadScript, deliver, safeName, stamp } from './util.js';
+import { $, esc, toast, busy, confirmBox, uid, loadScript, deliver, safeName, stamp, compressImage, dataUrlToBlob } from './util.js';
 
 // what can be put on the map; aud 'fm' = facilities team only, left out of the residents' view and the Home guide
 export const TYPES = {
@@ -43,7 +43,7 @@ const BASES = {
 };
 const DEF = { center: [-36.9297, 174.6781], zoom: 18 };   // 81A Godley Road, Green Bay; any project can save its own view
 
-let back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true, ov: true, adj: false }, ovImg = null, hl = null;
+let keepAdj = false, back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true, ov: true, adj: false }, ovImg = null, hl = null;
 const ed = () => can.edit();
 const T = f => TYPES[f.t] || TYPES.note;
 const pts = f => { const o = []; for (let i = 0; i + 1 < (f.p || []).length; i += 2) o.push([f.p[i], f.p[i + 1]]); return o; };   // Firestore can't hold nested arrays, so points are kept flat
@@ -65,7 +65,7 @@ export async function view(onBack) {
   $('fmView').innerHTML = `<div class="fbar"><button class="btn2" id="smHome">‹ Home guide</button><h2>Site map</h2>
     <span class="seg"><button id="smA" class="${M.base === 'aerial' ? 'on' : ''}">Aerial</button><button id="smS" class="${M.base === 'street' ? 'on' : ''}">Street</button></span>
     <label class="chk small"><input type="checkbox" id="smFm" ${V.fmView ? 'checked' : ''}> Facilities items</label><label class="chk small"><input type="checkbox" id="smLb" ${V.labels ? 'checked' : ''}> Labels</label>
-    ${ed() ? `<select id="smOv" title="Lay one of the project drawings over the map, for example the site plan"><option value="">No drawing over the map</option>${(S.plans || []).filter(p => p.kind !== 'elevation').map(p => `<option value="${esc(p.id)}" ${M.ov && M.ov.planId === p.id ? 'selected' : ''}>Drawing: ${esc(p.name)}</option>`).join('')}</select>` : M.ov ? `<label class="chk small"><input type="checkbox" id="smOvS" ${V.ov ? 'checked' : ''}> Site plan</label>` : ''}
+    ${ed() ? `<select id="smOv" title="Lay one of the project drawings over the map, for example the site plan"><option value="">No drawing over the map</option>${M.ov && M.ov.img ? '<option value="__own" selected>Drawing: uploaded picture</option>' : ''}<option value="__up">⬆ Upload a picture of a drawing…</option>${(S.plans || []).filter(p => p.kind !== 'elevation').map(p => `<option value="${esc(p.id)}" ${M.ov && M.ov.planId === p.id ? 'selected' : ''}>Drawing: ${esc(p.name)}</option>`).join('')}</select>` : M.ov ? `<label class="chk small"><input type="checkbox" id="smOvS" ${V.ov ? 'checked' : ''}> Site plan</label>` : ''}
     <span id="smOvT" ${M.ov ? '' : 'hidden'}><input type="range" id="smOp" min="15" max="100" value="${Math.round(((M.ov && M.ov.op) || 0.75) * 100)}" title="How solid the drawing is">${ed() ? '<button class="btn2" id="smAdj" title="Move, turn and size the drawing until it sits on the site">✥ Line it up</button>' : ''}</span>
     <span class="sp"></span>${ed() ? '<button class="btn2" id="smView" title="Use the map as it is now framed as the starting view and for the Home guide page">Save this view</button><button class="btn2 go" id="smGuide">📖 Add to Home guide</button>' : ''}<button class="btn2" id="smPng">⬇ Picture</button></div>
     <div id="smWrap"><div id="smMap"></div><aside id="smSide"></aside></div>`;
@@ -75,7 +75,7 @@ export async function view(onBack) {
   map = L.map('smMap', { zoomSnap: 1, maxZoom: 20, doubleClickZoom: false, attributionControl: true }).setView(M.center, M.zoom);
   setBase(M.base);
   map.createPane('plan').style.zIndex = 250; map.getPane('plan').style.pointerEvents = 'none';
-  layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map); hl = L.layerGroup().addTo(map); ovImg = null; V.adj = false;
+  layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map); hl = L.layerGroup().addTo(map); ovImg = null; V.adj = keepAdj; keepAdj = false;
   map.on('zoomend viewreset', ovPaint);
   map.on('click', onClick); map.on('dblclick', () => draw && finish());
   map.on('moveend', () => { const c = map.getCenter(); M.view = { center: [c.lat, c.lng], zoom: map.getZoom() }; });
@@ -83,7 +83,7 @@ export async function view(onBack) {
   $('smS').onclick = () => { setBase('street'); $('smS').classList.add('on'); $('smA').classList.remove('on'); if (ed()) { M.base = 'street'; save(); } };
   $('smFm').onchange = e => { V.fmView = e.target.checked; const f = M.feats.find(x => x.id === sel); if (f && !shown(f)) sel = null; paint(); side(); };
   $('smLb').onchange = e => { V.labels = e.target.checked; paint(); };
-  if ($('smOv')) $('smOv').onchange = e => { const id = e.target.value; M.ov = id ? { planId: id, op: (M.ov && M.ov.op) || 0.75, p: M.ov && M.ov.planId === id ? M.ov.p : null } : null; V.adj = !!id; $('smOvT').hidden = !id; save(); ovLoad(); };
+  if ($('smOv')) $('smOv').onchange = e => { const id = e.target.value; if (id === '__own') return; if (id === '__up') { e.target.value = M.ov ? (M.ov.img ? '__own' : M.ov.planId) : ''; return ovUpload(); } M.ov = id ? { planId: id, op: (M.ov && M.ov.op) || 0.75, p: M.ov && M.ov.planId === id ? M.ov.p : null } : null; V.adj = !!id; $('smOvT').hidden = !id; save(); ovLoad(); };
   if ($('smOvS')) $('smOvS').onchange = e => { V.ov = e.target.checked; ovLoad(); };
   $('smOp').oninput = e => { if (!M.ov) return; M.ov.op = +e.target.value / 100; if (ovImg) ovImg.style.opacity = M.ov.op; if (ed()) save(); };
   if ($('smAdj')) $('smAdj').onclick = () => { V.adj = !V.adj; ovHandles(); };
@@ -105,13 +105,20 @@ const ovC = () => { const [, tr, bl] = pts(M.ov).map(pj); return tr.add(bl).divi
 async function ovLoad() {
   if (ovImg) { ovImg.remove(); ovImg = null; } hl && hl.clearLayers();
   const adj = $('smAdj'); if (adj) adj.classList.toggle('go', V.adj);
-  if (!M.ov || !V.ov) return; const pl = (S.plans || []).find(x => x.id === M.ov.planId); if (!pl || !pl.img) return;
+  if (!M.ov || !V.ov) return; const pl = M.ov.img ? { id: M.ov.img, img: M.ov.img } : (S.plans || []).find(x => x.id === M.ov.planId); if (!pl || !pl.img) return;
   const myMap = map, im = new Image(); im.crossOrigin = 'anonymous'; im.className = 'smov leaflet-zoom-hide';
   try { im.src = await S.store.resolveUrl(pl.img); await im.decode(); } catch (e) { return toast('The drawing could not be loaded'); }
-  if (map !== myMap || !M.ov || M.ov.planId !== pl.id) return;
+  if (map !== myMap || !M.ov || (M.ov.img || M.ov.planId) !== pl.id) return;
   ovImg = im; im.style.opacity = M.ov.op || 0.75; map.getPane('plan').appendChild(im);
   if (!M.ov.p || M.ov.p.length !== 6) { const sz = map.getSize(), k = 2 ** (ZP - map.getZoom()), w = sz.x * 0.6 * k; ovSet(pj(map.getCenter()), L.point(w / 2, -w / 2 * im.naturalHeight / im.naturalWidth)); if (ed()) save(); }
   ovPaint(); ovHandles();
+}
+function ovUpload() {
+  const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
+  i.onchange = async () => { const f = i.files[0]; if (!f) return; const b = busy('Loading the drawing…');
+    try { const url = await S.store.putFile(`projects/${pid}/docs/sitemap/drawing-${Date.now()}.jpg`, dataUrlToBlob((await compressImage(f, 3000, 0.86)).dataUrl), true);
+      M.ov = { img: url, op: (M.ov && M.ov.op) || 0.75, p: null }; keepAdj = true; b.done(); await save(true); view(); } catch (e) { b.done(); toast('The drawing could not be loaded: ' + e.message, 7000); } };
+  i.click();
 }
 function ovPaint() {
   if (!ovImg || !M.ov || !M.ov.p) return; const [tl, tr, bl] = pts(M.ov).map(ll => map.latLngToLayerPoint(ll)), w = ovImg.naturalWidth, h = ovImg.naturalHeight;
