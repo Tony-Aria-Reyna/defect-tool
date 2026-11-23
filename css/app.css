@@ -773,3 +773,6 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .smlbl{position:absolute;height:20px;line-height:20px;font:600 12px "Segoe UI",system-ui,-apple-system,Arial;color:#1a1a1a;background:rgba(255,255,255,.93);border-radius:5px;box-shadow:0 1px 3px #0003;text-align:center;white-space:nowrap;padding:0 6px;box-sizing:border-box}
 .smlbl.on{background:#FFF3C4;outline:2px solid #FFC400}
 .smlead{position:absolute;height:1.5px;background:rgba(23,43,77,.8);transform-origin:0 50%}
+.gcard.dragging{opacity:.35}.gcard.dropL{box-shadow:-5px 0 0 var(--teal)}.gcard.dropR{box-shadow:5px 0 0 var(--teal)}.gcard[draggable=true]{cursor:grab}
+#fmView.smfull{position:fixed;inset:0;z-index:35;background:#f2f4f6;padding:10px 12px}#fmView.smfull #smWrap{height:calc(100vh - 78px)}
+.smframe{position:absolute;z-index:650;pointer-events:none;border:2px dashed #fff;box-shadow:0 0 0 2000px rgba(1,28,53,.28);box-sizing:border-box}.smframe span{position:absolute;left:6px;top:4px;font-size:11px;color:#fff;background:rgba(1,28,53,.6);padding:1px 6px;border-radius:4px}

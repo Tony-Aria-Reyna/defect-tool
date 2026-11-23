@@ -28,7 +28,7 @@ async function loadImg(src) {
 function wrap(c, text, width) { const out = []; for (const para of String(text).split('\n')) { let line = ''; for (const w of para.split(/\s+/)) { const t = (line + ' ' + w).trim(); if (c.measureText(t).width <= width) line = t; else { if (line) out.push(line); line = w; } } out.push(line); } return out; }
 const font = (px, b) => `${b ? '700' : '400'} ${px}px "Segoe UI", system-ui, -apple-system, Arial, sans-serif`;
 // where the photo sits on the page, so the editor can put its drag handles in the same place
-export function photoRect(pg, img) { if (!img) return null; const pw = pg.wide ? W - PX * 2 : 660, sc = Math.min(pw / img.width, (pg.codeBox ? 520 : pg.wide ? 760 : 900) / img.height) * (pg.psize || 100) / 100; return { x: PX, y: PH0, w: Math.round(img.width * sc), h: Math.round(img.height * sc) }; }
+export function photoRect(pg, img) { if (!img) return null; const pw = pg.wide ? W - PX * 2 : 660, sc = Math.min(pw / img.width, (pg.codeBox ? 520 : pg.siteMap ? 1050 : pg.wide ? 760 : 900) / img.height) * (pg.psize || 100) / 100; return { x: PX, y: PH0, w: Math.round(img.width * sc), h: Math.round(img.height * sc) }; }
 function dot(c, x, y, n, r = 34) { c.beginPath(); c.arc(x, y, r + 5, 0, 7); c.fillStyle = '#fff'; c.fill(); c.beginPath(); c.arc(x, y, r, 0, 7); c.fillStyle = RED; c.fill(); c.fillStyle = '#fff'; c.font = font(40, 1); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(n), x, y + 2); c.textAlign = 'left'; c.textBaseline = 'alphabetic'; }
 function arrow(c, a, b) {
   const ang = Math.atan2(b.y - a.y, b.x - a.x), L = 32;
@@ -107,13 +107,22 @@ export function view() {
   if (mapOpen && $('smMap')) return;   // the site map is open: a page saved from it must not close it
   mapOpen = false; const P = pages(), g = cfg(), ed = can.edit();
   $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}<button class="btn2" id="gMap" title="The map of the site: mark where the bins, bike store, washing lines, gardens and tanks are, then add it to the guide as a page">🗺 Site map</button><button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
-  <p class="muted small">${P.length} page${P.length === 1 ? '' : 's'} · ${P.filter(p => p.aud !== 'fm').length} in the Home User Guide, all ${P.length} plus the registers in the Facilities Guide. One topic per page, one photo, numbered pointers and a few short lines. ${g.phone ? 'Footer: call ' + esc(g.org) + ' ' + esc(g.phone) + '.' : 'Set the phone number for the footer in “Phone and unit codes”.'}</p>
-  ${P.length ? `<div class="ggrid">${P.map((p, i) => `<div class="gcard" data-id="${esc(p.id)}"><canvas data-cv="${esc(p.id)}"></canvas><div class="gcap"><b>${i + 1}. ${esc(p.title || 'Untitled')}${p.aud === 'fm' ? ' <span class="badge">Facilities only</span>' : ''}</b>${ed ? `<span><button class="mini" data-up="${esc(p.id)}" title="Move earlier">↑</button><button class="mini" data-dn="${esc(p.id)}" title="Move later">↓</button></span>` : ''}</div></div>`).join('')}</div>` : '<div class="empty2">No pages yet. Add a page, or import a set of pages.</div>'}`;
+  <p class="muted small">${P.length} page${P.length === 1 ? '' : 's'} · ${P.filter(p => p.aud !== 'fm').length} in the Home User Guide, all ${P.length} plus the registers in the Facilities Guide. ${ed ? 'Drag a page to move it. ' : ''}The PDF adds a contents page and page numbers by itself. ${g.phone ? 'Footer: call ' + esc(g.org) + ' ' + esc(g.phone) + '.' : 'Set the phone number for the footer in “Phone and unit codes”.'}</p>
+  ${P.length ? `<div class="ggrid">${P.map((p, i) => `<div class="gcard" data-id="${esc(p.id)}"${ed ? ' draggable="true"' : ''}><canvas data-cv="${esc(p.id)}"></canvas><div class="gcap"><b>${i + 1}. ${esc(p.title || 'Untitled')}${p.aud === 'fm' ? ' <span class="badge">Facilities only</span>' : ''}</b>${ed ? `<span><button class="mini" data-up="${esc(p.id)}" title="Move earlier">↑</button><button class="mini" data-dn="${esc(p.id)}" title="Move later">↓</button></span>` : ''}</div></div>`).join('')}</div>` : '<div class="empty2">No pages yet. Add a page, or import a set of pages.</div>'}`;
   $('gMap').onclick = () => { mapOpen = true; SM.view(() => { mapOpen = false; view(); }); };
   P.forEach(p => { const cv = document.querySelector(`[data-cv="${p.id}"]`); if (cv) draw(cv, p, '').catch(e => console.warn(e)); });
   document.querySelectorAll('.gcard').forEach(c => c.onclick = e => { if (e.target.closest('button')) return; edit(P.find(p => p.id === c.dataset.id)); });
   const move = async (id, d) => { const i = P.findIndex(p => p.id === id), j = i + d; if (j < 0 || j >= P.length) return; const a = P[i], b = P[j]; await S.store.patchItem(S.project.id, 'guide', a.id, { order: j + 1 }); await S.store.patchItem(S.project.id, 'guide', b.id, { order: i + 1 }); };
   document.querySelectorAll('[data-up]').forEach(b => b.onclick = () => move(b.dataset.up, -1)); document.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => move(b.dataset.dn, 1));
+  if (ed) { let from = null; const cards = [...document.querySelectorAll('.gcard')], clear = () => cards.forEach(c => c.classList.remove('dropL', 'dropR', 'dragging'));
+    const side = (c, e) => { const r = c.getBoundingClientRect(); return e.clientX > r.left + r.width / 2; };
+    cards.forEach(c => { c.ondragstart = e => { from = c.dataset.id; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', from); } catch (x) {} };
+      c.ondragend = () => { from = null; clear(); };
+      c.ondragover = e => { if (!from || from === c.dataset.id) return; e.preventDefault(); const r = side(c, e); cards.forEach(x => x !== c && x.classList.remove('dropL', 'dropR')); c.classList.toggle('dropR', r); c.classList.toggle('dropL', !r); };
+      c.ondragleave = () => c.classList.remove('dropL', 'dropR');
+      c.ondrop = async e => { e.preventDefault(); const id = from, after = side(c, e); clear(); if (!id || id === c.dataset.id) return;
+        const ids = P.map(p => p.id).filter(x => x !== id); ids.splice(ids.indexOf(c.dataset.id) + (after ? 1 : 0), 0, id);
+        const b = busy('Moving the page…'); try { for (const [i, pid] of ids.entries()) { const pg = P.find(p => p.id === pid); if (pg.order !== i + 1) await S.store.patchItem(S.project.id, 'guide', pid, { order: i + 1 }); } } catch (x) { toast('Could not move the page: ' + x.message, 6000); } b.done(); }; }); }
   if ($('gNew')) $('gNew').onclick = () => edit(null);
   if ($('gSet')) $('gSet').onclick = settings;
   if ($('gStd')) $('gStd').onclick = addStandard;
@@ -339,9 +348,25 @@ function exportDialog() {
 }
 async function pdf(unit, kind = 'home') {
   if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js'); const doc = await window.PDFLib.PDFDocument.create(), cv = document.createElement('canvas');
-  for (const p of pages().filter(p => kind === 'fm' || p.aud !== 'fm')) { await draw(cv, p, unit); const bytes = await (await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.86))).arrayBuffer(); const im = await doc.embedJpg(bytes), pg = doc.addPage([595.28, 841.89]); pg.drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
+  const P = pages().filter(p => kind === 'fm' || p.aud !== 'fm'), list = P.slice();
+  // a contents page straight after the first (welcome) page, once there are enough pages to need one; split in two when the list is long
+  if (P.length > 4) { const rows = P.map((p, i) => ({ t: fill(p.title || 'Untitled', unit), i })), per = 22, nC = Math.ceil(rows.length / per);
+    const num = i => (i === 0 ? 1 : i + 1 + nC);
+    for (let k = 0; k < nC; k++) list.splice(1 + k, 0, { contents: rows.slice(k * per, (k + 1) * per).map(r => ({ t: r.t, n: num(r.i) })), title: nC > 1 ? `What is in this guide (${k + 1} of ${nC})` : 'What is in this guide' }); }
+  for (const [n, p] of list.entries()) {
+    if (p.contents) await drawContents(cv, p, unit); else await draw(cv, p, unit);
+    if (list.length > 1) { const c = cv.getContext('2d'); c.fillStyle = '#5a6675'; c.font = font(26); c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(`Page ${n + 1}`, PX, 66); }
+    const bytes = await (await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.86))).arrayBuffer(); const im = await doc.embedJpg(bytes), pg = doc.addPage([595.28, 841.89]); pg.drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
   if (kind === 'fm') await registers(doc);
   return new Blob([await doc.save()], { type: 'application/pdf' });
+}
+// the contents page: the usual header and footer (from an empty page), then each topic with a dotted line to its page number
+export async function drawContents(cv, pg, unit) {
+  await draw(cv, { title: pg.title, lines: '', marks: [] }, unit); const c = cv.getContext('2d'), rows = pg.contents, top = 290, rh = Math.min(64, Math.floor((H - 250 - top) / Math.max(rows.length, 1)));
+  rows.forEach((r, i) => { const y = top + i * rh; c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.fillStyle = NAVY; c.font = font(Math.min(38, rh - 20), 1); let t = r.t; while (c.measureText(t).width > W - PX * 2 - 190 && t.length > 4) t = t.slice(0, -2); if (t !== r.t) t += '…'; c.fillText(t, PX, y);
+    const x0 = PX + c.measureText(t).width + 16, x1 = W - PX - 150; c.textAlign = 'right'; c.fillText(String(r.n), W - PX, y); c.font = font(Math.min(30, rh - 26)); c.fillStyle = '#5a6675'; c.fillText('page', W - PX - 62, y);
+    if (x1 > x0) { c.strokeStyle = '#9aa5b1'; c.lineWidth = 3; c.setLineDash([3, 11]); c.lineCap = 'round'; c.beginPath(); c.moveTo(x0, y - 8); c.lineTo(x1, y - 8); c.stroke(); c.setLineDash([]); } });
+  c.textAlign = 'left';
 }
 // Facilities Guide registers, straight from the app's data so they never drift from the warranty register
 async function registers(doc) {

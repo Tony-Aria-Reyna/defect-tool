@@ -80,18 +80,19 @@ async function leaflet() {
 export async function view(onBack) {
   if (onBack) back = onBack;
   if (map && pid !== S.project.id) { map.remove(); map = null; }
+  $('fmView').classList.remove('smfull');
   pid = S.project.id; M = load(); sel = null; draw = null;
   $('fmView').innerHTML = `<div class="fbar"><button class="btn2" id="smHome">‹ Home guide</button><h2>Site map</h2>
     <span class="seg"><button id="smA" class="${M.base === 'aerial' ? 'on' : ''}">Aerial</button><button id="smS" class="${M.base === 'street' ? 'on' : ''}">Street</button></span>
     <span class="seg" title="Show what goes on each guide's map"><button data-sh="all" class="${V.show === 'all' ? 'on' : ''}">All</button><button data-sh="res" class="${V.show === 'res' ? 'on' : ''}">Home user guide</button><button data-sh="fm" class="${V.show === 'fm' ? 'on' : ''}">Facilities</button></span><label class="chk small"><input type="checkbox" id="smLb" ${V.labels ? 'checked' : ''}> Labels</label>
     ${ed() ? `<select id="smOv" title="Lay one of the project drawings over the map, for example the site plan"><option value="">No drawing over the map</option><optgroup label="Uploaded pictures" id="smUps"${M.ov && M.ov.img ? '' : ' hidden'}>${M.ov && M.ov.img ? `<option value="${esc('img:' + M.ov.img)}" selected>Uploaded picture</option>` : ''}</optgroup><option value="__up">⬆ Upload a picture of a drawing…</option>${(S.plans || []).filter(p => p.kind !== 'elevation').map(p => `<option value="${esc(p.id)}" ${M.ov && M.ov.planId === p.id ? 'selected' : ''}>Drawing: ${esc(p.name)}</option>`).join('')}</select>` : M.ov ? `<label class="chk small"><input type="checkbox" id="smOvS" ${V.ov ? 'checked' : ''}> Site plan</label>` : ''}
     <span id="smOvT" ${M.ov ? '' : 'hidden'}><input type="range" id="smOp" min="15" max="100" value="${Math.round(((M.ov && M.ov.op) || 0.75) * 100)}" title="How solid the drawing is">${ed() ? '<button class="btn2" id="smAdj" title="Move, turn and size the drawing until it sits on the site">✥ Line it up</button>' : ''}</span>
-    <span class="sp"></span>${ed() ? '<button class="btn2" id="smView" title="Use the map as it is now framed as the starting view and for the Home guide page">Save this view</button><button class="btn2 go" id="smGuide" title="Make or update the map page in the Home user guide, with the items set to show there">📖 Home user guide page</button><button class="btn2 go" id="smGuideF" title="Make or update the map page in the Facilities guide, with the items set to show there">🛠 Facilities page</button>' : ''}<button class="btn2" id="smPng">⬇ Picture</button></div>
+    <span class="sp"></span>${ed() ? '<button class="btn2" id="smView" title="Use the map as it is now framed as the starting view and for the Home guide page">Save this view</button><button class="btn2 go" id="smGuide" title="Make or update the map page in the Home user guide, with the items set to show there">📖 Home user guide page</button><button class="btn2 go" id="smGuideF" title="Make or update the map page in the Facilities guide, with the items set to show there">🛠 Facilities page</button>' : ''}<button class="btn2" id="smPng">⬇ Picture</button><button class="btn2" id="smFull" title="Use the whole screen for the map">⛶ Full screen</button></div>
     <div id="smWrap"><div id="smMap"></div><aside id="smSide"></aside></div>`;
-  $('smHome').onclick = () => { clearTimeout(timer); if (map) { map.remove(); map = null; } back && back(); };
+  $('smHome').onclick = () => { $('fmView').classList.remove('smfull'); clearTimeout(timer); if (map) { map.remove(); map = null; } back && back(); };
   await leaflet();
   if (map) map.remove();
-  map = L.map('smMap', { zoomSnap: 1, maxZoom: 20, doubleClickZoom: false, attributionControl: true }).setView(M.center, M.zoom);
+  map = L.map('smMap', { zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 160, wheelDebounceTime: 60, maxZoom: 20, doubleClickZoom: false, attributionControl: true }).setView(M.center, M.zoom);
   setBase(M.base);
   map.createPane('plan').style.zIndex = 250; map.getPane('plan').style.pointerEvents = 'none';
   layer = L.layerGroup().addTo(map); tmp = L.layerGroup().addTo(map); hl = L.layerGroup().addTo(map); ovImg = null; V.adj = keepAdj; keepAdj = false; crop = null; pinMode = false;
@@ -107,6 +108,8 @@ export async function view(onBack) {
   $('smOp').oninput = e => { if (!M.ov) return; M.ov.op = +e.target.value / 100; if (ovImg) ovImg.style.opacity = M.ov.op; if (ed()) save(); };
   if ($('smAdj')) $('smAdj').onclick = () => { V.adj = !V.adj; ovHandles(); };
   ovLoad(); if (ed()) ovUploads();
+  $('smFull').onclick = () => { const on = $('fmView').classList.toggle('smfull'); $('smFull').textContent = on ? '✕ Exit full screen' : '⛶ Full screen'; setTimeout(() => { map.invalidateSize(); frame(); }, 60); };
+  map.on('resize move zoom', frame); setTimeout(frame, 200);
   $('smPng').onclick = async () => { const b = busy('Drawing the map…'); try { const cv = await snapshot(); b.done(); cv.toBlob(bl => deliver(bl, `${safeName(S.project.name)} - site map - ${stamp()}.png`, 'Site map'), 'image/png'); } catch (e) { b.done(); toast(e.message, 6000); } };
   if (ed()) { $('smView').onclick = () => { const c = map.getCenter(); M.center = [+c.lat.toFixed(6), +c.lng.toFixed(6)]; M.zoom = map.getZoom(); save(true); toast('Saved as the starting view'); }; $('smGuide').onclick = () => toGuide('res'); $('smGuideF').onclick = () => toGuide('fm'); }
   if (!window.__smKey) { window.__smKey = 1; document.addEventListener('keydown', e => { if (e.key !== 'Escape' || !$('smMap')) return; if (crop) return cropEnd(); if (pinMode) { pinMode = false; $('smMap').classList.remove('drawing'); return side(); } if (draw) cancelDraw(); }); }
@@ -248,6 +251,9 @@ function cropFinish() {
 }
 function cropEnd() { crop = null; tmp.clearLayers(); $('smMap') && $('smMap').classList.remove('drawing'); ovPaint(); ovHandles(); }
 
+// a dashed outline of what the guide page picture will take in (it is taller than a wide screen shows)
+function frame() { const m = $('smMap'); if (!m || !ed() || !map) return; let f = m.querySelector('.smframe'); if (!f) { f = document.createElement('div'); f.className = 'smframe'; f.innerHTML = '<span>Guide page picture</span>'; m.appendChild(f); }
+  const s2 = map.getSize(), w = Math.min(s2.x, s2.y * 1120 / 1050), h = w * 1050 / 1120; f.style.cssText = `left:${(s2.x - w) / 2}px;top:${(s2.y - h) / 2}px;width:${w}px;height:${h}px`; }
 function setBase(k) { if (base) map.removeLayer(base); const b = BASES[k] || BASES.aerial; base = L.tileLayer(b.url, { maxZoom: b.max, maxNativeZoom: b.nat, attribution: b.attr, crossOrigin: 'anonymous' }).addTo(map); }
 
 const icon = (f, n) => { const t = T(f), on = sel === f.id; return L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: `<div class="smpin${on ? ' on' : ''}" style="background:${t.color}">${esc(t.sym || '•')}${n ? `<b>${n}</b>` : ''}</div>` }); };
@@ -397,10 +403,10 @@ function cancelDraw() { draw = null; tmp && tmp.clearLayers(); $('smMap') && $('
 const tileImg = u => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = () => res(null); im.src = u; });
 export async function snapshot(opt = {}) {
   const sc = 2, sz = map.getSize(), z0 = map.getZoom(), B = BASES[M.base] || BASES.aerial;
-  const zt = Math.min(z0 + 1, B.nat), k = 2 ** (z0 + 1 - zt);   // tiles one level deeper for a sharp picture, scaled up past the deepest imagery
-  const W = sz.x * sc, H = sz.y * sc, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c = cv.getContext('2d');
+  const zt = Math.min(Math.floor(z0 + 1), B.nat), k = 2 ** (z0 + 1 - zt);   // tiles one level deeper for a sharp picture, scaled up past the deepest imagery
+  const pw = opt.aspect ? Math.min(sz.x, sz.y / opt.aspect) : sz.x, W = Math.round(pw * sc), H = Math.round((opt.aspect ? pw * opt.aspect : sz.y) * sc), cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c = cv.getContext('2d');
   c.fillStyle = '#e8ecef'; c.fillRect(0, 0, W, H);
-  const tl = map.project(map.getBounds().getNorthWest(), z0 + 1), proj = ll => { const p = map.project(ll, z0 + 1); return { x: p.x - tl.x, y: p.y - tl.y }; };
+  const ctr = map.project(map.getCenter(), z0 + 1), tl = { x: ctr.x - W / 2, y: ctr.y - H / 2 }, proj = ll => { const p = map.project(ll, z0 + 1); return { x: p.x - tl.x, y: p.y - tl.y }; };
   const ts = 256 * k, x0 = Math.floor(tl.x / ts), y0 = Math.floor(tl.y / ts), x1 = Math.floor((tl.x + W) / ts), y1 = Math.floor((tl.y + H) / ts), jobs = [];
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(tileImg(B.url.replace('{z}', zt).replace('{x}', x).replace('{y}', y)).then(im => im && c.drawImage(im, x * ts - tl.x, y * ts - tl.y, ts, ts)));
   await Promise.all(jobs);
@@ -433,7 +439,7 @@ export async function snapshot(opt = {}) {
 
 /* ---------- the Home guide page: the map picture, with the residents' places as numbered pointers ---------- */
 async function toGuide(g) {
-  const fmg = g === 'fm', inView = f => pts(f).some(q => map.getBounds().contains(q)), all = M.feats.filter(f => inGuide(f, g) && inView(f));
+  const fmg = g === 'fm', vb = (() => { const c = map.project(map.getCenter()), s2 = map.getSize(), w = Math.min(s2.x, s2.y * 1120 / 1050), h = w * 1050 / 1120; return L.latLngBounds(map.unproject([c.x - w / 2, c.y + h / 2]), map.unproject([c.x + w / 2, c.y - h / 2])); })(), inView = f => pts(f).some(q => vb.contains(q)), all = M.feats.filter(f => inGuide(f, g) && inView(f));
   if (!all.length) return toast(`Nothing set to show in the ${fmg ? 'Facilities' : 'Home user'} guide is in view`);
   // zoomed in on the site and zoomed out to the neighbourhood are two different pages, so both can be kept
   const near = map.getZoom() >= 18, key = fmg ? 'fm' : near ? true : 'area', name = fmg ? 'Facilities guide' : 'Home user guide', title = fmg ? 'Site services map' : near ? 'Your site map' : 'Around your home';
@@ -441,7 +447,7 @@ async function toGuide(g) {
   if (!(await confirmBox(`${have ? 'Update the “' + have.title + '” page' : `Add a “${title}” page`} in the ${name} with the map as it is framed now? The ${all.length} item${all.length === 1 ? '' : 's'} in view go on it with their icons and names.${fmg ? '' : near ? ' Zoom out to the shops and bus stops and press this again for a separate “Around your home” page.' : ' Zoom in on the site and press this again for a separate “Your site map” page.'}`, have ? 'Update the page' : 'Add the page'))) return;
   const b = busy('Drawing the map…');
   try {
-    const snap = await snapshot({ guide: g, labels: true, pinLabel: () => true, k: 1.5 });
+    const snap = await snapshot({ guide: g, labels: true, pinLabel: () => true, k: 1.5, aspect: 1050 / 1120 });
     const blob = await new Promise(r => snap.canvas.toBlob(r, 'image/jpeg', 0.9));
     const id = have ? have.id : uid();
     const url = await S.store.putFile(`projects/${pid}/docs/guide-${id}/photo-${Date.now()}.jpg`, blob, true);
