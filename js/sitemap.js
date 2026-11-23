@@ -43,14 +43,18 @@ const BASES = {
 };
 const DEF = { center: [-36.9297, 174.6781], zoom: 18 };   // 81A Godley Road, Green Bay; any project can save its own view
 
-let crop = null, pinMode = false, EM = null, keepAdj = false, back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true, ov: true, adj: false }, ovImg = null, hl = null;
+let ovTok = 0, crop = null, pinMode = false, EM = null, keepAdj = false, back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { show: 'all', labels: true, ov: true, adj: false }, ovImg = null, hl = null;
 const ed = () => can.edit();
 const T = f => TYPES[f.t] || TYPES.note;
 const pts = f => { const o = []; for (let i = 0; i + 1 < (f.p || []).length; i += 2) o.push([f.p[i], f.p[i + 1]]); return o; };   // Firestore can't hold nested arrays, so points are kept flat
 const flat = a => a.flatMap(x => [+x.lat.toFixed(7), +x.lng.toFixed(7)]);
-const shown = f => V.fmView || T(f).aud !== 'fm';
-const load = () => { const s = S.project.siteMap || {}; return { center: s.center || DEF.center, zoom: s.zoom || DEF.zoom, base: s.base || 'aerial', feats: (s.feats || []).map(f => ({ ...f })), ov: s.ov ? { ...s.ov } : null }; };
-function save(now) { clearTimeout(timer); const go = async () => { try { const v = { center: M.center, zoom: M.zoom, base: M.base, feats: M.feats, ov: M.ov || null, updated: new Date().toISOString() }; await S.store.updateProject(pid, { siteMap: v }); S.project.siteMap = v; } catch (e) { toast('The map could not be saved: ' + e.message, 6000); } }; if (now) return go(); timer = setTimeout(go, 700); }
+// which guide an item shows in: 'both', 'res' (Home user guide only) or 'fm' (Facilities guide only); each item can be set, otherwise its type decides
+const AUD = { both: 'Both guides', res: 'Home user guide only', fm: 'Facilities guide only' };
+export const audOf = f => f.aud || (T(f).aud === 'fm' ? 'fm' : 'both');
+const inGuide = (f, g) => g === 'all' || (g === 'res' ? audOf(f) !== 'fm' : audOf(f) !== 'res');
+const shown = f => inGuide(f, V.show);
+const load = () => { const s = S.project.siteMap || {}; return { center: s.center || DEF.center, zoom: s.zoom || DEF.zoom, base: s.base || 'aerial', feats: (s.feats || []).map(f => ({ ...f })), ov: s.ov ? { ...s.ov } : null, ovs: { ...(s.ovs || {}) } }; };
+function save(now) { clearTimeout(timer); const go = async () => { try { const v = { center: M.center, zoom: M.zoom, base: M.base, feats: M.feats, ov: M.ov || null, ovs: M.ovs, updated: new Date().toISOString() }; await S.store.updateProject(pid, { siteMap: v }); S.project.siteMap = v; } catch (e) { toast('The map could not be saved: ' + e.message, 6000); } }; if (now) return go(); timer = setTimeout(go, 700); }
 
 async function leaflet() {
   if (window.L) return (L = window.L);
@@ -64,10 +68,10 @@ export async function view(onBack) {
   pid = S.project.id; M = load(); sel = null; draw = null;
   $('fmView').innerHTML = `<div class="fbar"><button class="btn2" id="smHome">‹ Home guide</button><h2>Site map</h2>
     <span class="seg"><button id="smA" class="${M.base === 'aerial' ? 'on' : ''}">Aerial</button><button id="smS" class="${M.base === 'street' ? 'on' : ''}">Street</button></span>
-    <label class="chk small"><input type="checkbox" id="smFm" ${V.fmView ? 'checked' : ''}> Facilities items</label><label class="chk small"><input type="checkbox" id="smLb" ${V.labels ? 'checked' : ''}> Labels</label>
-    ${ed() ? `<select id="smOv" title="Lay one of the project drawings over the map, for example the site plan"><option value="">No drawing over the map</option>${M.ov && M.ov.img ? '<option value="__own" selected>Drawing: uploaded picture</option>' : ''}<option value="__up">⬆ Upload a picture of a drawing…</option>${(S.plans || []).filter(p => p.kind !== 'elevation').map(p => `<option value="${esc(p.id)}" ${M.ov && M.ov.planId === p.id ? 'selected' : ''}>Drawing: ${esc(p.name)}</option>`).join('')}</select>` : M.ov ? `<label class="chk small"><input type="checkbox" id="smOvS" ${V.ov ? 'checked' : ''}> Site plan</label>` : ''}
+    <span class="seg" title="Show what goes on each guide's map"><button data-sh="all" class="${V.show === 'all' ? 'on' : ''}">All</button><button data-sh="res" class="${V.show === 'res' ? 'on' : ''}">Home user guide</button><button data-sh="fm" class="${V.show === 'fm' ? 'on' : ''}">Facilities</button></span><label class="chk small"><input type="checkbox" id="smLb" ${V.labels ? 'checked' : ''}> Labels</label>
+    ${ed() ? `<select id="smOv" title="Lay one of the project drawings over the map, for example the site plan"><option value="">No drawing over the map</option><optgroup label="Uploaded pictures" id="smUps"${M.ov && M.ov.img ? '' : ' hidden'}>${M.ov && M.ov.img ? `<option value="${esc('img:' + M.ov.img)}" selected>Uploaded picture</option>` : ''}</optgroup><option value="__up">⬆ Upload a picture of a drawing…</option>${(S.plans || []).filter(p => p.kind !== 'elevation').map(p => `<option value="${esc(p.id)}" ${M.ov && M.ov.planId === p.id ? 'selected' : ''}>Drawing: ${esc(p.name)}</option>`).join('')}</select>` : M.ov ? `<label class="chk small"><input type="checkbox" id="smOvS" ${V.ov ? 'checked' : ''}> Site plan</label>` : ''}
     <span id="smOvT" ${M.ov ? '' : 'hidden'}><input type="range" id="smOp" min="15" max="100" value="${Math.round(((M.ov && M.ov.op) || 0.75) * 100)}" title="How solid the drawing is">${ed() ? '<button class="btn2" id="smAdj" title="Move, turn and size the drawing until it sits on the site">✥ Line it up</button>' : ''}</span>
-    <span class="sp"></span>${ed() ? '<button class="btn2" id="smView" title="Use the map as it is now framed as the starting view and for the Home guide page">Save this view</button><button class="btn2 go" id="smGuide">📖 Add to Home guide</button>' : ''}<button class="btn2" id="smPng">⬇ Picture</button></div>
+    <span class="sp"></span>${ed() ? '<button class="btn2" id="smView" title="Use the map as it is now framed as the starting view and for the Home guide page">Save this view</button><button class="btn2 go" id="smGuide" title="Make or update the map page in the Home user guide, with the items set to show there">📖 Home user guide page</button><button class="btn2 go" id="smGuideF" title="Make or update the map page in the Facilities guide, with the items set to show there">🛠 Facilities page</button>' : ''}<button class="btn2" id="smPng">⬇ Picture</button></div>
     <div id="smWrap"><div id="smMap"></div><aside id="smSide"></aside></div>`;
   $('smHome').onclick = () => { clearTimeout(timer); if (map) { map.remove(); map = null; } back && back(); };
   await leaflet();
@@ -81,15 +85,15 @@ export async function view(onBack) {
   map.on('moveend', () => { const c = map.getCenter(); M.view = { center: [c.lat, c.lng], zoom: map.getZoom() }; });
   $('smA').onclick = () => { setBase('aerial'); $('smA').classList.add('on'); $('smS').classList.remove('on'); if (ed()) { M.base = 'aerial'; save(); } };
   $('smS').onclick = () => { setBase('street'); $('smS').classList.add('on'); $('smA').classList.remove('on'); if (ed()) { M.base = 'street'; save(); } };
-  $('smFm').onchange = e => { V.fmView = e.target.checked; const f = M.feats.find(x => x.id === sel); if (f && !shown(f)) sel = null; paint(); side(); };
+  document.querySelectorAll('[data-sh]').forEach(bt => bt.onclick = () => { V.show = bt.dataset.sh; document.querySelectorAll('[data-sh]').forEach(x => x.classList.toggle('on', x === bt)); const f = M.feats.find(x => x.id === sel); if (f && !shown(f)) sel = null; paint(); side(); });
   $('smLb').onchange = e => { V.labels = e.target.checked; paint(); };
-  if ($('smOv')) $('smOv').onchange = e => { const id = e.target.value; if (id === '__own') return; if (id === '__up') { e.target.value = M.ov ? (M.ov.img ? '__own' : M.ov.planId) : ''; return ovUpload(); } M.ov = id ? (M.ov && M.ov.planId === id ? M.ov : { planId: id, op: (M.ov && M.ov.op) || 0.75, p: null }) : null; V.adj = !!id; $('smOvT').hidden = !id; save(); ovLoad(); };
+  if ($('smOv')) $('smOv').onchange = e => { const id = e.target.value; if (id === '__up') { e.target.value = M.ov ? (M.ov.img ? 'img:' + M.ov.img : M.ov.planId) : ''; return ovUpload(); } ovSwitch(id); };
   if ($('smOvS')) $('smOvS').onchange = e => { V.ov = e.target.checked; ovLoad(); };
   $('smOp').oninput = e => { if (!M.ov) return; M.ov.op = +e.target.value / 100; if (ovImg) ovImg.style.opacity = M.ov.op; if (ed()) save(); };
   if ($('smAdj')) $('smAdj').onclick = () => { V.adj = !V.adj; ovHandles(); };
-  ovLoad();
+  ovLoad(); if (ed()) ovUploads();
   $('smPng').onclick = async () => { const b = busy('Drawing the map…'); try { const cv = await snapshot(); b.done(); cv.toBlob(bl => deliver(bl, `${safeName(S.project.name)} - site map - ${stamp()}.png`, 'Site map'), 'image/png'); } catch (e) { b.done(); toast(e.message, 6000); } };
-  if (ed()) { $('smView').onclick = () => { const c = map.getCenter(); M.center = [+c.lat.toFixed(6), +c.lng.toFixed(6)]; M.zoom = map.getZoom(); save(true); toast('Saved as the starting view'); }; $('smGuide').onclick = toGuide; }
+  if (ed()) { $('smView').onclick = () => { const c = map.getCenter(); M.center = [+c.lat.toFixed(6), +c.lng.toFixed(6)]; M.zoom = map.getZoom(); save(true); toast('Saved as the starting view'); }; $('smGuide').onclick = () => toGuide('res'); $('smGuideF').onclick = () => toGuide('fm'); }
   if (!window.__smKey) { window.__smKey = 1; document.addEventListener('keydown', e => { if (e.key !== 'Escape' || !$('smMap')) return; if (crop) return cropEnd(); if (pinMode) { pinMode = false; $('smMap').classList.remove('drawing'); return side(); } if (draw) cancelDraw(); }); }
   paint(); side(); setTimeout(() => map && map.invalidateSize(), 150);
 }
@@ -106,18 +110,36 @@ async function ovLoad() {
   if (ovImg) { ovImg.remove(); ovImg = null; } hl && hl.clearLayers();
   const adj = $('smAdj'); if (adj) adj.classList.toggle('go', V.adj);
   if (!M.ov || !V.ov) return; const pl = M.ov.img ? { id: M.ov.img, img: M.ov.img } : (S.plans || []).find(x => x.id === M.ov.planId); if (!pl || !pl.img) return;
-  const myMap = map, im = new Image(); im.crossOrigin = 'anonymous'; im.className = 'smov leaflet-zoom-hide';
+  const tok = ovTok = (ovTok || 0) + 1, myMap = map, im = new Image(); im.crossOrigin = 'anonymous'; im.className = 'smov leaflet-zoom-hide';
   try { im.src = await S.store.resolveUrl(pl.img); await im.decode(); } catch (e) { return toast('The drawing could not be loaded'); }
-  if (map !== myMap || !M.ov || (M.ov.img || M.ov.planId) !== pl.id) return;
+  if (tok !== ovTok || map !== myMap || !M.ov || (M.ov.img || M.ov.planId) !== pl.id) return;
+  map.getPane('plan').querySelectorAll('.smov').forEach(x => x.remove());
   ovImg = im; im.style.opacity = M.ov.op || 0.75; map.getPane('plan').appendChild(im);
   if (!M.ov.p || M.ov.p.length !== 6) { const sz = map.getSize(), k = 2 ** (ZP - map.getZoom()), w = sz.x * 0.6 * k; ovSet(pj(map.getCenter()), L.point(w / 2, -w / 2 * im.naturalHeight / im.naturalWidth)); if (ed()) save(); }
   ovPaint(); ovHandles();
+}
+// each drawing keeps its own line-up, so switching between drawings and back finds them where they were left
+const ovKey = o => o.img ? 'img:' + o.img : o.planId;
+const fbKey = k => k.replace(/[.#$/\[\]]/g, '_').slice(-120);   // a safe key for Firestore
+function ovSwitch(id) {
+  if (M.ov && M.ov.p) M.ovs[fbKey(ovKey(M.ov))] = { ...M.ov };
+  const was = id && M.ovs[fbKey(id)];
+  M.ov = !id ? null : was ? { ...was } : id.startsWith('img:') ? { img: id.slice(4), op: (M.ov && M.ov.op) || 0.75, p: null } : { planId: id, op: (M.ov && M.ov.op) || 0.75, p: null };
+  V.adj = !!id && !was; $('smOvT').hidden = !id; save(); ovLoad();
+}
+async function ovUploads() {
+  try { const L2 = (await S.store.listFiles(`projects/${pid}/docs/sitemap`)).sort((a, b) => String(a.created).localeCompare(String(b.created))), g = $('smUps'); if (!g || !L2.length) return;
+    const cur = M.ov && M.ov.img, sel2 = $('smOv'), key = u => u.split('?')[0];
+    g.innerHTML = L2.map((f, i) => `<option value="${esc('img:' + f.url)}" ${cur && key(cur) === key(f.url) ? 'selected' : ''}>Uploaded picture ${i + 1} (${new Date(f.created).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })})</option>`).join('')
+      + (cur && !L2.some(f => key(f.url) === key(cur)) ? `<option value="${esc('img:' + cur)}" selected>Uploaded picture</option>` : '');
+    g.hidden = false; if (cur) sel2.value = [...sel2.options].find(o => o.selected)?.value || sel2.value;
+  } catch (e) { console.warn('uploads', e); }
 }
 function ovUpload() {
   const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
   i.onchange = async () => { const f = i.files[0]; if (!f) return; const b = busy('Loading the drawing…');
     try { const url = await S.store.putFile(`projects/${pid}/docs/sitemap/drawing-${Date.now()}.jpg`, dataUrlToBlob((await compressImage(f, 3000, 0.86)).dataUrl), true);
-      M.ov = { img: url, op: (M.ov && M.ov.op) || 0.75, p: null }; keepAdj = true; b.done(); await save(true); view(); } catch (e) { b.done(); toast('The drawing could not be loaded: ' + e.message, 7000); } };
+      if (M.ov && M.ov.p) M.ovs[fbKey(ovKey(M.ov))] = { ...M.ov }; M.ov = { img: url, op: (M.ov && M.ov.op) || 0.75, p: null }; keepAdj = true; b.done(); await save(true); view(); } catch (e) { b.done(); toast('The drawing could not be loaded: ' + e.message, 7000); } };
   i.click();
 }
 function ovPaint() {
@@ -134,7 +156,8 @@ function ovHandles() {
   if (!V.adj) { crop = null; pinMode = false; tmp && tmp.clearLayers(); ovPaint(); }
   side(); if (!V.adj || !ovImg || !M.ov || !ed() || crop) return;
   const hd = (ll, sym, tip, cls) => L.marker(ll, { draggable: true, zIndexOffset: 2000, title: tip, icon: L.divIcon({ className: '', iconSize: [38, 38], iconAnchor: [19, 19], html: `<div class="smoh ${cls || ''}">${sym}</div>` }) }).addTo(hl);
-  const pin = M.ov.pin, P = pts(M.ov), c = hd(un(ovC()), '✥', 'Drag to move the drawing'), r = hd(P[1], '⟳', pin ? 'Drag to turn and size the drawing around the fixed point' : 'Drag to turn and size the drawing'), k = pin ? hd(fromUV(pin[0], pin[1]), '📌', 'The fixed point: the drawing turns and sizes around it. Drag it to another spot on the drawing.', 'pin') : null;
+  const pinIcon = L.divIcon({ className: '', iconSize: [22, 22], iconAnchor: [11, 11], html: '<div class="smpt"></div>' });
+  const pin = M.ov.pin, P = pts(M.ov), c = hd(un(ovC()), '✥', 'Drag to move the drawing'), r = hd(P[1], '⟳', pin ? 'Drag to turn and size the drawing around the fixed point' : 'Drag to turn and size the drawing'), k = pin ? L.marker(fromUV(pin[0], pin[1]), { draggable: true, zIndexOffset: 2100, title: 'The fixed point: the drawing turns and sizes around it. Drag it to another spot on the drawing.', icon: pinIcon }).addTo(hl) : null;
   const sync = () => { c.setLatLng(un(ovC())); if (k) k.setLatLng(fromUV(M.ov.pin[0], M.ov.pin[1])); };
   c.on('drag', () => { const d = pj(c.getLatLng()).subtract(ovC()); M.ov.p = flat(pts(M.ov).map(ll => un(pj(ll).add(d)))); ovPaint(); r.setLatLng(pts(M.ov)[1]); if (k) k.setLatLng(fromUV(M.ov.pin[0], M.ov.pin[1])); });
   let prev = null; r.on('dragstart', () => { prev = pj(pts(M.ov)[1]); });
@@ -243,19 +266,20 @@ function side() {
   const f = M.feats.find(x => x.id === sel);
   if (f) { const t = T(f), ro = !ed();
     S2.innerHTML = `<button class="mini" id="smBack">‹ All items</button><h3><span class="smdot" style="background:${t.color}">${esc(t.sym || '')}</span> ${esc(f.label || t.label)}</h3>
-      ${ro ? `<p class="small muted">${esc(t.label)}</p>${f.note ? `<p>${esc(f.note)}</p>` : ''}` : `<label>Type<select id="smT">${ORDER.filter(k => TYPES[k].kind === t.kind).map(k => `<option value="${k}" ${k === f.t ? 'selected' : ''}>${esc(TYPES[k].label)}${TYPES[k].aud === 'fm' ? ' (facilities)' : ''}</option>`).join('')}</select></label>
+      ${ro ? `<p class="small muted">${esc(t.label)} · ${AUD[audOf(f)]}</p>${f.note ? `<p>${esc(f.note)}</p>` : ''}` : `<label>Type<select id="smT">${ORDER.filter(k => TYPES[k].kind === t.kind).map(k => `<option value="${k}" ${k === f.t ? 'selected' : ''}>${esc(TYPES[k].label)}${TYPES[k].aud === 'fm' ? ' (facilities)' : ''}</option>`).join('')}</select></label>
+      <label>Shows in<select id="smAu">${Object.entries(AUD).map(([k, v]) => `<option value="${k}" ${audOf(f) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Name on the map<input id="smL" value="${esc(f.label || '')}" placeholder="${esc(t.label)}"></label>
       <label>Note (what to do, how to get in, who looks after it)<textarea id="smN" rows="3">${esc(f.note || '')}</textarea></label>
       <p class="small muted">${t.kind === 'point' ? 'Drag the pin to move it.' : 'Drag the white corners to reshape it. Right-click a corner to remove it.'}</p>
       <button class="btn2 danger" id="smDel">Delete</button>`}
       <p><a class="small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${pts(f)[0].join(',')}">Directions in Google Maps ↗</a></p>`;
     $('smBack').onclick = () => select(f.id);
-    if (!ro) { $('smT').onchange = e => { f.t = e.target.value; save(); paint(); side(); }; $('smL').oninput = e => { f.label = e.target.value; save(); paint(); }; $('smN').oninput = e => { f.note = e.target.value; save(); };
+    if (!ro) { $('smT').onchange = e => { f.t = e.target.value; save(); paint(); side(); }; $('smAu').onchange = e => { const t2 = TYPES[f.t] || {}; f.aud = e.target.value; if (f.aud === (t2.aud === 'fm' ? 'fm' : 'both')) delete f.aud; save(); if (!shown(f)) { sel = null; toast(`Moved to the ${AUD[audOf(f)].replace(' only', '').toLowerCase()}. Press All to see it.`); } paint(); side(); }; $('smL').oninput = e => { f.label = e.target.value; save(); paint(); }; $('smN').oninput = e => { f.note = e.target.value; save(); };
       $('smDel').onclick = async () => { if (!(await confirmBox(`Delete “${f.label || t.label}” from the map?`, 'Delete'))) return; M.feats = M.feats.filter(x => x !== f); sel = null; save(); paint(); side(); }; }
     return; }
   const list = M.feats.filter(shown), by = ORDER.filter(k => list.some(f => f.t === k));
-  S2.innerHTML = `${ed() ? `<h3>Add to the map</h3><div class="smpal">${ORDER.filter(k => V.fmView || !TYPES[k].aud).map(k => { const t = TYPES[k]; return `<button data-add="${k}" title="${esc(t.label)}"><span class="smdot${t.kind !== 'point' ? ' ' + t.kind : ''}" style="background:${t.color}">${t.kind === 'point' ? esc(t.sym) : ''}</span>${esc(t.label)}</button>`; }).join('')}</div>` : ''}
-    <h3>On the map (${list.length})</h3>${by.length ? by.map(k => `<div class="smgrp"><b>${esc(TYPES[k].label)}${TYPES[k].aud === 'fm' ? ' <span class="badge">Facilities</span>' : ''}</b>${list.filter(f => f.t === k).map(f => `<a href="#" data-sel="${f.id}">${esc(f.label || TYPES[k].label)}</a>${f.note ? `<small>${esc(f.note)}</small>` : ''}`).join('')}</div>`).join('') : `<p class="muted small">${ed() ? 'Nothing marked yet. Pick a type above, then tap the map.' : 'Nothing has been marked on the map yet.'}</p>`}`;
+  S2.innerHTML = `${ed() ? `<h3>Add to the map</h3><div class="smpal">${ORDER.map(k => { const t = TYPES[k]; return `<button data-add="${k}" title="${esc(t.label)}"><span class="smdot${t.kind !== 'point' ? ' ' + t.kind : ''}" style="background:${t.color}">${t.kind === 'point' ? esc(t.sym) : ''}</span>${esc(t.label)}</button>`; }).join('')}</div>` : ''}
+    <h3>On the map (${list.length})</h3>${by.length ? by.map(k => `<div class="smgrp"><b>${esc(TYPES[k].label)}</b>${list.filter(f => f.t === k).map(f => `<a href="#" data-sel="${f.id}">${esc(f.label || TYPES[k].label)}${audOf(f) !== 'both' ? ` <span class="badge ${audOf(f) === 'fm' ? 'fmb' : 'resb'}">${audOf(f) === 'fm' ? 'Facilities' : 'Home guide'}</span>` : ''}</a>${f.note ? `<small>${esc(f.note)}</small>` : ''}`).join('')}</div>`).join('') : `<p class="muted small">${ed() ? 'Nothing marked yet. Pick a type above, then tap the map.' : 'Nothing has been marked on the map yet.'}</p>`}`;
   S2.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { draw = { t: b.dataset.add, pts: [] }; sel = null; paint(); side(); $('smMap').classList.add('drawing'); });
   S2.querySelectorAll('[data-sel]').forEach(a => a.onclick = e => { e.preventDefault(); select(a.dataset.sel); });
 }
@@ -272,7 +296,7 @@ function preview() { tmp.clearLayers(); if (!draw) return; const t = TYPES[draw.
 function finish() {
   const t = TYPES[draw.t], min = t.kind === 'area' ? 3 : t.kind === 'line' ? 2 : 1;
   if (draw.pts.length < min) return toast(`Tap at least ${min} points first`);
-  const f = { id: uid(), t: draw.t, label: '', note: '', p: flat(draw.pts) }; M.feats.push(f);
+  const f = { id: uid(), t: draw.t, label: '', note: '', p: flat(draw.pts) }; if (V.show !== 'all') { const a = V.show, d0 = TYPES[f.t].aud === 'fm' ? 'fm' : 'both'; if (a === 'fm' && d0 !== 'fm') f.aud = 'fm'; if (a === 'res' && d0 === 'fm') f.aud = 'res'; } M.feats.push(f);
   cancelDraw(); sel = f.id; save(); paint(); side(); setTimeout(() => $('smL') && $('smL').focus(), 50);
 }
 function cancelDraw() { draw = null; tmp && tmp.clearLayers(); $('smMap') && $('smMap').classList.remove('drawing'); side(); }
@@ -289,7 +313,7 @@ export async function snapshot(opt = {}) {
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(tileImg(B.url.replace('{z}', zt).replace('{x}', x).replace('{y}', y)).then(im => im && c.drawImage(im, x * ts - tl.x, y * ts - tl.y, ts, ts)));
   await Promise.all(jobs);
   if (ovImg && M.ov && M.ov.p && V.ov) { const [a, b2, d] = pts(M.ov).map(proj), w = ovImg.naturalWidth, h = ovImg.naturalHeight; c.save(); c.globalAlpha = M.ov.op || 0.75; c.setTransform((b2.x - a.x) / w, (b2.y - a.y) / w, (d.x - a.x) / h, (d.y - a.y) / h, a.x, a.y); if (M.ov.crop && M.ov.crop.length >= 6) { c.beginPath(); pts({ p: M.ov.crop }).forEach((q, i) => i ? c.lineTo(q[0] * w, q[1] * h) : c.moveTo(q[0] * w, q[1] * h)); c.closePath(); c.clip(); } c.drawImage(ovImg, 0, 0); c.restore(); }
-  const F = M.feats.filter(f => opt.residents ? T(f).aud !== 'fm' : shown(f));
+  const F = M.feats.filter(f => inGuide(f, opt.guide || V.show));
   const lab = (t, x, y, col) => { c.font = '700 26px "Segoe UI", system-ui, Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 7; c.strokeStyle = 'rgba(255,255,255,0.92)'; c.strokeText(t, x, y); c.fillStyle = col || '#1a1a1a'; c.fillText(t, x, y); };
   for (const kind of ['area', 'line']) F.filter(f => T(f).kind === kind).forEach(f => { const t = T(f), P = pts(f).map(proj); if (P.length < 2) return;
     c.beginPath(); P.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); if (kind === 'area') c.closePath();
@@ -308,20 +332,26 @@ export async function snapshot(opt = {}) {
 }
 
 /* ---------- the Home guide page: the map picture, with the residents' places as numbered pointers ---------- */
-async function toGuide() {
-  const F = M.feats.filter(f => T(f).aud !== 'fm' && T(f).kind === 'point');
-  if (!M.feats.some(f => T(f).aud !== 'fm')) return toast('Mark some places on the map first');
-  const have = ((S.fm && S.fm.guide) || []).find(p => p.siteMap);
-  if (!(await confirmBox(`${have ? 'Update the “' + esc(have.title) + '” page' : 'Add a “Your site map” page'} in the Home guide with the map as it is framed now?${F.length > 8 ? ' The first 8 places become numbered pointers; the rest show as labels on the map.' : ''} Facilities-only items are left off.`, have ? 'Update the page' : 'Add the page'))) return;
+async function toGuide(g) {
+  const fmg = g === 'fm', all = M.feats.filter(f => inGuide(f, g));
+  // facilities page: its own items first, so they get the numbered pointers
+  const F = all.filter(f => T(f).kind === 'point').sort((a, b) => fmg ? (audOf(b) === 'fm') - (audOf(a) === 'fm') : 0);
+  if (!all.length) return toast(`Nothing is set to show in the ${fmg ? 'Facilities' : 'Home user'} guide yet`);
+  const key = fmg ? 'fm' : true, have = ((S.fm && S.fm.guide) || []).find(p => p.siteMap === key), name = fmg ? 'Facilities guide' : 'Home user guide';
+  const skip = M.feats.length - all.length;
+  if (!(await confirmBox(`${have ? 'Update the “' + esc(have.title) + '” page' : `Add a “${fmg ? 'Site services map' : 'Your site map'}” page`} in the ${name} with the map as it is framed now? ${all.length} item${all.length === 1 ? '' : 's'} go on it${skip ? `; ${skip} set for the ${fmg ? 'Home user guide only' : 'Facilities guide only'} are left off` : ''}.${F.length > 8 ? ' The first 8 places become numbered pointers; the rest show as labels on the map.' : ''}`, have ? 'Update the page' : 'Add the page'))) return;
   const b = busy('Drawing the map…');
   try {
-    const pins = F.slice(0, 8), snap = await snapshot({ residents: true, labels: true, pinLabel: f => !pins.includes(f) });   // places without a pointer are labelled on the picture
+    const pins = F.slice(0, 8), snap = await snapshot({ guide: g, labels: true, pinLabel: f => !pins.includes(f) });   // places without a pointer are labelled on the picture
     const blob = await new Promise(r => snap.canvas.toBlob(r, 'image/jpeg', 0.88));
     const id = have ? have.id : uid();
     const url = await S.store.putFile(`projects/${pid}/docs/guide-${id}/photo-${Date.now()}.jpg`, blob, true);
     const marks = pins.map(f => { const q = snap.proj(pts(f)[0]), nx = Math.min(0.96, Math.max(0.04, q.x + (q.x > 0.5 ? -0.07 : 0.07))), ny = Math.min(0.95, Math.max(0.05, q.y - 0.06)); return { tx: q.x, ty: q.y, nx, ny, label: f.label || T(f).label, sub: f.note ? f.note.split(/[.\n]/)[0].slice(0, 60) : '' }; });
-    const base = have ? { ...have } : { id, order: Math.max(0, ...(((S.fm && S.fm.guide) || []).map(p => p.order || 0))) + 1, title: 'Your site map', aud: 'both', lines: `Your home is at ${S.project.address || S.project.name}.\n` + 'Use this map to find the places you need around the site.\n!Please keep paths and doorways clear for walkers and mobility scooters.', zooms: [], steps: [], docIds: [] };
-    await S.store.saveItem(pid, 'guide', { ...base, siteMap: true, wide: true, photo: url, marks, updated: new Date().toISOString() });
-    b.done(); toast(have ? 'Map page updated in the guide' : 'Map page added to the end of the guide. Press ‹ Home guide to see it and move it into place.', 6000);
+    const order = Math.max(0, ...(((S.fm && S.fm.guide) || []).map(p => p.order || 0))) + 1;
+    const base = have ? { ...have } : fmg
+      ? { id, order, title: 'Site services map', aud: 'fm', lines: 'Where the site services, shut-offs and plant are.\nSee the asset register for makes, models and maintenance.', zooms: [], steps: [], docIds: [] }
+      : { id, order, title: 'Your site map', aud: 'both', lines: `Your home is at ${S.project.address || S.project.name}.\n` + 'Use this map to find the places you need around the site.\n!Please keep paths and doorways clear for walkers and mobility scooters.', zooms: [], steps: [], docIds: [] };
+    await S.store.saveItem(pid, 'guide', { ...base, siteMap: key, wide: true, photo: url, marks, updated: new Date().toISOString() });
+    b.done(); toast(have ? `Map page updated in the ${name}` : `Map page added to the end of the ${name}. Press ‹ Home guide to see it and move it into place.`, 6000);
   } catch (e) { b.done(); toast('Could not make the page: ' + e.message, 7000); }
 }
