@@ -8,6 +8,7 @@ import { dictate, stopDictation, aiCall } from './ai.js';
 import { markup } from './photos.js';
 import * as FT from './filetext.js';
 import * as SM from './sitemap.js';
+import * as FG from './fmguide.js';
 
 let X = null, E = null;
 const W = 1240, H = 1754, PH0 = 250, PX = 60;           // page size (A4 at 150 dpi), photo top, side margin
@@ -115,7 +116,7 @@ let mapOpen = false;
 export function view() {
   if (mapOpen && $('smMap')) return;   // the site map is open: a page saved from it must not close it
   mapOpen = false; const P = pages(), g = cfg(), ed = can.edit();
-  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}<button class="btn2" id="gMap" title="The map of the site: mark where the bins, bike store, washing lines, gardens and tanks are, then add it to the guide as a page">🗺 Site map</button><button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}${ed ? '<button class="btn2" id="gFn" title="How each building system works, what the facilities team does and what not to do: the words for the Facilities Guide">🛠 Facilities notes</button>' : ''}<button class="btn2" id="gMap" title="The map of the site: mark where the bins, bike store, washing lines, gardens and tanks are, then add it to the guide as a page">🗺 Site map</button><button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
   <p class="muted small">${P.length} page${P.length === 1 ? '' : 's'} · ${P.filter(p => p.aud !== 'fm').length} in the Home User Guide, all ${P.length} plus the registers in the Facilities Guide. ${ed ? 'Drag a page to move it. ' : ''}The PDF adds a contents page and page numbers by itself. ${g.phone ? 'Footer: call ' + esc(g.org) + ' ' + esc(g.phone) + '.' : 'Set the phone number for the footer in “Phone and unit codes”.'}</p>
   ${P.length ? `<div class="ggrid">${P.map((p, i) => `<div class="gcard" data-id="${esc(p.id)}"${ed ? ' draggable="true"' : ''}><canvas data-cv="${esc(p.id)}"></canvas><div class="gcap"><b>${i + 1}. ${esc(p.title || 'Untitled')}${p.aud === 'fm' ? ' <span class="badge">Facilities only</span>' : ''}</b>${ed ? `<span><button class="mini" data-up="${esc(p.id)}" title="Move earlier">↑</button><button class="mini" data-dn="${esc(p.id)}" title="Move later">↓</button></span>` : ''}</div></div>`).join('')}</div>` : '<div class="empty2">No pages yet. Add a page, or import a set of pages.</div>'}`;
   $('gMap').onclick = () => { mapOpen = true; SM.view(() => { mapOpen = false; view(); }); };
@@ -132,6 +133,7 @@ export function view() {
       c.ondrop = async e => { e.preventDefault(); const id = from, after = side(c, e); clear(); if (!id || id === c.dataset.id) return;
         const ids = P.map(p => p.id).filter(x => x !== id); ids.splice(ids.indexOf(c.dataset.id) + (after ? 1 : 0), 0, id);
         const b = busy('Moving the page…'); try { for (const [i, pid] of ids.entries()) { const pg = P.find(p => p.id === pid); if (pg.order !== i + 1) await S.store.patchItem(S.project.id, 'guide', pid, { order: i + 1 }); } } catch (x) { toast('Could not move the page: ' + x.message, 6000); } b.done(); }; }); }
+  if ($('gFn')) $('gFn').onclick = () => FG.notesDialog({ modal: X.modal, closeModal: X.closeModal, toast, deliver });
   if ($('gNew')) $('gNew').onclick = () => edit(null);
   if ($('gSet')) $('gSet').onclick = settings;
   if ($('gStd')) $('gStd').onclick = addStandard;
@@ -350,16 +352,24 @@ function exportDialog() {
   const P = pages(); if (!P.length) return toast('Add a page first');
   const nh = P.filter(p => p.aud !== 'fm').length;
   X.modal(`<h2>Export a guide</h2>
-    <label class="f">Which guide<select id="geuK"><option value="home">Home User Guide, for residents (${nh} pages)</option><option value="fm">Facilities Guide, for the building team (${P.length} pages plus the registers)</option></select></label>
+    <label class="f">Which guide<select id="geuK"><option value="home">Home User Guide, for residents (${nh} pages)</option><option value="fm">Facilities Guide, for the building team </option></select></label>
     <label class="f" style="margin-top:8px">For unit (leave blank for a general copy)<input id="geuU" placeholder="e.g. 15, or 1-42 for every unit"></label>
-    <p class="note">A range such as 1-42 makes one PDF per unit, each with that unit's visitor code, in a single zip file. The Facilities Guide adds the contacts, asset and warranty register, maintenance schedule and compliance schedule from this app.</p><div class="act"><button id="geuX">Cancel</button><button class="go" id="geuOk">Export</button></div>`);
+    <p class="note">A range such as 1-42 makes one PDF per unit, each with that unit's visitor code, in a single zip file. The Facilities Guide is a separate document for the building team: who to call, warranties, each building system, the maintenance calendar, compliance and a linked index of every document, with the residents' pages shown at the back.</p><div class="act"><button id="geuX">Cancel</button><button class="go" id="geuOk">Export</button></div>`);
   $('geuX').onclick = X.closeModal;
   $('geuOk').onclick = async () => { const v = $('geuU').value.trim(), kind = $('geuK').value, m = /^(\d+)\s*-\s*(\d+)$/.exec(v); X.closeModal(); const units = m ? Array.from({ length: +m[2] - +m[1] + 1 }, (_, i) => String(+m[1] + i)) : [v];
     const nm = kind === 'fm' ? 'Facilities Guide' : 'Home User Guide', b = busy('Building the guide…');
-    try { const files = []; for (const [i, u] of units.entries()) { b.set(units.length > 1 ? `Building unit ${u} (${i + 1} of ${units.length})…` : 'Building the guide…'); files.push({ name: `${safeName(S.project.name)} - ${nm}${u ? ' - Unit ' + u : ''}.pdf`, blob: await pdf(u, kind) }); }
+    try { const files = []; for (const [i, u] of units.entries()) { b.set(units.length > 1 ? `Building unit ${u} (${i + 1} of ${units.length})…` : 'Building the guide…'); if (kind === 'fm') { files.push({ name: `${safeName(S.project.name)} - Facilities Guide.pdf`, blob: await fmPdf(t => b.set(t)) }); break; } files.push({ name: `${safeName(S.project.name)} - ${nm}${u ? ' - Unit ' + u : ''}.pdf`, blob: await pdf(u, kind) }); }
       b.done(); if (files.length === 1) return deliver(files[0].blob, files[0].name, nm);
       if (!window.JSZip) await loadScript('lib/jszip.min.js'); const z = new window.JSZip(); files.forEach(f => z.file(f.name, f.blob)); deliver(await z.generateAsync({ type: 'blob' }), `${safeName(S.project.name)} - ${nm}s - ${stamp()}.zip`, nm + 's'); }
     catch (e) { b.done(); console.error(e); toast('Could not build the guide: ' + e.message, 7000); } };
+}
+async function fmPdf(status) {
+  const cv = document.createElement('canvas'), small = document.createElement('canvas'), jpg = async (w, q) => { small.width = w; small.height = Math.round(w * H / W); small.getContext('2d').drawImage(cv, 0, 0, small.width, small.height); return new Uint8Array(await (await new Promise(r => small.toBlob(r, 'image/jpeg', q))).arrayBuffer()); };
+  const P = pages(), resPages = [], fmPages = []; let fmMap = null;
+  for (const [i, p] of P.entries()) { status(`Drawing page ${i + 1} of ${P.length}…`);
+    if (p.aud === 'fm' && p.siteMap && p.photo) { try { fmMap = new Uint8Array(await X.getBytes(p.photo)); if (fmMap[0] !== 0xff) fmMap = null; } catch (e) {} if (fmMap) continue; }
+    await draw(cv, p, ''); if (p.aud === 'fm') { if (p.photo) fmPages.push(await jpg(900, 0.8)); } else resPages.push({ title: `${resPages.length + 1}. ${p.title || ''}`, jpg: await jpg(520, 0.72) }); }
+  return FG.build({ status, getBytes: X.getBytes, resPages, fmPages, fmMap });
 }
 async function pdf(unit, kind = 'home') {
   if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js'); const doc = await window.PDFLib.PDFDocument.create(), cv = document.createElement('canvas');
