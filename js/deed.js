@@ -76,6 +76,11 @@ export async function buildDeed(c) {
   const para = (t, x, size = 9.5, font = f, maxw = W - M - x, gap = 3) => { wrap(t, font, size, maxw).forEach(l => { if (y < 70) newPage(); pg.drawText(l, { x, y, size, font, color: INK }); y -= size + 3.2; }); y -= gap; };
   let nf = 0; const field = (name, value, x, w, h = 16, opts = {}) => { const tf = form.createTextField(`${name}.${++nf}`); if (opts.multi) tf.enableMultiline(); tf.setText(clean(value || '')); tf.addToPage(pg, { x, y: y - h + 12, width: w, height: h, font: opts.bold ? fb : f, borderColor: opts.todo ? AMB : LINE, borderWidth: opts.todo ? 1.2 : 0.6, backgroundColor: opts.todo ? P.rgb(1, 0.97, 0.88) : P.rgb(0.97, 0.98, 0.99) }); tf.setFontSize(opts.size || 9.5); return tf; };
   const tag = (n, x) => { pg.drawCircle({ x, y: y + 4, size: 7, color: AMB }); const s = String(n); pg.drawText(s, { x: x - fb.widthOfTextAtSize(s, 8) / 2, y: y + 1.2, size: 8, font: fb, color: P.rgb(1, 1, 1) }); };
+  // on the deed itself the numbers are screen-only: shown in a PDF viewer, never printed or kept in a printed or flattened copy
+  let nt = 0; const stag = (n, x) => { const b = form.createButton(`guide.step${n}.${++nt}`); b.addToPage(String(n), pg, { x: x - 7, y: y - 3, width: 14, height: 14, font: fb, textColor: P.rgb(1, 1, 1), backgroundColor: AMB, borderWidth: 0 });
+    b.enableReadOnly(); b.acroField.getWidgets().forEach(w => w.dict.set(P.PDFName.of('F'), P.PDFNumber.of(0))); };
+  // signature boxes a PDF viewer offers to sign digitally (Adobe: click, then Sign)
+  const sigs = []; const sigBox = (name, x, yy, w, h) => sigs.push({ name, pg, x, y: yy, w, h });
   const legal = c.legal || c.company, works = c.works || '', period = c.period || '', contractor = clean(p.contractor || ''), principal = clean(p.client || '');
 
   // ---- cover: what to do
@@ -83,11 +88,11 @@ export async function buildDeed(c) {
   pg.drawText(clean(`${form13}: warranty for signing`), { x: M, y: H - 46, size: 16, font: fb, color: P.rgb(1, 1, 1) });
   pg.drawText(clean(`${p.name || ''}${p.address ? ', ' + p.address : ''}`), { x: M, y: H - 68, size: 10, font: f, color: P.rgb(1, 1, 1) });
   y = H - 130; text('For: ' + legal, M, 13, fb); y -= 20;
-  para(`This warranty has been filled in for you from the contract and the project records. It is a fillable PDF: the details can be corrected in the boxes if anything is wrong. Please complete the numbered amber boxes, sign, and return the signed PDF to ${contractor || 'the Contractor'}${c.returnTo ? ' (' + c.returnTo + ')' : ''}.`, M, 10.5); y -= 6;
+  para(`This cover page is instructions only. The numbered markers on the warranty show on screen and do not print. This warranty has been filled in for you from the contract and the project records. It is a fillable PDF: the details can be corrected in the boxes if anything is wrong. Please complete the numbered amber boxes, sign, and return the signed PDF to ${contractor || 'the Contractor'}${c.returnTo ? ' (' + c.returnTo + ')' : ''}.`, M, 10.5); y -= 6;
   text('What you need to do', M, 12, fb, NAVY); y -= 20;
-  const steps = [['Check the details', `Check your company's full registered name, the Warranted Works and the Warranty Period on page 2. Correct them in the boxes if they are wrong, and tell ${contractor || 'the Contractor'} what you changed.`],
-    ['Date the deed', 'Enter the date it is signed in the box at the top of page 2.'],
-    ['Sign as a deed', 'Two directors sign for your company, or one director signs and a witness signs and adds their occupation and address. Write each name in the box beside the signature.'],
+  const steps = [['Date the deed', 'Enter the date it is signed in the box at the top of page 1 of the warranty.'],
+    ['Check the details', `Check your company's full registered name, the Warranted Works and the Warranty Period on page 1. Correct them in the boxes if they are wrong, and tell ${contractor || 'the Contractor'} what you changed.`],
+    ['Sign as a deed', 'Two directors sign for your company, or one director signs and a witness signs and adds their occupation and address. Click a signature box to sign digitally, or print and sign by hand. Write each name in the box beside the signature.'],
     ['Leave the Contractor and Principal blocks', `${contractor || 'The Contractor'} signs the Contractor block. ${principal || 'The Principal'} signs last. Do not sign or write in those blocks.`],
     ['Return it', 'Scan or save the signed pages as one PDF and return it. If your warranty depends on maintenance, attach your maintenance requirements.']];
   steps.forEach(([h, t], i) => { if (y < 120) newPage(); tag(i + 1, M + 7); text(h, M + 22, 10.5, fb); y -= 15; para(t, M + 22, 10); y -= 4; });
@@ -99,10 +104,10 @@ export async function buildDeed(c) {
   newPage(); text(std, M, 9.5, f, GREY); y -= 22; text('Schedule 13 - Form of Contractor (or Subcontractor) warranty', M, 15, fb); y -= 14;
   pg.drawRectangle({ x: M, y, width: W - 2 * M, height: 0.8, color: INK }); y -= 30;
   const row = (label, sub, value, right, opts = {}) => { text(label, M, 10, fb); if (sub) { y -= 11; text(sub, M, 9); y += 11; } field(opts.name || label.toLowerCase(), value, M + 112, W - 2 * M - 112 - 70, 17, opts); y -= 2; text(right, W - M - 62, 8, fi, GREY); y -= 26; };
-  tag(2, M + 104); row('THIS AGREEMENT', 'is made on', '', '(insert date)', { name: 'date', todo: true });
+  stag(1, M + 104); row('THIS AGREEMENT', 'is made on', '', '(insert date)', { name: 'date', todo: true });
   row('BETWEEN', '', principal, "('the Principal')", { bold: true, name: 'principal' });
   row('AND', '', contractor, "('the Contractor')", { bold: true, name: 'contractor' });
-  tag(1, M + 104); row('AND', '', legal, "('the Warrantor')", { bold: true, name: 'warrantor' });
+  stag(2, M + 104); row('AND', '', legal, "('the Warrantor')", { bold: true, name: 'warrantor' });
   y -= 6; text('DEFINITIONS', M, 10.5, fb); y -= 22;
   const wl = wrap(works, f, 9, W - 2 * M - 112 - 6).length, wh = Math.max(40, wl * 11 + 10); text("'Warranted Works'", M, 9.5); field('works', works, M + 112, W - 2 * M - 112, wh, { multi: true, size: 9 }); y -= wh + 10;
   text("'Warranty Period'", M, 9.5); field('period', period, M + 112, 110, 17, { todo: !period }); text('years from the date of Practical Completion', M + 230, 9, fi); y -= 12; text('of the Contract Works', M + 230, 9, fi); y -= 32;
@@ -116,14 +121,17 @@ export async function buildDeed(c) {
   // ---- execution
   if (y < 380) newPage(); y -= 8; text('In witness of which this deed has been executed.', M, 9.5); y -= 24;
   const sig = (who, rows, opts = {}) => { if (y < 150) newPage(); text(who, M, 10, fb); if (opts.note) { text(opts.note, M + fb.widthOfTextAtSize(clean(who), 10) + 8, 8.5, fi, opts.todo ? AMB : GREY); } y -= 20;
-    rows.forEach(([lbl, val, todo]) => { if (y < 70) newPage(); if (todo && opts.num) tag(opts.num, M - 8); pg.drawLine({ start: { x: M, y: y - 4 }, end: { x: M + 210, y: y - 4 }, thickness: 0.6, color: todo ? AMB : LINE }); text('Signature', M, 7.5, f, GREY); field(`${opts.key}.name`, val, M + 228, W - 2 * M - 228, 16, { todo }); y -= 12; text(lbl, M + 228, 7.5, f, GREY); y -= 18; }); y -= 10; };
+    rows.forEach(([lbl, val, todo]) => { if (y < 70) newPage(); if (todo && opts.num) stag(opts.num, M - 8); sigBox(`${opts.key}.signature.${sigs.length + 1}`, M, y - 6, 210, 24); pg.drawLine({ start: { x: M, y: y - 4 }, end: { x: M + 210, y: y - 4 }, thickness: 0.6, color: todo ? AMB : LINE }); text('Signature', M, 7.5, f, GREY); field(`${opts.key}.name`, val, M + 228, W - 2 * M - 228, 16, { todo }); y -= 12; text(lbl, M + 228, 7.5, f, GREY); y -= 18; }); y -= 10; };
   sig('SIGNED on behalf of the Contractor by:', [['Director (name)', '', false]], { key: 'contractor', note: `(${contractor || 'Contractor'} signs this block)` });
   sig('SIGNED on behalf of the Warrantor by:', [['Director (name)', c.director1 || '', true], ['Director (name), or Witness (name, occupation and address)', '', true]], { key: 'warrantor', num: 3, todo: true, note: '(you sign here: two directors, or one director and a witness)' });
   sig('SIGNED on behalf of the Principal by:', [['Director (name)', '', false], ['Director (name)', '', false]], { key: 'principal', note: `(leave blank: ${principal || 'the Principal'} signs last)` });
   para(EXEC_NOTE, M, 8, f);
   // page numbers and footer
-  pages.forEach((q, i) => { const t = clean(`${p.name || ''} | ${legal} | page ${i + 1} of ${pages.length}`); q.drawText(t, { x: M, y: 28, size: 7.5, font: f, color: GREY }); });
+  pages.forEach((q, i) => { const t = clean(`${p.name || ''} | ${legal}${i ? ` | page ${i} of ${pages.length - 1}` : ' | cover and instructions'}`); q.drawText(t, { x: M, y: 28, size: 7.5, font: f, color: GREY }); });
   form.updateFieldAppearances(f);
+  const af = form.acroForm.dict; af.set(P.PDFName.of('SigFlags'), P.PDFNumber.of(1));
+  for (const g of sigs) { const ref = doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Widget', FT: 'Sig', T: P.PDFString.of(g.name), Rect: [g.x, g.y, g.x + g.w, g.y + g.h], F: 4, P: g.pg.ref, MK: { BC: [0.6, 0.64, 0.68] } }));
+    g.pg.node.addAnnot(ref); form.acroForm.addField(ref); }
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
 
