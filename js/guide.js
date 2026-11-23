@@ -45,7 +45,7 @@ export async function draw(cv, pg, unit) {
     c.drawImage(img, r.x, r.y, r.w, r.h); c.strokeStyle = NAVY; c.lineWidth = 4; c.strokeRect(r.x, r.y, r.w, r.h);
     const marks = pg.marks || []; marks.forEach((m, i) => { if (m.z != null) return; arrow(c, { x: r.x + m.nx * r.w, y: r.y + m.ny * r.h }, { x: r.x + m.tx * r.w, y: r.y + m.ty * r.h }); dot(c, r.x + m.nx * r.w, r.y + m.ny * r.h, i + 1); });
     // the key: beside a narrow photo, under a wide one
-    const side = !pg.wide && r.w <= 700, lx = side ? r.x + r.w + 40 : PX, lw = W - lx - PX - 90; let ly = side ? PH0 + 10 : r.y + r.h + 40;
+    const side = r.w <= 700, lx = side ? r.x + r.w + 40 : PX, lw = W - lx - PX - 90; let ly = side ? PH0 + 10 : r.y + r.h + 40;
     marks.forEach((m, i) => { dot(c, lx + 34, ly + 34, i + 1); c.fillStyle = NAVY; c.font = font(37, 1); let yy = ly + 36; for (const t of wrap(c, fill(m.label, unit), lw)) { c.fillText(t, lx + 88, yy); yy += 46; } c.fillStyle = '#333'; c.font = font(32); for (const t of wrap(c, fill(m.sub, unit), lw)) { if (t) { c.fillText(t, lx + 88, yy); yy += 42; } } ly = Math.max(yy, ly + 90) + 16; });
     y = Math.max(r.y + r.h + 55, side ? ly + 10 : ly + 20);
     // close-ups: part of the photo shown larger under it, joined to where it came from
