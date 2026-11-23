@@ -358,7 +358,7 @@ async function pdf(unit, kind = 'home') {
   if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js'); const doc = await window.PDFLib.PDFDocument.create(), cv = document.createElement('canvas');
   const P = pages().filter(p => kind === 'fm' || p.aud !== 'fm'), list = P.slice();
   // a contents page straight after the first (welcome) page, once there are enough pages to need one; split in two when the list is long
-  if (P.length > 4) { const rows = P.map((p, i) => ({ t: fill(p.title || 'Untitled', unit), i })), per = 22, nC = Math.ceil(rows.length / per);
+  if (P.length > 4) { const rows = P.map((p, i) => ({ t: fill(p.title || 'Untitled', unit), i })), per = 60, nC = Math.ceil(rows.length / per);
     const num = i => (i === 0 ? 1 : i + 1 + nC);
     for (let k = 0; k < nC; k++) list.splice(1 + k, 0, { contents: rows.slice(k * per, (k + 1) * per).map(r => ({ t: r.t, n: num(r.i) })), title: nC > 1 ? `What is in this guide (${k + 1} of ${nC})` : 'What is in this guide' }); }
   for (const [n, p] of list.entries()) {
@@ -370,9 +370,12 @@ async function pdf(unit, kind = 'home') {
 }
 // the contents page: the usual header and footer (from an empty page), then each topic with a dotted line to its page number
 export async function drawContents(cv, pg, unit) {
-  await draw(cv, { title: pg.title, lines: '', marks: [] }, unit); const c = cv.getContext('2d'), rows = pg.contents, top = 290, rh = Math.min(64, Math.floor((H - 250 - top) / Math.max(rows.length, 1)));
-  rows.forEach((r, i) => { const y = top + i * rh; c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.fillStyle = NAVY; c.font = font(Math.min(38, rh - 20), 1); let t = r.t; while (c.measureText(t).width > W - PX * 2 - 190 && t.length > 4) t = t.slice(0, -2); if (t !== r.t) t += '…'; c.fillText(t, PX, y);
-    const x0 = PX + c.measureText(t).width + 16, x1 = W - PX - 150; c.textAlign = 'right'; c.fillText(String(r.n), W - PX, y); c.font = font(Math.min(30, rh - 26)); c.fillStyle = '#5a6675'; c.fillText('page', W - PX - 62, y);
+  await draw(cv, { title: pg.title, lines: '', marks: [] }, unit); const c = cv.getContext('2d'), rows = pg.contents, top = 290, cols = rows.length > 30 ? 2 : 1, per = Math.ceil(rows.length / cols), gap = 50, cw = (W - PX * 2 - gap * (cols - 1)) / cols;
+  const rh = Math.min(64, Math.floor((H - 230 - top) / Math.max(per, 1))), fs = Math.max(22, Math.min(38, rh - 14, cols > 1 ? 25 : 38));
+  rows.forEach((r, i) => { const x = PX + Math.floor(i / per) * (cw + gap), y = top + (i % per) * rh, pw = cols > 1 ? 0 : 90; c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.fillStyle = NAVY; c.font = font(fs, 1);
+    let t = r.t; while (c.measureText(t).width > cw - 110 - pw && t.length > 4) t = t.slice(0, -2); if (t !== r.t) t += '…'; c.fillText(t, x, y);
+    const x0 = x + c.measureText(t).width + 14, x1 = x + cw - 70 - pw; c.textAlign = 'right'; c.fillText(String(r.n), x + cw, y);
+    if (pw) { c.font = font(Math.round(fs * 0.8)); c.fillStyle = '#5a6675'; c.fillText('page', x + cw - 62, y); }
     if (x1 > x0) { c.strokeStyle = '#9aa5b1'; c.lineWidth = 3; c.setLineDash([3, 11]); c.lineCap = 'round'; c.beginPath(); c.moveTo(x0, y - 8); c.lineTo(x1, y - 8); c.stroke(); c.setLineDash([]); } });
   c.textAlign = 'left';
 }
