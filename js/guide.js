@@ -35,6 +35,7 @@ function arrow(c, a, b) {
   for (const [col, wd] of [['#fff', 15], [RED, 7]]) { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x - Math.cos(ang) * 14, b.y - Math.sin(ang) * 14); c.stroke(); }
   c.beginPath(); c.moveTo(b.x, b.y); c.lineTo(b.x - L * Math.cos(ang - 0.45), b.y - L * Math.sin(ang - 0.45)); c.lineTo(b.x - L * Math.cos(ang + 0.45), b.y - L * Math.sin(ang + 0.45)); c.closePath(); c.fillStyle = RED; c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 3; c.stroke();
 }
+const qrName = d => String(d.title || '').split(' - ').pop().replace(/\s*\(.*?\)\s*$/, '');
 export async function draw(cv, pg, unit) {
   const ZR = []; cv.width = W; cv.height = H; const c = cv.getContext('2d'), g = cfg();
   c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
@@ -101,7 +102,7 @@ export async function draw(cv, pg, unit) {
       c.fillStyle = NAVY; c.font = font(30, 1); c.textAlign = 'left'; c.fillText('Scan a code with your phone camera for the full manual', PX, top + 28);
       QD.slice(0, QN).forEach((d, i) => { const q = window.qrcode(0, 'L'); q.addData(d.url); q.make(); const n = q.getModuleCount(), bx = PX + slot * i + (slot - box) / 2, by = top + 48, m = box / n;
         c.fillStyle = '#000'; for (let rr = 0; rr < n; rr++) for (let k = 0; k < n; k++) if (q.isDark(rr, k)) c.fillRect(bx + k * m, by + rr * m, m + 0.4, m + 0.4);
-        const nm = String(d.title || '').split(' - ').pop().replace(/\s*\(.*?\)\s*$/, ''); c.fillStyle = INK; c.font = font(22, 1); c.textAlign = 'center'; wrap(c, nm, slot - 16).slice(0, 2).forEach((l, k) => c.fillText(l, PX + slot * i + slot / 2, by + box + 28 + k * 27)); });
+        const nm = (pg.qrCap && pg.qrCap[d.id]) || qrName(d); c.fillStyle = INK; c.font = font(22, 1); c.textAlign = 'center'; wrap(c, nm, slot - 16).slice(0, 2).forEach((l, k) => c.fillText(l, PX + slot * i + slot / 2, by + box + 28 + k * 27)); });
       c.textAlign = 'left'; } catch (e) { console.warn('qrs', e); } }
   else if (pg.qrUrl && pg.qr !== false) { try { if (!window.qrcode) await loadScript('lib/qrcode.js'); const q = window.qrcode(0, 'L'); q.addData(pg.qrUrl); q.make(); const n = q.getModuleCount(), box = 190, bx = W - PX - box, by = H - 180, pad = 15, m = (box - pad * 2) / n;
     c.fillStyle = '#fff'; c.beginPath(); c.roundRect(bx, by, box, box, 10); c.fill(); c.fillStyle = '#000'; for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) c.fillRect(bx + pad + k * m, by + pad + r * m, m + 0.4, m + 0.4);
@@ -222,7 +223,7 @@ function side() {
     ${p.zooms.length && !ro ? '<p class="muted small">Drag the enlarged close-up on the page to move it anywhere, including over the photo. Drag its corner to resize it. ↺ puts it back under the photo.</p>' : ''}
     ${p.photo && !ro && p.zooms.length < 4 ? `<p><button class="mini${E.addingZoom ? ' on' : ''}" id="geZoom">${E.addingZoom ? 'Now click the part of the photo…' : '+ Add a close-up'}</button></p>` : ''}
     <h4>Source documents</h4><p class="muted small">Link the manual or care guide for this item. The AI then writes the steps from it, and can check the page against it.</p>
-    ${linked().map(d => `<div class="aedoc">📄 <a href="#" data-gd="${esc(d.id)}">${esc(d.title || d.fileName)}</a>${ro ? '' : ` <button class="mini" data-gdx="${esc(d.id)}" title="Unlink">✕</button>`}</div>`).join('')}
+    ${linked().map((d, i, A) => `<div class="aedoc"${ro ? '' : ` draggable="true" data-gdd="${esc(d.id)}"`}>${A.length > 1 && !ro ? '<span class="gdgrip" title="Drag to change the order">⠿</span> ' : '📄 '}<a href="#" data-gd="${esc(d.id)}">${esc(d.title || d.fileName)}</a>${ro ? '' : ` ${A.length > 1 ? `<button class="mini" data-gdm="${esc(d.id)}" data-d="-1" title="Move earlier" ${i ? '' : 'disabled'}>↑</button><button class="mini" data-gdm="${esc(d.id)}" data-d="1" title="Move later" ${i < A.length - 1 ? '' : 'disabled'}>↓</button>` : ''}<button class="mini" data-gdx="${esc(d.id)}" title="Unlink">✕</button>${A.length > 1 ? `<input class="gdcap" data-gdc="${esc(d.id)}" value="${esc((p.qrCap && p.qrCap[d.id]) || qrName(d))}" placeholder="Words under its QR code" title="The words printed under this document's QR code">` : ''}`}</div>`).join('')}
     ${ro ? '' : `${suggest().map(d => `<div class="aedoc small">Looks related: ${esc(d.title)} <button class="mini" data-gdl="${esc(d.id)}">Link it</button></div>`).join('')}
     ${p.docIds.length ? `<label class="dvall"><input type="checkbox" id="geQr" ${p.qr !== false ? 'checked' : ''}> Print a QR code to ${linked().length > 1 ? 'each of these documents (up to 6)' : 'this document'} on the page. Anyone who scans it can open the document, with no sign-in.</label>` : ''}
     <input id="geDq" placeholder="Find a document: type part of its name"><div id="geDl"></div>
@@ -254,10 +255,16 @@ function side() {
   // source documents
   const linkDoc = id => { upd(); if (!p.docIds.includes(id)) p.docIds.push(id); setQr(); side(); redraw(); };
   $('geSide').querySelectorAll('[data-gdl]').forEach(b => b.onclick = () => linkDoc(b.dataset.gdl));
+  const reorder = (id, to) => { upd(); const L2 = p.docIds.filter(x => x !== id); L2.splice(Math.max(0, Math.min(L2.length, to)), 0, id); p.docIds = L2; setQr(); side(); redraw(); };
+  $('geSide').querySelectorAll('[data-gdm]').forEach(b => b.onclick = () => reorder(b.dataset.gdm, p.docIds.indexOf(b.dataset.gdm) + +b.dataset.d));
+  $('geSide').querySelectorAll('[data-gdc]').forEach(i => { i.oninput = () => { p.qrCap = p.qrCap || {}; const v = i.value.trim(); if (v) p.qrCap[i.dataset.gdc] = v; else delete p.qrCap[i.dataset.gdc]; clearTimeout(i._t); i._t = setTimeout(redraw, 350); }; i.ondragstart = e => e.preventDefault(); });
+  { let dg = null; $('geSide').querySelectorAll('[data-gdd]').forEach(r => { r.ondragstart = e => { if (e.target.closest && e.target.closest('input')) return e.preventDefault(); dg = r.dataset.gdd; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dg); } catch (x) {} };
+    r.ondragover = e => { if (dg && dg !== r.dataset.gdd) { e.preventDefault(); r.classList.add('gdover'); } }; r.ondragleave = () => r.classList.remove('gdover');
+    r.ondrop = e => { e.preventDefault(); r.classList.remove('gdover'); if (!dg || dg === r.dataset.gdd) return; const id = dg; dg = null; reorder(id, p.docIds.filter(x => x !== id).indexOf(r.dataset.gdd) + (p.docIds.indexOf(id) < p.docIds.indexOf(r.dataset.gdd) ? 1 : 0)); }; }); }
   $('geSide').querySelectorAll('[data-gdx]').forEach(b => b.onclick = () => { upd(); p.docIds = p.docIds.filter(i => i !== b.dataset.gdx); setQr(); side(); redraw(); });
   $('geSide').querySelectorAll('[data-gd]').forEach(a => a.onclick = async e => { e.preventDefault(); const d = libDocs().find(x => x.id === a.dataset.gd); if (d) try { window.open(await S.store.resolveUrl(d.url), '_blank'); } catch (x) {} });
   if ($('geDq')) $('geDq').oninput = () => { const q = $('geDq').value.trim().toLowerCase(); if (q.length < 2) { $('geDl').innerHTML = ''; return; }
-    const hits = libDocs().filter(d => !p.docIds.includes(d.id) && [d.title, d.fileName, d.party].join(' ').toLowerCase().includes(q)).slice(0, 8);
+    const ws = q.split(/\s+/).map(w => w.length > 5 ? w.slice(0, -2) : w), hits = libDocs().filter(d => { if (p.docIds.includes(d.id)) return false; const t = [d.title, d.fileName, d.party, d.type].join(' ').toLowerCase(); return ws.every(w => t.includes(w)); }).slice(0, 8);
     $('geDl').innerHTML = hits.map(d => `<div class="aehit" data-gdh="${esc(d.id)}">${esc(d.title || d.fileName)} <span class="muted small">${esc(d.type || '')}</span></div>`).join('') || '<p class="muted small">Nothing in the library matches.</p>';
     $('geDl').querySelectorAll('[data-gdh]').forEach(x => x.onclick = () => linkDoc(x.dataset.gdh)); };
   if ($('geChk')) $('geChk').onclick = () => { upd(); checkPage(); };
