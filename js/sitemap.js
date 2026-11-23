@@ -43,7 +43,7 @@ const BASES = {
 };
 const DEF = { center: [-36.9297, 174.6781], zoom: 18 };   // 81A Godley Road, Green Bay; any project can save its own view
 
-let L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true };
+let back = null, L = null, map = null, base = null, layer = null, M = null, sel = null, draw = null, tmp = null, timer = null, pid = null, V = { fmView: true, labels: true };
 const ed = () => can.edit();
 const T = f => TYPES[f.t] || TYPES.note;
 const pts = f => { const o = []; for (let i = 0; i + 1 < (f.p || []).length; i += 2) o.push([f.p[i], f.p[i + 1]]); return o; };   // Firestore can't hold nested arrays, so points are kept flat
@@ -58,14 +58,16 @@ async function leaflet() {
   await loadScript('lib/leaflet/leaflet.js'); return (L = window.L);
 }
 
-export async function view() {
+export async function view(onBack) {
+  if (onBack) back = onBack;
   if (map && pid !== S.project.id) { map.remove(); map = null; }
   pid = S.project.id; M = load(); sel = null; draw = null;
-  $('fmView').innerHTML = `<div class="fbar"><h2>Site map</h2>
+  $('fmView').innerHTML = `<div class="fbar"><button class="btn2" id="smHome">‹ Home guide</button><h2>Site map</h2>
     <span class="seg"><button id="smA" class="${M.base === 'aerial' ? 'on' : ''}">Aerial</button><button id="smS" class="${M.base === 'street' ? 'on' : ''}">Street</button></span>
     <label class="chk small"><input type="checkbox" id="smFm" ${V.fmView ? 'checked' : ''}> Facilities items</label><label class="chk small"><input type="checkbox" id="smLb" ${V.labels ? 'checked' : ''}> Labels</label>
     <span class="sp"></span>${ed() ? '<button class="btn2" id="smView" title="Use the map as it is now framed as the starting view and for the Home guide page">Save this view</button><button class="btn2 go" id="smGuide">📖 Add to Home guide</button>' : ''}<button class="btn2" id="smPng">⬇ Picture</button></div>
     <div id="smWrap"><div id="smMap"></div><aside id="smSide"></aside></div>`;
+  $('smHome').onclick = () => { clearTimeout(timer); if (map) { map.remove(); map = null; } back && back(); };
   await leaflet();
   if (map) map.remove();
   map = L.map('smMap', { zoomSnap: 1, maxZoom: 20, doubleClickZoom: false, attributionControl: true }).setView(M.center, M.zoom);
@@ -191,6 +193,6 @@ async function toGuide() {
     const marks = pins.map(f => { const q = snap.proj(pts(f)[0]), nx = Math.min(0.96, Math.max(0.04, q.x + (q.x > 0.5 ? -0.07 : 0.07))), ny = Math.min(0.95, Math.max(0.05, q.y - 0.06)); return { tx: q.x, ty: q.y, nx, ny, label: f.label || T(f).label, sub: f.note ? f.note.split(/[.\n]/)[0].slice(0, 60) : '' }; });
     const base = have ? { ...have } : { id, order: Math.max(0, ...(((S.fm && S.fm.guide) || []).map(p => p.order || 0))) + 1, title: 'Your site map', aud: 'both', lines: `Your home is at ${S.project.address || S.project.name}.\n` + 'Use this map to find the places you need around the site.\n!Please keep paths and doorways clear for walkers and mobility scooters.', zooms: [], steps: [], docIds: [] };
     await S.store.saveItem(pid, 'guide', { ...base, siteMap: true, wide: true, photo: url, marks, updated: new Date().toISOString() });
-    b.done(); toast(have ? 'Map page updated in the Home guide' : 'Map page added to the end of the Home guide. Move it where you want it there.', 6000);
+    b.done(); toast(have ? 'Map page updated in the guide' : 'Map page added to the end of the guide. Press ‹ Home guide to see it and move it into place.', 6000);
   } catch (e) { b.done(); toast('Could not make the page: ' + e.message, 7000); }
 }

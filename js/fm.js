@@ -4,7 +4,6 @@ import { route } from './store.js';
 import { STATUS_COLOURS as SCOL } from './config.js';
 import * as Pack from './pack.js';
 import * as Nav from './nav.js';
-import * as SM from './sitemap.js';
 import { aiCall } from './ai.js';
 import * as DV from './docview.js';
 import * as Guide from './guide.js';
@@ -39,8 +38,7 @@ export function start(pid) {
   const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
   setModule(can.client() && mayUse('dash') ? 'dash' : mayUse('defects') || !first ? 'defects' : first.dataset.m);
 }
-// the site map is for everyone on the project; other modules follow the person's sections
-const useMod = m => m === 'map' || mayUse(m === 'actions' ? 'comp' : m);
+const useMod = m => mayUse(m === 'actions' ? 'comp' : m);
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
 export function goTo(m, q) { Object.assign(F, { q: q || '', sys: '', st: '', type: '', cat: '' }); if (m === 'maint') F.win = 'all'; setModule(m); }
 export function setModule(m) {
@@ -49,7 +47,7 @@ export function setModule(m) {
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();
 }
-function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view, map: SM.view })[cur]?.(); }
+function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view })[cur]?.(); }
 
 /* ---------------------------------------------------------------- dates and helpers */
 // a date as YYYY-MM-DD in local time (toISOString would give the UTC date, a day early in New Zealand)

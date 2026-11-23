@@ -7,6 +7,7 @@ import { $, esc, toast, busy, confirmBox, uid, compressImage, dataUrlToBlob, del
 import { dictate, stopDictation, aiCall } from './ai.js';
 import { markup } from './photos.js';
 import * as FT from './filetext.js';
+import * as SM from './sitemap.js';
 
 let X = null, E = null;
 const W = 1240, H = 1754, PH0 = 250, PX = 60;           // page size (A4 at 150 dpi), photo top, side margin
@@ -101,11 +102,14 @@ export async function draw(cv, pg, unit) {
 }
 
 /* ---------- list ---------- */
+let mapOpen = false;
 export function view() {
-  const P = pages(), g = cfg(), ed = can.edit();
-  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}<button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
+  if (mapOpen && $('smMap')) return;   // the site map is open: a page saved from it must not close it
+  mapOpen = false; const P = pages(), g = cfg(), ed = can.edit();
+  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}<button class="btn2" id="gMap" title="The map of the site: mark where the bins, bike store, washing lines, gardens and tanks are, then add it to the guide as a page">🗺 Site map</button><button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
   <p class="muted small">${P.length} page${P.length === 1 ? '' : 's'} · ${P.filter(p => p.aud !== 'fm').length} in the Home User Guide, all ${P.length} plus the registers in the Facilities Guide. One topic per page, one photo, numbered pointers and a few short lines. ${g.phone ? 'Footer: call ' + esc(g.org) + ' ' + esc(g.phone) + '.' : 'Set the phone number for the footer in “Phone and unit codes”.'}</p>
   ${P.length ? `<div class="ggrid">${P.map((p, i) => `<div class="gcard" data-id="${esc(p.id)}"><canvas data-cv="${esc(p.id)}"></canvas><div class="gcap"><b>${i + 1}. ${esc(p.title || 'Untitled')}${p.aud === 'fm' ? ' <span class="badge">Facilities only</span>' : ''}</b>${ed ? `<span><button class="mini" data-up="${esc(p.id)}" title="Move earlier">↑</button><button class="mini" data-dn="${esc(p.id)}" title="Move later">↓</button></span>` : ''}</div></div>`).join('')}</div>` : '<div class="empty2">No pages yet. Add a page, or import a set of pages.</div>'}`;
+  $('gMap').onclick = () => { mapOpen = true; SM.view(() => { mapOpen = false; view(); }); };
   P.forEach(p => { const cv = document.querySelector(`[data-cv="${p.id}"]`); if (cv) draw(cv, p, '').catch(e => console.warn(e)); });
   document.querySelectorAll('.gcard').forEach(c => c.onclick = e => { if (e.target.closest('button')) return; edit(P.find(p => p.id === c.dataset.id)); });
   const move = async (id, d) => { const i = P.findIndex(p => p.id === id), j = i + d; if (j < 0 || j >= P.length) return; const a = P[i], b = P[j]; await S.store.patchItem(S.project.id, 'guide', a.id, { order: j + 1 }); await S.store.patchItem(S.project.id, 'guide', b.id, { order: i + 1 }); };
