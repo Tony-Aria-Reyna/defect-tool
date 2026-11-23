@@ -46,6 +46,8 @@ const SCH13 = [
 const EXEC_NOTE = 'NOTE - The warranty shall be executed by the Warrantor and the Principal in the manner required for execution of a deed. Any of these parties which are a company shall execute the warranty by having it signed, under the name of the company, by two or more directors. If there is only one director, it is sufficient if the Warranty is signed under the name of the company by that director, but the signature shall be witnessed by another person. The witness shall not only sign but shall also add his or her occupation and address. Alternatively, companies may execute under power of attorney.';
 
 /* ---------------- who a deed goes to: the directory, plus installers named in the register */
+const listOf = c => { const adr = S.project.address || S.project.name || '', els = [...new Set(c.assets.map(a => a.element + (a.location && !/^(all|whole|site|various)/i.test(a.location) ? ' (' + a.location + ')' : '')).filter(Boolean))];
+  return `${(c.saved && c.saved.trade) || 'Works'} to ${adr}${els.length ? ': ' + els.join('; ') : ''}.`; };
 export function warrantors() {
   const dir = (S.project.directory || []), out = new Map();
   const add = (name, o) => { const k = coKey(name); if (!k) return; const c = out.get(k) || { key: k, company: name, legal: '', email: '', name: '', address: '', nzbn: '', assets: [], saved: null }; Object.assign(c, o || {}); out.set(k, c); return c; };
@@ -53,10 +55,11 @@ export function warrantors() {
   const generic = /^(\[|confirm|tbc|various|supplier|carpentry|roofing|flooring|concrete|insulation|electrical|mechanical|plumbing|services|fire contractor|metalwork|precast|groundworks|joiner|glazing|fencing|bricklayer|plasterer|facade|window)/i;
   fm().assets.forEach(a => { if (a.status === 'Not applicable') return; String(a.installer || '').split(/\s*[\/;]\s*|\s+and\s+/).map(x => x.replace(/\(.*?\)/g, '').trim()).filter(x => x.length > 2 && !generic.test(x)).forEach(n => { const c = out.get(coKey(n)) || [...out.values()].find(c => coKey(c.company).split(' ')[0] === coKey(n).split(' ')[0]) || add(n); if (!c.assets.includes(a)) c.assets.push(a); }); });
   // the legal name read from a deed already received, where we have one
-  fm().docs.filter(d => d.sub && d.sub.check && d.sub.check.warrantor).forEach(d => { const w = d.sub.check.warrantor, c = [...out.values()].find(c => coKey(w).split(' ')[0] === c.key.split(' ')[0]); if (c && !c.legal) c.legalSeen = w; });
+  fm().docs.filter(d => d.sub && d.sub.check && d.sub.check.warrantor).forEach(d => { const w = d.sub.check.warrantor, c = [...out.values()].find(c => coKey(w).split(' ')[0] === c.key.split(' ')[0]); if (c && !c.legal) c.legalSeen = w; if (c) { const k = d.sub.check; if (k.works && !c.seenWorks) c.seenWorks = String(k.works); if (k.period && !c.seenPeriod) c.seenPeriod = String(k.period); if (!c.seenDoc) c.seenDoc = d.title || ''; } });
   (S.project.directory || []).forEach(sv => { const c = out.get(coKey(sv.company)); if (c && (sv.assetIds || []).length) c.assets = [...new Set([...c.assets, ...sv.assetIds.map(id => fm().assets.find(a => a.id === id)).filter(Boolean)])]; });
   return [...out.values()].sort((a, b) => natural(a.company, b.company));
 }
+const yrs = t => { const m = String(t || '').match(/(\d+)\s*(?:yr|year)/i) || String(t || '').match(/^\s*(\d+)\s*$/); return m ? m[1] : ''; };
 const periodOf = A => { const L = [...new Set(A.map(a => a.instWarranty).filter(x => /\d+\s*(yr|year|month)/i.test(x || '')))]; return L.length === 1 ? L[0].replace(/\s*\(.*$/, '') : ''; };
 
 /* ---------------- the PDF */
@@ -101,7 +104,7 @@ export async function buildDeed(c) {
   row('AND', '', contractor, "('the Contractor')", { bold: true, name: 'contractor' });
   tag(1, M + 104); row('AND', '', legal, "('the Warrantor')", { bold: true, name: 'warrantor' });
   y -= 6; text('DEFINITIONS', M, 10.5, fb); y -= 22;
-  text("'Warranted Works'", M, 9.5); field('works', works, M + 112, W - 2 * M - 112, 40, { multi: true, size: 9 }); y -= 50;
+  const wl = wrap(works, f, 9, W - 2 * M - 112 - 6).length, wh = Math.max(40, wl * 11 + 10); text("'Warranted Works'", M, 9.5); field('works', works, M + 112, W - 2 * M - 112, wh, { multi: true, size: 9 }); y -= wh + 10;
   text("'Warranty Period'", M, 9.5); field('period', period, M + 112, 110, 17, { todo: !period }); text('years from the date of Practical Completion', M + 230, 9, fi); y -= 12; text('of the Contract Works', M + 230, 9, fi); y -= 32;
   for (const r of SCH13) { if (y < 90) newPage();
     if (r[0] === 'h') { y -= 6; text(r[1], M, 10.5, fb); y -= 16; }
@@ -131,24 +134,29 @@ export function prepareDialog(preset) {
   const L = warrantors(), ret = (p.directory || []).find(c => /miles|contractor/i.test((c.role || '') + ' ' + c.company) && c.email);
   modal(`<h2>📝 Prepare warranties for signing</h2><p class="note">Tick who each one goes to. Each gets a fillable PDF of the ${esc(p.deedForm || 'NZS 3916:2013 Schedule 13')} already filled in from Project settings (Principal ${esc(p.client)}, Contractor ${esc(p.contractor)}), the company's details and the elements it covers. They only check, date and sign. Details you correct here are saved to Contacts.</p>
   <input type="search" id="pdQ" placeholder="Find a company…" style="width:100%;margin-bottom:6px">
-  <div class="pdl">${L.map((c, i) => { const per = periodOf(c.assets), w = c.assets.map(a => a.element).join('; ');
+  <div class="pdl">${L.map((c, i) => { const sv = c.saved || {}, list = listOf(c), per = sv.deedPeriod || yrs(periodOf(c.assets)) || yrs(c.seenPeriod), w = sv.deedWorks || list, req = [...new Set(c.assets.map(a => a.instWarranty).filter(Boolean))].join('; ');
     return `<div class="pdr" data-s="${esc((c.company + ' ' + c.legal + ' ' + w).toLowerCase())}"><label class="pdt"><input type="checkbox" data-pi="${i}" ${preset && preset.includes(c.key) ? 'checked' : ''}><b>${esc(c.company)}</b> <span class="muted small">${esc(c.assets.map(a => a.ref).join(', '))}</span>${c.legal ? '' : c.legalSeen ? ` <span class="st st-info">name read from their deed</span>` : ` <span class="st st-warn">full name to confirm</span>`}</label>
       <div class="pdf" hidden><label class="f">Full registered name<input data-pl="${i}" value="${esc(c.legal || c.legalSeen || c.company)}"></label><label class="f">Email<input data-pe="${i}" value="${esc(c.email)}" placeholder="for your records"></label>
-      <label class="f full">Warranted Works<textarea data-pw="${i}" rows="2">${esc(w)}</textarea></label><label class="f">Warranty Period (years)<input data-pp="${i}" value="${esc(per)}" placeholder="blank: they fill it in"></label></div></div>`; }).join('') || '<p class="muted">No companies yet. Add them under Contacts, or name the installer on each element in the register.</p>'}</div>
+      <label class="f full">Warranted Works <span class="muted small">(trade, where, and what it includes: this is what the warranty covers)</span><textarea data-pw="${i}" rows="4">${esc(w)}</textarea></label>
+      <div class="full small" style="margin:-4px 0 6px">${c.seenWorks ? `<button type="button" class="mini" data-pu="${i}" title="${esc(c.seenDoc)}">⤓ Use their draft wording</button> ` : ''}<button type="button" class="mini" data-pr="${i}">↺ List from the register</button>${c.seenWorks ? ` <span class="muted">Their draft says: ${esc(c.seenWorks)}</span>` : ''}</div>
+      <label class="f full">Excludes <span class="muted small">(optional, added at the end, e.g. reinforcing, propping and scaffolding)</span><input data-px="${i}" value="${esc(sv.deedExcl || '')}" placeholder="leave blank if nothing is excluded"></label>
+      <label class="f">Warranty Period (years)<input data-pp="${i}" value="${esc(per)}" inputmode="numeric" placeholder="blank: they fill it in"></label><div class="small muted" style="align-self:end;padding-bottom:8px">${req ? 'Register requires: ' + esc(req) : 'No period set in the register'}${c.seenPeriod ? ' · their draft: ' + esc(c.seenPeriod) : ''}</div></div></div>`; }).join('') || '<p class="muted">No companies yet. Add them under Contacts, or name the installer on each element in the register.</p>'}</div>
   <div class="act"><button id="pdX">Cancel</button><button class="go" id="pdGo">Build PDFs</button></div>`, true);
   const sync = () => document.querySelectorAll('[data-pi]').forEach(cb => cb.closest('.pdr').querySelector('.pdf').hidden = !cb.checked);
   document.querySelectorAll('[data-pi]').forEach(cb => cb.onchange = sync); sync();
   $('pdQ').oninput = e => { const q = e.target.value.toLowerCase().trim(); document.querySelectorAll('.pdr').forEach(r => r.style.display = !q || q.split(' ').every(w => r.dataset.s.includes(w)) ? '' : 'none'); };
+  document.querySelectorAll('[data-pu]').forEach(b => b.onclick = () => { const i = +b.dataset.pu; document.querySelector(`[data-pw="${i}"]`).value = L[i].seenWorks; });
+  document.querySelectorAll('[data-pr]').forEach(b => b.onclick = () => { const i = +b.dataset.pr; document.querySelector(`[data-pw="${i}"]`).value = listOf(L[i]); });
   $('pdX').onclick = closeModal;
   $('pdGo').onclick = async () => {
-    const pick = [...document.querySelectorAll('[data-pi]:checked')].map(cb => { const i = +cb.dataset.pi, v = k => document.querySelector(`[data-p${k}="${i}"]`).value.trim(); return { ...L[i], legal: v('l'), email: v('e'), works: v('w'), period: v('p') }; });
+    const pick = [...document.querySelectorAll('[data-pi]:checked')].map(cb => { const i = +cb.dataset.pi, v = k => document.querySelector(`[data-p${k}="${i}"]`).value.trim(); const wk = v('w'), ex = v('x').replace(/^excludes?\s*:?\s*/i, '').replace(/\.$/, ''); return { ...L[i], legal: v('l'), email: v('e'), worksOnly: wk, excl: ex, works: wk.replace(/\s*$/, '') + (ex ? (/[.;:]$/.test(wk) ? ' ' : '. ') + 'Excludes ' + ex + '.' : ''), period: yrs(v('p')) || v('p') }; });
     if (!pick.length) return toast('Tick at least one company');
     const miss = pick.filter(c => !c.works); if (miss.length) return toast(`Describe the Warranted Works for ${miss.map(c => c.company).join(', ')}`, 6000);
     closeModal(); const b = busy('Building the deeds…');
     try {
       const files = []; for (const [i, c] of pick.entries()) { b.set(`Building ${i + 1} of ${pick.length}: ${c.company}`); files.push({ name: `${safeName(c.legal)} - Schedule 13 Deed - for signing.pdf`, blob: await buildDeed({ ...c, returnTo: ret ? ret.email : '' }) }); }
       // keep what was confirmed, so next time it is already filled in
-      const dir = (p.directory || []).slice(); pick.forEach(c => { const i = dir.findIndex(x => coKey(x.company) === c.key); const o = { ...(i > -1 ? dir[i] : { id: uid(), company: c.company, role: 'Subcontractor', audience: 'FM' }), legal: c.legal, email: c.email || (i > -1 ? dir[i].email : ''), assetIds: c.assets.map(a => a.id), updated: new Date().toISOString() }; if (i > -1) dir[i] = o; else dir.push(o); });
+      const dir = (p.directory || []).slice(); pick.forEach(c => { const i = dir.findIndex(x => coKey(x.company) === c.key); const o = { ...(i > -1 ? dir[i] : { id: uid(), company: c.company, role: 'Subcontractor', audience: 'FM' }), legal: c.legal, email: c.email || (i > -1 ? dir[i].email : ''), assetIds: c.assets.map(a => a.id), deedWorks: c.worksOnly, deedExcl: c.excl, deedPeriod: c.period, updated: new Date().toISOString() }; if (i > -1) dir[i] = o; else dir.push(o); });
       try { await S.store.updateProject(p.id, { directory: dir }); S.project.directory = dir; } catch (e) { console.warn('directory', e); }
       if (files.length === 1) { b.done(); return deliver(files[0].blob, files[0].name, 'Deed for signing'); }
       if (!window.JSZip) await loadScript('lib/jszip.min.js'); const z = new window.JSZip(); files.forEach(x => z.file(x.name, x.blob));
