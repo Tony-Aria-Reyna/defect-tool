@@ -103,7 +103,7 @@ export async function draw(cv, pg, unit) {
 /* ---------- list ---------- */
 export function view() {
   const P = pages(), g = cfg(), ed = can.edit();
-  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}<button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Home user and facilities guides</h2><span class="sp"></span>${ed ? '<button class="btn2 go" id="gNew">+ Page</button><button class="btn2" id="gSet">Phone and unit codes</button><button class="btn2" id="gImp">⬆ Import pages</button><button class="btn2" id="gStd">+ Standard pages</button>' : ''}<button class="btn2" id="gTxt" title="The words only, for review. Bring it back with Import pages: only the words change, photos and pointer positions stay">⬇ Text for review</button><button class="btn2" id="gJson">⬇ Pages (.json)</button><button class="btn2 go" id="gPdf">⬇ Guides (PDF)</button><input type="file" id="gFile" accept=".json" hidden></div>
   <p class="muted small">${P.length} page${P.length === 1 ? '' : 's'} · ${P.filter(p => p.aud !== 'fm').length} in the Home User Guide, all ${P.length} plus the registers in the Facilities Guide. One topic per page, one photo, numbered pointers and a few short lines. ${g.phone ? 'Footer: call ' + esc(g.org) + ' ' + esc(g.phone) + '.' : 'Set the phone number for the footer in “Phone and unit codes”.'}</p>
   ${P.length ? `<div class="ggrid">${P.map((p, i) => `<div class="gcard" data-id="${esc(p.id)}"><canvas data-cv="${esc(p.id)}"></canvas><div class="gcap"><b>${i + 1}. ${esc(p.title || 'Untitled')}${p.aud === 'fm' ? ' <span class="badge">Facilities only</span>' : ''}</b>${ed ? `<span><button class="mini" data-up="${esc(p.id)}" title="Move earlier">↑</button><button class="mini" data-dn="${esc(p.id)}" title="Move later">↓</button></span>` : ''}</div></div>`).join('')}</div>` : '<div class="empty2">No pages yet. Add a page, or import a set of pages.</div>'}`;
   P.forEach(p => { const cv = document.querySelector(`[data-cv="${p.id}"]`); if (cv) draw(cv, p, '').catch(e => console.warn(e)); });
@@ -114,6 +114,7 @@ export function view() {
   if ($('gSet')) $('gSet').onclick = settings;
   if ($('gStd')) $('gStd').onclick = addStandard;
   if ($('gImp')) { $('gImp').onclick = () => $('gFile').click(); $('gFile').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) importJson(f); }; }
+  if ($('gTxt')) $('gTxt').onclick = exportText;
   $('gJson').onclick = exportJson; $('gPdf').onclick = exportDialog;
 }
 function settings() {
@@ -391,12 +392,30 @@ async function addStandard() {
   try { for (const s of add) await S.store.saveItem(S.project.id, 'guide', { id: uid(), std: s.key, order: ++o, title: s.title, photo: '', marks: [], lines: s.lines, wide: !!s.wide, codeBox: !!s.codeBox, table: !!s.table, aud: s.aud || 'both', updated: new Date().toISOString(), updatedBy: S.user.email });
     b.done(); toast(`Added ${add.length} pages`); setTimeout(view, 300); } catch (e) { b.done(); toast(e.message, 6000); }
 }
+// The words of every page, without photos: small enough to send for review. Importing it changes only the words.
+const TXT = p => ({ id: p.id, order: p.order, title: p.title || '', aud: p.aud, marks: (p.marks || []).map(m => ({ label: m.label || '', sub: m.sub || '' })), closeups: (p.zooms || []).map(z => z.label || ''), steps: (p.steps || []).map(t => t.text || ''), lines: p.lines || '', codeBox: p.codeBox || undefined, hasPhoto: !!p.photo });
+function exportText() { deliver(new Blob([JSON.stringify({ app: 'resero-guide-text', version: 1, project: S.project.name, exported: new Date().toISOString(), cfg: cfg(), pages: pages().map(TXT) }, null, 2)], { type: 'application/json' }), `${safeName(S.project.name)} - home user guide text - ${stamp()}.json`, 'Guide text'); }
+async function importText(j) {
+  const have = pages(), upd = [], add = [];
+  j.pages.forEach(t => { const p = have.find(h => h.id === t.id); if (!p) { add.push(t); return; }
+    const q = JSON.parse(JSON.stringify(p)); q.title = t.title ?? q.title; q.lines = t.lines ?? q.lines; if (t.aud) q.aud = t.aud;
+    (t.marks || []).forEach((m, i) => { if (q.marks[i]) { q.marks[i].label = m.label; q.marks[i].sub = m.sub; } });
+    (t.closeups || []).forEach((l, i) => { if (q.zooms && q.zooms[i]) q.zooms[i].label = l; });
+    (t.steps || []).forEach((x, i) => { if (q.steps && q.steps[i]) q.steps[i].text = x; else (q.steps = q.steps || []).push({ photo: '', text: x }); });
+    if (JSON.stringify(TXT(q)) !== JSON.stringify(TXT(p))) upd.push(q); });
+  if (!upd.length && !add.length) return toast('Nothing in that file differs from the guide');
+  if (!(await confirmBox(`${upd.length} page${upd.length === 1 ? '' : 's'} will have their words updated${add.length ? ` and ${add.length} new page${add.length === 1 ? '' : 's'} added (words only: add the photo yourself)` : ''}. Photos, pointer positions and close-ups stay as they are.`, 'Update the words'))) return;
+  const b = busy('Updating…'); try { for (const q of upd) await S.store.saveItem(S.project.id, 'guide', q);
+    let o = Math.max(0, ...have.map(h => h.order || 0)); for (const t of add) await S.store.saveItem(S.project.id, 'guide', { id: t.id || uid(), order: t.order || ++o, title: t.title || 'New page', aud: t.aud || 'resident', lines: t.lines || '', marks: [], zooms: [], steps: (t.steps || []).map(x => ({ photo: '', text: x })) });
+    b.done(); toast(`${upd.length} updated, ${add.length} added`, 5000); setTimeout(view, 300); } catch (e) { b.done(); toast('Update stopped: ' + e.message, 7000); }
+}
 async function exportJson() {
   const b = busy('Collecting the pages…'); try { const out = []; for (const p of pages()) { const q = { ...p }; if (q.photo && !q.photo.startsWith('data:')) { const img = await loadImg(q.photo); if (img) { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0); q.photo = c.toDataURL('image/jpeg', 0.85); } } out.push(q); }
     b.done(); deliver(new Blob([JSON.stringify({ app: 'resero-defects-guide', version: 1, project: S.project.name, exported: new Date().toISOString(), cfg: cfg(), pages: out })], { type: 'application/json' }), `${safeName(S.project.name)} - home user guide pages - ${stamp()}.json`, 'Guide pages'); } catch (e) { b.done(); toast(e.message, 6000); }
 }
 export async function importJson(file) {
   let j; try { j = JSON.parse(await file.text()); } catch (e) { return toast('That file could not be read'); }
+  if (j.app === 'resero-guide-text' && Array.isArray(j.pages)) return importText(j);
   if (j.app !== 'resero-defects-guide' || !Array.isArray(j.pages)) return toast('That is not a set of guide pages');
   const have = pages(), same = j.pages.filter(p => have.some(h => h.id === p.id)).length;
   if (!(await confirmBox(`Import ${j.pages.length} guide page${j.pages.length === 1 ? '' : 's'}?${same ? ' ' + same + ' already here will be replaced by the imported version.' : ''}${j.cfg && j.cfg.phone && !cfg().phone ? ' The phone number and unit code settings come with them.' : ''}`, 'Import'))) return;
