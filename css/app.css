@@ -740,7 +740,7 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .gzi{touch-action:none;cursor:move}.gzi.adding{cursor:crosshair}
 /* site map */
 #smWrap{display:flex;gap:12px;height:calc(100vh - 190px);min-height:420px}
-#smMap{flex:1;min-width:0;border-radius:10px;border:1px solid var(--line);background:#e8ecef}
+#smMap{isolation:isolate;position:relative;z-index:0;flex:1;min-width:0;border-radius:10px;border:1px solid var(--line);background:#e8ecef}
 #smMap.drawing{cursor:crosshair}#smMap.drawing .leaflet-interactive{cursor:crosshair}
 #smSide{width:300px;flex:0 0 300px;overflow:auto;font-size:14px}
 #smSide h3{font-size:15px;margin:6px 0 8px;color:var(--navy);display:flex;align-items:center;gap:8px}
