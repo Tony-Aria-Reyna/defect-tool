@@ -435,13 +435,13 @@ function exportText() { deliver(new Blob([JSON.stringify({ app: 'resero-guide-te
 async function importText(j) {
   const have = pages(), upd = [], add = [];
   j.pages.forEach(t => { const p = have.find(h => h.id === t.id); if (!p) { add.push(t); return; }
-    const q = JSON.parse(JSON.stringify(p)); q.title = t.title ?? q.title; q.lines = t.lines ?? q.lines; if (t.aud) q.aud = t.aud;
+    const q = JSON.parse(JSON.stringify(p)); q.title = t.title ?? q.title; q.lines = t.lines ?? q.lines; if (t.aud) q.aud = t.aud; if (t.order != null) q.order = t.order;
     (t.marks || []).forEach((m, i) => { if (q.marks[i]) { q.marks[i].label = m.label; q.marks[i].sub = m.sub; } });
     (t.closeups || []).forEach((l, i) => { if (q.zooms && q.zooms[i]) q.zooms[i].label = l; });
     (t.steps || []).forEach((x, i) => { if (q.steps && q.steps[i]) q.steps[i].text = x; else (q.steps = q.steps || []).push({ photo: '', text: x }); });
     if (JSON.stringify(TXT(q)) !== JSON.stringify(TXT(p))) upd.push(q); });
   if (!upd.length && !add.length) return toast('Nothing in that file differs from the guide');
-  if (!(await confirmBox(`${upd.length} page${upd.length === 1 ? '' : 's'} will have their words updated${add.length ? ` and ${add.length} new page${add.length === 1 ? '' : 's'} added (words only: add the photo yourself)` : ''}. Photos, pointer positions and close-ups stay as they are.`, 'Update the words'))) return;
+  if (!(await confirmBox(`${upd.length} page${upd.length === 1 ? '' : 's'} will have their words or position updated${add.length ? ` and ${add.length} new page${add.length === 1 ? '' : 's'} added (words only: add the photo yourself)` : ''}. Photos, pointer positions and close-ups stay as they are.`, 'Update the words'))) return;
   const b = busy('Updating…'); try { for (const q of upd) await S.store.saveItem(S.project.id, 'guide', q);
     let o = Math.max(0, ...have.map(h => h.order || 0)); for (const t of add) await S.store.saveItem(S.project.id, 'guide', { id: t.id || uid(), order: t.order || ++o, title: t.title || 'New page', aud: t.aud || 'resident', lines: t.lines || '', marks: [], zooms: [], steps: (t.steps || []).map(x => ({ photo: '', text: x })) });
     b.done(); toast(`${upd.length} updated, ${add.length} added`, 5000); setTimeout(view, 300); } catch (e) { b.done(); toast('Update stopped: ' + e.message, 7000); }
