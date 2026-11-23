@@ -75,6 +75,8 @@ service cloud.firestore {
       allow update: if isAdmin(pid)
         // contractors and editors can add names to the subcontractor list
         || ((canEdit(pid) || isContractor(pid)) && changed().hasOnly(['subcontractors']))
+        // editors mark up the site map
+        || (canEdit(pid) && changed().hasOnly(['siteMap']))
         // editors and contractors take the next defect number
         || ((canEdit(pid) || isContractor(pid) || isClient(pid) || isInspector(pid)) && changed().hasOnly(['seq']) && request.resource.data.seq == resource.data.get('seq', 0) + 1)
         // a member records when they last opened the project (their own memberInfo entry only)

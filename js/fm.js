@@ -4,6 +4,7 @@ import { route } from './store.js';
 import { STATUS_COLOURS as SCOL } from './config.js';
 import * as Pack from './pack.js';
 import * as Nav from './nav.js';
+import * as SM from './sitemap.js';
 import { aiCall } from './ai.js';
 import * as DV from './docview.js';
 import * as Guide from './guide.js';
@@ -28,7 +29,7 @@ const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [],
 export function start(pid) {
   stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] };
   const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], systems: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], tasks: ['maint', 'comp', 'dash', 'assets', 'guide'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'], actions: ['comp', 'dash'] };
-  document.querySelectorAll('#modbar button').forEach(b => b.hidden = !mayUse(b.dataset.m === 'actions' ? 'comp' : b.dataset.m));
+  document.querySelectorAll('#modbar button').forEach(b => b.hidden = !useMod(b.dataset.m));
   const parts = { docs: [], rdocs: [] }; RIDS = new Set(); route.fn = (c, id) => c === 'docs' && RIDS.has(id) ? 'rdocs' : c;
   const mergeDocs = () => { fm().docs = [...parts.docs.filter(d => !RIDS.has(d.id)), ...parts.rdocs.map(d => ({ ...d, restricted: true }))]; };
   const watched = ['assets', 'docs', 'tasks', 'systems', 'guide', 'actions'].filter(c => NEED[c].some(mayUse)); loaded = new Set();
@@ -38,15 +39,17 @@ export function start(pid) {
   const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
   setModule(can.client() && mayUse('dash') ? 'dash' : mayUse('defects') || !first ? 'defects' : first.dataset.m);
 }
+// the site map is for everyone on the project; other modules follow the person's sections
+const useMod = m => m === 'map' || mayUse(m === 'actions' ? 'comp' : m);
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
 export function goTo(m, q) { Object.assign(F, { q: q || '', sys: '', st: '', type: '', cat: '' }); if (m === 'maint') F.win = 'all'; setModule(m); }
 export function setModule(m) {
-  if (!mayUse(m === 'actions' ? 'comp' : m)) { const f = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden); if (!f || f.dataset.m === m) return; m = f.dataset.m; }
+  if (!useMod(m)) { const f = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden); if (!f || f.dataset.m === m) return; m = f.dataset.m; }
   if (m !== 'defects' && !Nav.isOpen('module')) Nav.open('module', () => setModule('defects')); if (m === 'defects') Nav.closed('module');
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();
 }
-function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view })[cur]?.(); }
+function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view, map: SM.view })[cur]?.(); }
 
 /* ---------------------------------------------------------------- dates and helpers */
 // a date as YYYY-MM-DD in local time (toISOString would give the UTC date, a day early in New Zealand)
