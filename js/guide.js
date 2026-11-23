@@ -41,6 +41,8 @@ export async function draw(cv, pg, unit) {
   // header: client logo on white, then the title bar
   const logo = await loadImg(S.project.clientLogo); if (logo) { const lh = 62, lw = logo.width * lh / logo.height; c.drawImage(logo, W - PX - lw, 20, lw, lh); }
   c.fillStyle = NAVY; c.fillRect(0, 100, W, 110); c.fillStyle = '#fff'; c.font = font(58, 1); c.fillText(fill(pg.title, unit), PX, 176);
+  // several linked documents: a row of QR codes above the footer, one per document
+  const QD = pg.qr !== false ? (pg.docIds || []).map(id => ((S.fm && S.fm.docs) || []).find(d => d.id === id)).filter(d => d && /^https?:/.test(d.url || '')) : [], QN = QD.length > 1 ? Math.min(QD.length, 6) : 0, FB = QN ? 285 : 0;
   const img = await loadImg(pg.photo), r = photoRect(pg, img); let y = PH0;
   if (img) {
     c.drawImage(img, r.x, r.y, r.w, r.h); c.strokeStyle = NAVY; c.lineWidth = 4; c.strokeRect(r.x, r.y, r.w, r.h);
@@ -84,18 +86,24 @@ export async function draw(cv, pg, unit) {
     const R = String(pg.lines || '').split('\n').map(s => s.trim()).filter(Boolean).map(l => l.split('|').map(x => fill(x.trim(), unit))), n = Math.max(1, ...R.map(r => r.length)), tw = W - PX * 2;
     const cw = n === 4 ? [0.2, 0.18, 0.2, 0.42] : Array(n).fill(1 / n), fs = 30;
     R.forEach((r, ri) => { c.font = font(fs, ri === 0); const cells = Array.from({ length: n }, (_, i) => wrap(c, r[i] || '', cw[i] * tw - 24)), hh = 22 + Math.max(...cells.map(x => x.length)) * (fs + 8);
-      if (y + hh > H - 190) return; if (ri === 0) { c.fillStyle = NAVY; c.fillRect(PX, y, tw, hh); } else if (ri % 2 === 0) { c.fillStyle = '#eef3f7'; c.fillRect(PX, y, tw, hh); }
+      if (y + hh > H - 190 - FB) return; if (ri === 0) { c.fillStyle = NAVY; c.fillRect(PX, y, tw, hh); } else if (ri % 2 === 0) { c.fillStyle = '#eef3f7'; c.fillRect(PX, y, tw, hh); }
       let x = PX; cells.forEach((ls, i) => { c.fillStyle = ri === 0 ? '#fff' : INK; ls.forEach((l, k) => c.fillText(l, x + 12, y + 14 + fs + k * (fs + 8))); x += cw[i] * tw; }); y += hh; });
   } else
   for (let t of String(pg.lines || '').split('\n').map(s => s.trim()).filter(Boolean)) {
     const big = t.startsWith('!'); t = fill(t.replace(/^!\s*/, ''), unit); c.font = font(40, big);
-    if (y + 40 + (wrap(c, t, W - PX * 2 - 60).length - 1) * 56 > H - 185) { ZR.over = true; break; }   // no room left above the footer
+    if (y + 40 + (wrap(c, t, W - PX * 2 - 60).length - 1) * 56 > H - 185 - FB) { ZR.over = true; break; }   // no room left above the footer
     c.beginPath(); c.arc(PX + 14, y + 26, 10, 0, 7); c.fillStyle = big ? RED : NAVY; c.fill(); c.fillStyle = big ? NAVY : INK;
     for (const u of wrap(c, t, W - PX * 2 - 60)) { c.fillText(u, PX + 50, y + 40); y += 56; } y += 18;
   }
-  c.fillStyle = TEAL; c.fillRect(0, H - 170, W, 170); c.fillStyle = '#fff'; c.font = font(40, 1); c.fillText(g.footer || 'Something not working?', PX, H - 104); { const hasQr = pg.qrUrl && pg.qr !== false, call = `Call ${g.org || 'us'}  ${g.phone || ''}`.trim(), room = (hasQr ? W - PX - 190 - 30 : W - PX) - PX; let fs = 46; c.font = font(fs, 1); while (fs > 30 && c.measureText(call).width > room) c.font = font(--fs, 1); c.fillText(call, PX, H - 44); }
+  c.fillStyle = TEAL; c.fillRect(0, H - 170, W, 170); c.fillStyle = '#fff'; c.font = font(40, 1); c.fillText(g.footer || 'Something not working?', PX, H - 104); { const hasQr = !QN && pg.qrUrl && pg.qr !== false, call = `Call ${g.org || 'us'}  ${g.phone || ''}`.trim(), room = (hasQr ? W - PX - 190 - 30 : W - PX) - PX; let fs = 46; c.font = font(fs, 1); while (fs > 30 && c.measureText(call).width > room) c.font = font(--fs, 1); c.fillText(call, PX, H - 44); }
   // a QR code to the item's manual: the link opens the document itself, with no sign-in
-  if (pg.qrUrl && pg.qr !== false) { try { if (!window.qrcode) await loadScript('lib/qrcode.js'); const q = window.qrcode(0, 'L'); q.addData(pg.qrUrl); q.make(); const n = q.getModuleCount(), box = 190, bx = W - PX - box, by = H - 180, pad = 15, m = (box - pad * 2) / n;
+  if (QN) { try { if (!window.qrcode) await loadScript('lib/qrcode.js'); const box = 150, slot = (W - PX * 2) / QN, top = H - 170 - FB + 10;
+      c.fillStyle = NAVY; c.font = font(30, 1); c.textAlign = 'left'; c.fillText('Scan a code with your phone camera for the full manual', PX, top + 28);
+      QD.slice(0, QN).forEach((d, i) => { const q = window.qrcode(0, 'L'); q.addData(d.url); q.make(); const n = q.getModuleCount(), bx = PX + slot * i + (slot - box) / 2, by = top + 48, m = box / n;
+        c.fillStyle = '#000'; for (let rr = 0; rr < n; rr++) for (let k = 0; k < n; k++) if (q.isDark(rr, k)) c.fillRect(bx + k * m, by + rr * m, m + 0.4, m + 0.4);
+        const nm = String(d.title || '').split(' - ').pop().replace(/\s*\(.*?\)\s*$/, ''); c.fillStyle = INK; c.font = font(22, 1); c.textAlign = 'center'; wrap(c, nm, slot - 16).slice(0, 2).forEach((l, k) => c.fillText(l, PX + slot * i + slot / 2, by + box + 28 + k * 27)); });
+      c.textAlign = 'left'; } catch (e) { console.warn('qrs', e); } }
+  else if (pg.qrUrl && pg.qr !== false) { try { if (!window.qrcode) await loadScript('lib/qrcode.js'); const q = window.qrcode(0, 'L'); q.addData(pg.qrUrl); q.make(); const n = q.getModuleCount(), box = 190, bx = W - PX - box, by = H - 180, pad = 15, m = (box - pad * 2) / n;
     c.fillStyle = '#fff'; c.beginPath(); c.roundRect(bx, by, box, box, 10); c.fill(); c.fillStyle = '#000'; for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) c.fillRect(bx + pad + k * m, by + pad + r * m, m + 0.4, m + 0.4);
     c.fillStyle = '#fff'; c.font = font(28, 1); c.textAlign = 'right'; c.fillText('Scan for the full manual', bx - 18, H - 108); c.textAlign = 'left'; } catch (e) { console.warn('qr', e); } }
   return ZR;
@@ -216,7 +224,7 @@ function side() {
     <h4>Source documents</h4><p class="muted small">Link the manual or care guide for this item. The AI then writes the steps from it, and can check the page against it.</p>
     ${linked().map(d => `<div class="aedoc">📄 <a href="#" data-gd="${esc(d.id)}">${esc(d.title || d.fileName)}</a>${ro ? '' : ` <button class="mini" data-gdx="${esc(d.id)}" title="Unlink">✕</button>`}</div>`).join('')}
     ${ro ? '' : `${suggest().map(d => `<div class="aedoc small">Looks related: ${esc(d.title)} <button class="mini" data-gdl="${esc(d.id)}">Link it</button></div>`).join('')}
-    ${p.docIds.length ? `<label class="dvall"><input type="checkbox" id="geQr" ${p.qr !== false ? 'checked' : ''}> Print a QR code to ${linked().length > 1 ? 'the first document' : 'this document'} on the page. Anyone who scans it can open the document, with no sign-in.</label>` : ''}
+    ${p.docIds.length ? `<label class="dvall"><input type="checkbox" id="geQr" ${p.qr !== false ? 'checked' : ''}> Print a QR code to ${linked().length > 1 ? 'each of these documents (up to 6)' : 'this document'} on the page. Anyone who scans it can open the document, with no sign-in.</label>` : ''}
     <input id="geDq" placeholder="Find a document: type part of its name"><div id="geDl"></div>
     ${p.docIds.length ? '<p><button class="mini" id="geChk">✨ Check this page against the document</button> <span class="muted small" id="geChkSt"></span></p><div id="geChkOut"></div>' : ''}`}
     <h4>Short lines under the photo</h4><textarea id="geL" rows="5" placeholder="One line each. Start a line with ! to make it stand out.">${esc(p.lines)}</textarea>
