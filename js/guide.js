@@ -49,7 +49,7 @@ export async function draw(cv, pg, unit) {
     marks.forEach((m, i) => { dot(c, lx + 34, ly + 34, i + 1); c.fillStyle = NAVY; c.font = font(37, 1); let yy = ly + 36; for (const t of wrap(c, fill(m.label, unit), lw)) { c.fillText(t, lx + 88, yy); yy += 46; } c.fillStyle = '#333'; c.font = font(32); for (const t of wrap(c, fill(m.sub, unit), lw)) { if (t) { c.fillText(t, lx + 88, yy); yy += 42; } } ly = Math.max(yy, ly + 90) + 16; });
     y = Math.max(r.y + r.h + 55, side ? ly + 10 : ly + 20);
     // close-ups: part of the photo shown larger under it, joined to where it came from
-    const Z = (pg.zooms || []).slice(0, 2);
+    const Z = (pg.zooms || []).slice(0, 4);
     // with the key beside the photo, the close-ups sit under the photo in the left column, so they do not wait for the key to end
     // a close-up you have placed by hand (px, py, pw as fractions of the page) stays there, even over the photo; the rest are laid out in a row
     const keyEnd = y, n = Z.filter(z => z.px == null).length; if (n && side) y = r.y + r.h + 60;
@@ -195,7 +195,7 @@ function side() {
     <h4>Close-ups</h4><p class="muted small">Show a small part of the photo larger, such as a dial or a control panel. Press “Add a close-up”, click the part, then drag the box to fit it.</p>
     ${p.zooms.map((z, i) => `<div class="gmark"><i>🔍</i><div><input data-zl="${i}" value="${esc(z.label)}" placeholder="Caption, e.g. The heat dial: 1 is low, 9 is high"></div>${z.px != null && !ro ? `<button class="mini" data-za0="${i}" title="Put it back under the photo automatically">↺</button>` : ''}<button class="mini" data-zx="${i}" title="Remove">✕</button></div>`).join('')}
     ${p.zooms.length && !ro ? '<p class="muted small">Drag the enlarged close-up on the page to move it anywhere, including over the photo. Drag its corner to resize it. ↺ puts it back under the photo.</p>' : ''}
-    ${p.photo && !ro && p.zooms.length < 2 ? `<p><button class="mini${E.addingZoom ? ' on' : ''}" id="geZoom">${E.addingZoom ? 'Now click the part of the photo…' : '+ Add a close-up'}</button></p>` : ''}
+    ${p.photo && !ro && p.zooms.length < 4 ? `<p><button class="mini${E.addingZoom ? ' on' : ''}" id="geZoom">${E.addingZoom ? 'Now click the part of the photo…' : '+ Add a close-up'}</button></p>` : ''}
     <h4>Source documents</h4><p class="muted small">Link the manual or care guide for this item. The AI then writes the steps from it, and can check the page against it.</p>
     ${linked().map(d => `<div class="aedoc">📄 <a href="#" data-gd="${esc(d.id)}">${esc(d.title || d.fileName)}</a>${ro ? '' : ` <button class="mini" data-gdx="${esc(d.id)}" title="Unlink">✕</button>`}</div>`).join('')}
     ${ro ? '' : `${suggest().map(d => `<div class="aedoc small">Looks related: ${esc(d.title)} <button class="mini" data-gdl="${esc(d.id)}">Link it</button></div>`).join('')}
