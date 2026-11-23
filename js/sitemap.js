@@ -405,7 +405,7 @@ export async function snapshot(opt = {}) {
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(tileImg(B.url.replace('{z}', zt).replace('{x}', x).replace('{y}', y)).then(im => im && c.drawImage(im, x * ts - tl.x, y * ts - tl.y, ts, ts)));
   await Promise.all(jobs);
   if (ovImg && M.ov && M.ov.p && V.ov) { const [a, b2, d] = pts(M.ov).map(proj), w = ovImg.naturalWidth, h = ovImg.naturalHeight; c.save(); c.globalAlpha = M.ov.op || 0.75; c.setTransform((b2.x - a.x) / w, (b2.y - a.y) / w, (d.x - a.x) / h, (d.y - a.y) / h, a.x, a.y); if (M.ov.crop && M.ov.crop.length >= 6) { c.beginPath(); pts({ p: M.ov.crop }).forEach((q, i) => i ? c.lineTo(q[0] * w, q[1] * h) : c.moveTo(q[0] * w, q[1] * h)); c.closePath(); c.clip(); } c.drawImage(ovImg, 0, 0); c.restore(); }
-  const F = M.feats.filter(f => inGuide(f, opt.guide || V.show));
+  const F = M.feats.filter(f => inGuide(f, opt.guide || V.show)), K = opt.k || 1;
   for (const kind of ['area', 'line']) F.filter(f => T(f).kind === kind).forEach(f => { const t = T(f), P = pts(f).map(proj); if (P.length < 2) return;
     c.beginPath(); P.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); if (kind === 'area') c.closePath();
     c.setLineDash(f.t === 'boundary' ? [20, 12] : f.t === 'path' ? [2, 16] : f.t === 'swpipe' ? [16, 12] : []); c.lineCap = 'round';
@@ -413,17 +413,17 @@ export async function snapshot(opt = {}) {
     c.strokeStyle = t.color; c.lineWidth = kind === 'line' ? 9 : 5; c.stroke(); c.setLineDash([]);
   });
   if (!opt.noPins) F.filter(f => T(f).kind === 'point').forEach(f => { const t = T(f), p = proj(pts(f)[0]);
-    c.beginPath(); c.arc(p.x, p.y, 25, 0, 7); c.fillStyle = '#fff'; c.fill(); c.beginPath(); c.arc(p.x, p.y, 21, 0, 7); c.fillStyle = t.color; c.fill();
-    c.fillStyle = '#fff'; c.font = '24px "Segoe UI Emoji", "Apple Color Emoji", system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.sym || '•', p.x, p.y + 1);
+    c.beginPath(); c.arc(p.x, p.y, 25 * K, 0, 7); c.fillStyle = '#fff'; c.fill(); c.beginPath(); c.arc(p.x, p.y, 21 * K, 0, 7); c.fillStyle = t.color; c.fill();
+    c.fillStyle = '#fff'; c.font = `${Math.round(24 * K)}px "Segoe UI Emoji", "Apple Color Emoji", system-ui`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.sym || '•', p.x, p.y + 1);
   });
   // labels, laid out so none overlap (pins with a numbered pointer in the guide are left unlabelled)
-  const SF = '600 24px "Segoe UI", system-ui, Arial', want = f => T(f).kind === 'point' ? (opt.pinLabel ? opt.pinLabel(f) : V.labels) : (opt.labels != null ? opt.labels : V.labels);
-  const its = F.filter(f => pts(f).length && want(f)).map(f => { const a = anchorOf(f, pts(f).map(proj)); return { f, id: f.id, text: f.label || T(f).label, x: a.x, y: a.y, pin: T(f).kind === 'point' }; }).sort((a, b) => (a.pin ? (a.f.label ? 0 : 2) : 1) - (b.pin ? (b.f.label ? 0 : 2) : 1));
-  const PL = layout(its, opt.noPins ? [] : F.filter(f => T(f).kind === 'point').map(f => proj(pts(f)[0])), 2, W, H, SF);
+  const SF = `600 ${Math.round(24 * K)}px "Segoe UI", system-ui, Arial`, want = f => T(f).kind === 'point' ? (opt.pinLabel ? opt.pinLabel(f) : V.labels) : (opt.labels != null ? opt.labels : V.labels);
+  const its = F.filter(f => pts(f).length && want(f)).map(f => { const a = anchorOf(f, pts(f).map(proj)); return { f, id: f.id, text: f.label || T(f).label, x: a.x, y: a.y, pin: T(f).kind === 'point' }; }).filter(i => i.x > 0 && i.y > 0 && i.x < W && i.y < H).sort((a, b) => (a.pin ? (a.f.label ? 0 : 2) : 1) - (b.pin ? (b.f.label ? 0 : 2) : 1));
+  const PL = layout(its, opt.noPins ? [] : F.filter(f => T(f).kind === 'point').map(f => proj(pts(f)[0])), 2 * K, W, H, SF);
   c.font = SF; c.textBaseline = 'middle'; c.textAlign = 'center';
   for (const it of its) { const b = PL[it.id]; if (!b) continue;
     if (b.lead) { const cx = Math.max(b.x, Math.min(it.x, b.x + b.w)), cy = Math.max(b.y, Math.min(it.y, b.y + b.h)); c.strokeStyle = 'rgba(23,43,77,0.85)'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(it.x, it.y); c.lineTo(cx, cy); c.stroke(); }
-    c.fillStyle = 'rgba(255,255,255,0.93)'; c.beginPath(); c.roundRect ? c.roundRect(b.x, b.y, b.w, b.h, 8) : c.rect(b.x, b.y, b.w, b.h); c.fill(); c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,0.93)'; c.beginPath(); c.roundRect ? c.roundRect(b.x, b.y, b.w, b.h, 8 * K) : c.rect(b.x, b.y, b.w, b.h); c.fill(); c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5; c.stroke();
     c.fillStyle = T(it.f).color === '#D81B60' ? '#D81B60' : '#1a1a1a'; c.fillText(it.text, b.x + b.w / 2, b.y + b.h / 2 + 1); }
   // north arrow and credit
   c.fillStyle = 'rgba(255,255,255,0.9)'; c.fillRect(W - 80, 20, 56, 76); c.fillStyle = '#172B4D'; c.beginPath(); c.moveTo(W - 52, 30); c.lineTo(W - 66, 70); c.lineTo(W - 52, 60); c.lineTo(W - 38, 70); c.closePath(); c.fill(); c.font = '700 20px system-ui'; c.textAlign = 'center'; c.fillText('N', W - 52, 86);
@@ -433,25 +433,25 @@ export async function snapshot(opt = {}) {
 
 /* ---------- the Home guide page: the map picture, with the residents' places as numbered pointers ---------- */
 async function toGuide(g) {
-  const fmg = g === 'fm', all = M.feats.filter(f => inGuide(f, g));
-  // facilities page: its own items first, so they get the numbered pointers
-  const F = all.filter(f => T(f).kind === 'point').sort((a, b) => fmg ? (audOf(b) === 'fm') - (audOf(a) === 'fm') : 0);
-  if (!all.length) return toast(`Nothing is set to show in the ${fmg ? 'Facilities' : 'Home user'} guide yet`);
-  const key = fmg ? 'fm' : true, have = ((S.fm && S.fm.guide) || []).find(p => p.siteMap === key), name = fmg ? 'Facilities guide' : 'Home user guide';
-  const skip = M.feats.length - all.length;
-  if (!(await confirmBox(`${have ? 'Update the “' + esc(have.title) + '” page' : `Add a “${fmg ? 'Site services map' : 'Your site map'}” page`} in the ${name} with the map as it is framed now? ${all.length} item${all.length === 1 ? '' : 's'} go on it${skip ? `; ${skip} set for the ${fmg ? 'Home user guide only' : 'Facilities guide only'} are left off` : ''}.${F.length > 8 ? ' The first 8 places become numbered pointers; the rest show as labels on the map.' : ''}`, have ? 'Update the page' : 'Add the page'))) return;
+  const fmg = g === 'fm', inView = f => pts(f).some(q => map.getBounds().contains(q)), all = M.feats.filter(f => inGuide(f, g) && inView(f));
+  if (!all.length) return toast(`Nothing set to show in the ${fmg ? 'Facilities' : 'Home user'} guide is in view`);
+  // zoomed in on the site and zoomed out to the neighbourhood are two different pages, so both can be kept
+  const near = map.getZoom() >= 18, key = fmg ? 'fm' : near ? true : 'area', name = fmg ? 'Facilities guide' : 'Home user guide', title = fmg ? 'Site services map' : near ? 'Your site map' : 'Around your home';
+  const have = ((S.fm && S.fm.guide) || []).find(p => p.siteMap === key);
+  if (!(await confirmBox(`${have ? 'Update the “' + have.title + '” page' : `Add a “${title}” page`} in the ${name} with the map as it is framed now? The ${all.length} item${all.length === 1 ? '' : 's'} in view go on it with their icons and names.${fmg ? '' : near ? ' Zoom out to the shops and bus stops and press this again for a separate “Around your home” page.' : ' Zoom in on the site and press this again for a separate “Your site map” page.'}`, have ? 'Update the page' : 'Add the page'))) return;
   const b = busy('Drawing the map…');
   try {
-    const pins = F.slice(0, 8), snap = await snapshot({ guide: g, labels: true, pinLabel: f => !pins.includes(f) });   // places without a pointer are labelled on the picture
-    const blob = await new Promise(r => snap.canvas.toBlob(r, 'image/jpeg', 0.88));
+    const snap = await snapshot({ guide: g, labels: true, pinLabel: () => true, k: 1.5 });
+    const blob = await new Promise(r => snap.canvas.toBlob(r, 'image/jpeg', 0.9));
     const id = have ? have.id : uid();
     const url = await S.store.putFile(`projects/${pid}/docs/guide-${id}/photo-${Date.now()}.jpg`, blob, true);
-    const marks = pins.map(f => { const q = snap.proj(pts(f)[0]), nx = Math.min(0.96, Math.max(0.04, q.x + (q.x > 0.5 ? -0.07 : 0.07))), ny = Math.min(0.95, Math.max(0.05, q.y - 0.06)); return { tx: q.x, ty: q.y, nx, ny, label: f.label || T(f).label, sub: f.note ? f.note.split(/[.\n]/)[0].slice(0, 60) : '' }; });
     const order = Math.max(0, ...(((S.fm && S.fm.guide) || []).map(p => p.order || 0))) + 1;
-    const base = have ? { ...have } : fmg
-      ? { id, order, title: 'Site services map', aud: 'fm', lines: 'Where the site services, shut-offs and plant are.\nSee the asset register for makes, models and maintenance.', zooms: [], steps: [], docIds: [] }
-      : { id, order, title: 'Your site map', aud: 'both', lines: `Your home is at ${S.project.address || S.project.name}.\n` + 'Use this map to find the places you need around the site.\n!Please keep paths and doorways clear for walkers and mobility scooters.', zooms: [], steps: [], docIds: [] };
-    await S.store.saveItem(pid, 'guide', { ...base, siteMap: key, wide: true, photo: url, marks, updated: new Date().toISOString() });
-    b.done(); toast(have ? `Map page updated in the ${name}` : `Map page added to the end of the ${name}. Press ‹ Home guide to see it and move it into place.`, 6000);
+    const notes = all.filter(f => f.note && !/^https?:/.test(f.note.trim())).slice(0, 5).map(f => `${f.label || T(f).label}: ${f.note.split('\n')[0].slice(0, 70)}`).join('\n');
+    const lines = fmg ? 'Where the site services, shut-offs and plant are.\nSee the asset register for makes, models and maintenance.'
+      : near ? `Your home is at ${S.project.address || S.project.name}.\nUse this map to find your way around.\n!Please keep paths and doorways clear for walkers and mobility scooters.`
+      : 'Shops, the doctor, the pharmacy and the bus are a short walk away.';
+    const base = have ? { ...have } : { id, order, title, aud: fmg ? 'fm' : 'both', lines: lines + (notes ? '\n' + notes : ''), zooms: [], steps: [], docIds: [] };
+    await S.store.saveItem(pid, 'guide', { ...base, siteMap: key, wide: true, photo: url, marks: [], updated: new Date().toISOString() });
+    b.done(); toast(have ? `“${have.title}” updated in the ${name}` : `“${title}” added to the end of the ${name}. Press ‹ Home guide to see it and move it into place.`, 6000);
   } catch (e) { b.done(); toast('Could not make the page: ' + e.message, 7000); }
 }
