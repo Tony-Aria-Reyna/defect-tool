@@ -15,7 +15,14 @@ export const needsCheck = d => pendingCount(d) > 0 || (d.aiProblems || []).lengt
 // the words on a page with where each run sits (fractions of the page)
 async function pageRuns(L, pg) {
   const vp = pg.getViewport({ scale: 1 }), W = vp.width, H = vp.height, tc = await pg.getTextContent();
-  return tc.items.filter(it => it.str && it.str.trim()).map(it => { const tx = L.Util.transform(vp.transform, it.transform), h = Math.hypot(tx[2], tx[3]) || 8; return { s: it.str, x: tx[4] / W, y: (tx[5] - h) / H, w: (it.width * vp.scale) / W, h: (h * 1.15) / H }; });
+  const runs = tc.items.filter(it => it.str && it.str.trim()).map(it => { const tx = L.Util.transform(vp.transform, it.transform), h = Math.hypot(tx[2], tx[3]) || 8; return { s: it.str, x: tx[4] / W, y: (tx[5] - h) / H, w: (it.width * vp.scale) / W, h: (h * 1.15) / H }; });
+  // A fillable form keeps what was typed in its fields, not in the page text: read each filled field in as words where it sits,
+  // so a deed completed in a PDF viewer is read the same as a printed one.
+  let n = 0; try { for (const an of await pg.getAnnotations()) { const v = an.fieldValue; if (an.subtype !== 'Widget' || typeof v !== 'string' || !v.trim() || v === 'Off' || !an.rect) continue;
+      const r = vp.convertToViewportRectangle(an.rect), x0 = Math.min(r[0], r[2]), y0 = Math.min(r[1], r[3]), w = Math.abs(r[2] - r[0]), h = Math.abs(r[3] - r[1]);
+      runs.push({ s: v.replace(/\s+/g, ' ').trim(), x: x0 / W, y: y0 / H, w: w / W, h: h / H, field: 1 }); n++; } } catch (e) {}
+  if (n) runs.sort((p, q) => Math.abs(p.y - q.y) < 0.008 ? p.x - q.x : p.y - q.y);
+  return runs;
 }
 // find a quoted phrase among the runs of a page and return the box around it
 function locate(runs, quote) {
