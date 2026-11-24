@@ -3,7 +3,7 @@
 import { S, can } from './state.js';
 import * as Nav from './nav.js';
 import { aiCall } from './ai.js';
-import { $, esc, toast, busy, confirmBox, uid, natural, nzDate } from './util.js';
+import { $, esc, toast, busy, confirmBox, uid, natural, nzDate, loadScript, safeName } from './util.js';
 import { search, norm } from './clausefind.js';
 
 let X = null, pdfjs = null, V = null;
@@ -68,11 +68,12 @@ function shell() {
     <button id="dvFind" class="ic" title="Find in the document">🔍</button>
     <span class="dvgrp"><button id="dvPrev" class="ic" title="Previous page">↑</button><button id="dvNext" class="ic" title="Next page">↓</button><input id="dvP" type="number" min="1" title="Go to page"><span id="dvN" class="muted"></span></span>
     <span class="dvgrp"><button id="dvZo" class="ic" title="Zoom out">−</button><span id="dvZ" class="muted" title="Zoom">100%</span><button id="dvZi" class="ic" title="Zoom in">+</button><button id="dvFit" class="ic" title="Fit to width">↔</button></span>
+    <span class="dvgrp" id="dvRotG"><button id="dvRot" class="ic" title="Turn this page a quarter turn clockwise (saved to the file)">⟳</button><button id="dvRotA" title="Turn every page a quarter turn clockwise (saved to the file)">⟳ All</button></span>
     <button id="dvMark" class="go" title="Draw a box around a clause or detail and link it to an asset or task">▭ Mark</button>
     <button id="dvDl" class="ic" title="Download the original file">⬇</button><button id="dvDlM" title="Download a copy with every box drawn on it and a summary page">⬇ With markup</button><button id="dvTab" class="ic" title="Open in a new tab (to print)">↗</button></div>
     <div class="dvb"><div class="dvpage" id="dvScroll"><div id="dvPages"></div></div><aside class="dvside" id="dvSide"></aside></div>`;
   document.body.appendChild(el);
-  $('dvX').onclick = () => close(); $('dvPrev').onclick = () => show(V.page - 1); $('dvNext').onclick = () => show(V.page + 1);
+  $('dvX').onclick = () => close(); $('dvRot').onclick = () => rotate(false); $('dvRotA').onclick = () => rotate(true); $('dvPrev').onclick = () => show(V.page - 1); $('dvNext').onclick = () => show(V.page + 1);
   $('dvP').onchange = e => show(+e.target.value || 1);
   const zoom = z => { const keep = V.page; V.zoom = Math.max(0.4, Math.min(5, z)); V.gen++; size(); show(keep); };
   $('dvZi').onclick = () => zoom(V.zoom * 1.2); $('dvZo').onclick = () => zoom(V.zoom / 1.2); $('dvFit').onclick = () => zoom(1);
@@ -98,6 +99,22 @@ function close(silent) {
 // opts: {page, markId, query, all, asset (preselect when marking), ret (called after closing)}
 export const current = () => V && V.d;
 export function refreshSide() { if (V && V.side === 'home') home(); }
+// Turn pages a quarter turn clockwise and save the file again. The file as it was is kept with the entry so it can be put
+// back, and boxes drawn on a turned page turn with it.
+let rotBusy = false;
+async function rotate(all) {
+  if (!V || !V.d || rotBusy || !can.edit()) return; const d = V.d, pg = V.page, n = V.n; rotBusy = true; const b = busy(all ? 'Turning every page…' : 'Turning page ' + pg + '…');
+  try { if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js');
+    const P = window.PDFLib, doc = await P.PDFDocument.load(await X.getBytes(d.url), { ignoreEncryption: true }), pages = doc.getPages(), which = all ? pages.map((_, i) => i + 1) : [pg];
+    which.forEach(k => { const p = pages[k - 1]; p.setRotation(P.degrees(((p.getRotation().angle || 0) + 90) % 360)); });
+    const bytes = await doc.save(), blob = new Blob([bytes], { type: 'application/pdf' });
+    const dir = String(d.path || `projects/${S.project.id}/docs/${d.id}/x`).split('/').slice(0, -1).join('/'), path = `${dir}/${Date.now().toString(36)}-${safeName(d.fileName || 'document.pdf')}`, url = await S.store.putFile(path, blob);
+    const prev = [...(d.prevFiles || []), { url: d.url, path: d.path || '', size: d.size || 0, at: new Date().toISOString(), by: S.user.email, why: all ? 'Before every page was turned' : `Before page ${pg} was turned`, marks: d.marks || [] }].slice(-5);
+    const marks = (d.marks || []).map(m => which.includes(m.page) ? { ...m, x: Math.max(0, 1 - (m.y + m.h)), y: m.x, w: m.h, h: m.w } : m);
+    const patch = { url, path, size: blob.size, prevFiles: prev, marks, textIdx: null }; await S.store.patchItem(S.project.id, 'docs', d.id, patch); Object.assign(d, patch);
+    b.done(); rotBusy = false; await open(d, { page: pg });
+  } catch (e) { b.done(); rotBusy = false; toast('Could not turn the page: ' + e.message, 8000); }
+}
 export async function open(d, opts = {}) {
   if (!isPdf(d)) return toast('Only PDF documents open in the viewer');
   shell(); const fresh = !V;
@@ -107,7 +124,7 @@ export async function open(d, opts = {}) {
   const b = busy('Opening the document…');
   try { if (!V.d || V.d.id !== d.id) V.selCk = null; V.d = fm().docs.find(x => x.id === d.id) || d; V.pdf = await loadPdf(V.d); V.n = V.pdf.numPages; V.hl = null; }
   catch (e) { b.done(); toast('Could not open this document: ' + e.message, 6000); close(); return; }
-  b.done(); $('dvMark').style.display = canMark() ? '' : 'none'; $('dvT').textContent = V.d.title; $('dvN').textContent = '/ ' + V.n; $('dvP').max = V.n;
+  b.done(); $('dvMark').style.display = canMark() ? '' : 'none'; $('dvRotG').style.display = can.edit() ? '' : 'none'; $('dvT').textContent = V.d.title; $('dvN').textContent = '/ ' + V.n; $('dvP').max = V.n;
   const mk = opts.markId ? (V.d.marks || []).find(m => m.id === opts.markId) : null;
   await layout(); if (!V) return;
   await show(mk ? mk.page : (opts.page || 1), mk ? mk.y : 0);
