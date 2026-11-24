@@ -81,6 +81,11 @@ function shell() {
   $('dvMark').onclick = () => setMode(V.mode === 'mark' ? 'view' : 'mark');
   $('dvTab').onclick = async () => { const u = await S.store.resolveUrl(V.d.url); if (u) window.open(u, '_blank', 'noopener'); };
   $('dvDl').onclick = async () => { try { const buf = await X.getBytes(V.d.url); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' })); a.download = V.d.fileName || (V.d.title + '.pdf'); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); } catch (e) { toast('Could not download: ' + e.message, 5000); } };
+  // Ctrl (or Cmd) + mouse wheel, and a trackpad pinch, zoom about the pointer
+  $('dvScroll').addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey) || !V || !V.pp.length) return; e.preventDefault();
+    const sc = $('dvScroll'), r = sc.getBoundingClientRect(), ox = e.clientX - r.left, oy = e.clientY - r.top, px = sc.scrollLeft + ox, py = sc.scrollTop + oy, w0 = sc.scrollWidth, h0 = sc.scrollHeight;
+    const nz = Math.max(0.4, Math.min(5, V.zoom * Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * 0.004))); if (Math.abs(nz - V.zoom) < 0.001) return;
+    V.zoom = nz; V.gen++; size(); sc.scrollLeft = px * (sc.scrollWidth / w0) - ox; sc.scrollTop = py * (sc.scrollHeight / h0) - oy; onScroll(); }, { passive: false });
   let raf = 0; $('dvScroll').addEventListener('scroll', () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; onScroll(); }); });
   addEventListener('resize', () => { if (V && $('dv').classList.contains('show')) { const keep = V.page; V.gen++; size(); show(keep); } });
   document.addEventListener('keydown', e => { if (!V || !$('dv').classList.contains('show') || $('modal').classList.contains('show') || document.querySelector('.askov')) return; const typing = /INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '');
