@@ -781,3 +781,5 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 /* plain, document-like panels: no coloured accent strips */
 .fmwarn,.myact,.srcard,.srans,.gchk{border-left-width:1px;border-radius:6px}.fmwarn{border-left-color:#f0d28a}.myact,.srcard{border-left-color:#cfe0f3}.srans,.gchk{border-left-color:#e6d9a8}.duep{border-left:1px solid var(--line)}.sbrev{border-left:1px solid #f0c4c4;border:1px solid #f0c4c4}.lastc{border-left:1px solid #cfe0f3;border:1px solid #cfe0f3;border-radius:6px}
 .kpi[style*="#d64545"] b{color:#b3261e}
+
+.apick{border:1px solid var(--line);border-radius:6px;max-height:300px;overflow:auto;background:#fff;margin-top:4px}.apick:empty{display:none}.apickh{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:6px 10px 2px}.apicki{padding:6px 10px;cursor:pointer;font-size:13px;line-height:1.35;border-top:1px solid #f0f2f4}.apicki:hover,.apicki.on{background:#eaf3fb}

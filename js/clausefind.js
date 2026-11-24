@@ -110,3 +110,30 @@ export function search(pages, q, extra) {
   const out = (full.length ? full : hits).sort((a, b) => b.score - a.score || a.p - b.p).slice(0, 200);
   return { hits: out, concepts, partial: !full.length && hits.length > 0 };
 }
+
+// Rank register elements against what the user typed (or a document's title). Forgiving of typos, word endings
+// and the different words trades use for the same thing; matches the reference (A-028), element, product, installer,
+// location and building system. Returns [{a, score}] best first.
+const ASTOP = new Set(['the', 'and', 'of', 'for', 'to', 'in', 'on', 'a', 'an', 'with', 'by', 'from', 'at', 'pdf', 'rev', 'ltd', 'limited', 'nz', 'new', 'zealand', 'drawing', 'drawings', 'built', 'as', 'manual', 'o&m', 'warranty', 'product', 'deed', 'schedule', 'certificate', 'report', 'ps3', 'ps4', 'ps1', 'bco10403545', 'email', 'test']);
+const stem = w => w.length > 4 ? w.replace(/(ings|ing|ers|er|ies|es|s)$/, '') : w;
+export function rankAssets(q, assets, opt = {}) {
+  const words = norm(q).split(' ').filter(w => w && (opt.keepStop || !ASTOP.has(w)) && !/^\d{1,2}$/.test(w));
+  if (!words.length) return [];
+  const concepts = words.map(w => { const alts = new Set([w]); SYNONYMS.forEach(g => { if (g.some(t => t === w || stem(t) === stem(w))) g.forEach(t => alts.add(t)); }); return [...alts]; });
+  const out = [];
+  for (const a of assets) {
+    const ref = norm(a.ref || ''), el = norm(a.element), rest = norm([a.product, a.installer, a.location, a.system, a.notes && a.notes.slice(0, 200)].join(' '));
+    const elW = el.split(' '), restW = rest.split(' ');
+    let score = 0, hit = 0;
+    concepts.forEach((alts, i) => {
+      const w = words[i]; let s = 0;
+      if (ref && (ref === w || ref.replace('-', '') === w.replace('-', ''))) s = 10;
+      for (const t of alts) { const syn = t !== w ? 0.7 : 1, tw = t.split(' ');
+        if (tw.length > 1) { if (el.includes(t)) s = Math.max(s, 4 * syn); else if (rest.includes(t)) s = Math.max(s, 1.5 * syn); continue; }
+        if (elW.some(x => x === t)) s = Math.max(s, 4 * syn); else if (elW.some(x => stem(x) === stem(t) || (t.length >= 3 && x.startsWith(t)))) s = Math.max(s, 3.4 * syn); else if (elW.some(x => close(t, x))) s = Math.max(s, 2.6 * syn);
+        else if (restW.some(x => x === t || stem(x) === stem(t) || (t.length >= 3 && x.startsWith(t)))) s = Math.max(s, (opt.keepStop ? 1.5 : 0.6) * syn); else if (restW.some(x => close(t, x))) s = Math.max(s, (opt.keepStop ? 1 : 0.4) * syn); }
+      if (s) { score += s; hit++; } });
+    if (hit) out.push({ a, score: opt.keepStop ? score * (hit / concepts.length) + (hit === concepts.length ? 2 : 0) : score });
+  }
+  return out.sort((x, y) => y.score - x.score);
+}

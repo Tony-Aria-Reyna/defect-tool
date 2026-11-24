@@ -11,6 +11,7 @@ import * as AI from './docai.js';
 import * as Act from './actions.js';
 import * as Sub from './submit.js';
 import * as CS from './cschedule.js';
+import { rankAssets } from './clausefind.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
@@ -546,7 +547,7 @@ function editDoc(d) {
     ${d.url ? `<p class="full"><button class="btn2 go" id="oView">${DV.isPdf(d) ? '👁 View the document' : '↗ Open the file'}</button></p><p class="full small muted">File: ${esc(d.fileName || '')} ${d.size ? '(' + (d.size / 1e6).toFixed(1) + ' MB)' : ''}${d.srcPath ? '<br>From: ' + esc(d.srcPath) : ''}</p>` : field('Link (SharePoint, Procore or any web address)', 'oL', d.link, 'placeholder="https://…"', true)}
     ${(d.prevFiles || []).length && !ro ? `<p class="full small muted">Earlier file kept: ${esc(d.prevFiles[d.prevFiles.length - 1].why || 'before a change')} (${esc(nzDate(String(d.prevFiles[d.prevFiles.length - 1].at || '').slice(0, 10)))}). <button class="mini" id="oPrev">↩ Put it back</button></p>` : ''}
   </div><h3 class="sec">Linked assets</h3><div class="chips" id="oC">${chips()}</div>
-  ${ro ? '' : `<label class="f" style="margin-top:8px">Link to an asset<select id="oAdd"><option value="">Choose…</option>${A.map(a => `<option value="${esc(a.id)}">${esc(sysShort(a.system) + ' · ' + a.element)}</option>`).join('')}</select></label>`}`,
+  ${ro ? '' : `<label class="f" style="margin-top:8px">Link to an asset<input id="oAdd" autocomplete="off" placeholder="Type a word, a trade, a product or a reference (e.g. drainage, A-063)"></label><div id="oAddL" class="apick"></div>`}`,
   { ro, onSave: async () => { const o = { ...d, title: val('oT'), type: val('oY'), system: val('oS'), party: val('oP'), issued: val('oI'), expiry: val('oE'), audience: val('oA'), template: !!($('oTpl') && $('oTpl').checked), updated: nowISO() }; if ($('oL')) o.link = val('oL'); if (!o.title) { toast('Enter a title'); return false; } if (isNew) { o.created = nowISO(); o.createdBy = S.user.email; } const rsOn = $('oRs') ? $('oRs').checked : !!d.restricted; delete o.restricted; await S.store.saveItem(S.project.id, 'docs', o);
       if (rsOn !== !!d.restricted) { const b = busy(rsOn ? 'Moving it to the restricted folder…' : 'Opening it up…'); try { await setRestricted({ ...o, restricted: !!d.restricted }, rsOn); b.done(); toast(rsOn ? 'Restricted' : 'No longer restricted'); } catch (e) { b.done(); toast('Could not change: ' + e.message, 7000); } }
       if (o.assetIds && o.assetIds.length) for (const id of o.assetIds) { const a = fm().assets.find(x => x.id === id); if (a && a.status === 'Not received') await S.store.patchItem(S.project.id, 'assets', id, { status: 'Partial' }); } },
@@ -555,7 +556,18 @@ function editDoc(d) {
   if ($('oPrev')) $('oPrev').onclick = async () => { const P = d.prevFiles.slice(), last = P.pop(); if (!(await confirmBox('Put back the earlier file? The current file stays in storage but is no longer shown.', 'Put it back'))) return;
     const patch = { url: last.url, path: last.path, size: last.size, prevFiles: P, ...(last.marks ? { marks: last.marks } : {}), textIdx: null }; await S.store.patchItem(S.project.id, 'docs', d.id, patch); closeSheet(); toast('The earlier file is back'); };
   const wireChips = () => document.querySelectorAll('#oC [data-rm]').forEach(b => b.onclick = () => { d.assetIds = d.assetIds.filter(x => x !== b.dataset.rm); $('oC').innerHTML = chips(); wireChips(); });
-  wireChips(); if ($('oAdd')) $('oAdd').onchange = e => { if (e.target.value && !d.assetIds.includes(e.target.value)) d.assetIds.push(e.target.value); e.target.value = ''; $('oC').innerHTML = chips(); wireChips(); };
+  wireChips(); if ($('oAdd')) {
+    // smart picker: ranked by meaning, not just spelling; with nothing typed it suggests elements from the document's own name
+    const inp = $('oAdd'), L = $('oAddL'); let sel = 0, shown = [];
+    const add = id => { if (id && !d.assetIds.includes(id)) d.assetIds.push(id); inp.value = ''; $('oC').innerHTML = chips(); wireChips(); draw(); };
+    const draw = () => { const q = inp.value.trim(), free = A.filter(a => !d.assetIds.includes(a.id));
+      const r = q ? rankAssets(q, free, { keepStop: true }) : rankAssets([d.title, d.party, d.system].join(' '), free);
+      shown = r.slice(0, q ? 12 : 6).map(x => x.a); sel = Math.min(sel, Math.max(0, shown.length - 1));
+      L.innerHTML = (q || shown.length ? `<div class="apickh">${q ? (shown.length ? 'Best matches' : 'Nothing matches: try another word') : 'Suggested from the document name'}</div>` : '') + shown.map((a, i) => `<div class="apicki${i === sel ? ' on' : ''}" data-ap="${esc(a.id)}"><b>${esc(a.ref || '')}</b> ${esc(a.element)} <span class="muted small">${esc(sysShort(a.system))}${a.installer ? ' · ' + esc(a.installer) : ''}${a.product ? ' · ' + esc(String(a.product).slice(0, 60)) : ''}</span></div>`).join('');
+      L.querySelectorAll('[data-ap]').forEach(x => x.onmousedown = e => { e.preventDefault(); add(x.dataset.ap); }); };
+    inp.oninput = () => { sel = 0; draw(); };
+    inp.onkeydown = e => { if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, shown.length - 1); draw(); e.preventDefault(); } else if (e.key === 'ArrowUp') { sel = Math.max(0, sel - 1); draw(); e.preventDefault(); } else if (e.key === 'Enter') { e.preventDefault(); if (shown[sel]) add(shown[sel].id); } };
+    draw(); }
 }
 
 /* ================================================================ RESTRICTED DOCUMENTS */
