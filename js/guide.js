@@ -382,8 +382,8 @@ async function fmPdf(status) {
 // Page images: print quality keeps the full A4 at 150 dpi; email size draws the same page smaller and a little more compressed
 let PQ = 'email';
 async function pageJpg(cv, q) { if (PQ === 'print') return (await new Promise(r => cv.toBlob(r, 'image/jpeg', q))).arrayBuffer();
-  const s = document.createElement('canvas'); s.width = 1000; s.height = Math.round(1000 * H / W); const c = s.getContext('2d'); c.imageSmoothingQuality = 'high'; c.drawImage(cv, 0, 0, s.width, s.height);
-  return (await new Promise(r => s.toBlob(r, 'image/jpeg', 0.7))).arrayBuffer(); }
+  const s = document.createElement('canvas'); s.width = 880; s.height = Math.round(880 * H / W); const c = s.getContext('2d'); c.imageSmoothingQuality = 'high'; c.drawImage(cv, 0, 0, s.width, s.height);
+  return (await new Promise(r => s.toBlob(r, 'image/jpeg', 0.6))).arrayBuffer(); }
 async function pdf(unit, kind = 'home') {
   if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js'); const doc = await window.PDFLib.PDFDocument.create(), cv = document.createElement('canvas');
   const P = pages().filter(p => kind === 'fm' || p.aud !== 'fm'), list = P.slice();
