@@ -10,6 +10,7 @@ import * as Guide from './guide.js';
 import * as AI from './docai.js';
 import * as Act from './actions.js';
 import * as Sub from './submit.js';
+import * as CS from './cschedule.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
 export const SYSTEMS = ['00 Contract & Consent (whole of works)', '01 Substructure & Foundations', '02 Superstructure', '03 Building Envelope', '04 Internal Finishes & Fit-out', '05 Hydraulic (Plumbing & Drainage)', '06 Electrical & Lighting', '07 Mechanical & Ventilation', '08 Fire Protection & Life Safety', '09 Vertical Transportation (Lift)', '10 Doors & Access Control', '11 External Works & Landscaping', '12 Civil & Infrastructure (3 Waters & Vector)', '13 Sustainability (Homestar & Healthy Homes)', '14 Compliance Schedule & BWoF'];
@@ -20,7 +21,7 @@ const UNITS = { weeks: 'week', months: 'month', years: 'year' };
 
 let X = {}, unsubs = [], cur = 'defects';
 const F = { q: '', sys: '', st: '', type: '', cat: '', win: '90', resp: '' };
-export function init(ctx) { X = ctx; Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads();
+export function init(ctx) { X = ctx; CS.init({ getBytes: ctx.getBytes, addFreq, uploadAs: (f, m) => uploadAs(f, m), render: () => cur === 'comp' && comp() }); Pack.init({ fm, getBytes: ctx.getBytes, addFreq, warrantyExpiry, freqText, SYSTEMS, registerBlob, icsBlob }); document.querySelectorAll('#modbar button').forEach(b => b.onclick = () => setModule(b.dataset.m)); wireSheet(); wireUploads();
   Guide.init({ getBytes: ctx.getBytes, modal, closeModal, askDiscard });
   Sub.init({ getBytes: ctx.getBytes, SYSTEMS, DOC_TYPES, render: () => { if (cur === 'assets' || cur === 'dash') render(); } });
   DV.init({ subBox: Sub.boxHtml, subWire: Sub.wireBox, getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
@@ -427,22 +428,23 @@ function completeTask(t) {
 }
 
 /* ================================================================ COMPLIANCE (BWoF) */
+const clip = (t, n) => { t = String(t || '').replace(/\s*\n\s*/g, ' ').replace(/•\s*/g, '').trim(); return t.length > n ? t.slice(0, n).replace(/\s+\S*$/, '') + '…' : t; };
 function bwofYear() { const d = S.project.bwofDue; if (!d) return String(new Date().getFullYear()); return d.slice(0, 4); }
 function comp() {
   const SY = fm().systems.slice().sort((a, b) => natural(a.ss, b.ss)), p = S.project, yr = bwofYear(), T = fm().tasks;
   const bw = p.bwofDue ? days(p.bwofDue) : null;
-  $('fmView').innerHTML = `<div class="fbar"><h2>Compliance schedule and BWoF</h2><span class="sp"></span>${can.admin() ? '<button class="btn2" id="cKey">Key dates</button>' : ''}${can.edit() ? '<button class="btn2 go" id="cNew">+ Specified system</button>' : ''}<button class="btn2" id="cX">⬇ Excel</button></div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Compliance schedule and BWoF</h2><span class="sp"></span>${can.admin() ? '<button class="btn2 go" id="cRead" title="Read every specified system, its checks and its attached documents from the council\'s compliance schedule PDF">📄 Read compliance schedule</button><button class="btn2" id="cKey">Key dates</button>' : ''}${can.edit() ? '<button class="btn2" id="cNew">+ Specified system</button>' : ''}<button class="btn2" id="cX">⬇ Excel</button></div>
   <div class="kpis">
     <div class="kpi" style="--c:${bw != null && bw < 60 ? '#d64545' : '#2f78c4'}"><b>${p.bwofDue ? nzDate(p.bwofDue) : 'Not set'}</b><span>Building warrant of fitness due${bw != null ? (bw < 0 ? ' (overdue)' : ` (in ${bw} days)`) : ''}</span></div>
     <div class="kpi"><b>${SY.filter(s => (s.cert12A || {})[yr]).length} / ${SY.length}</b><span>Form 12A certificates received for ${yr}</span></div>
     <div class="kpi"><b>${T.filter(t => t.ss && days(t.nextDue) < 0).length}</b><span>Compliance inspections overdue</span></div>
-    <div class="kpi"><b>${esc(p.csNumber || '-')}</b><span>Compliance schedule${p.iqp ? ' · IQP ' + esc(p.iqp) : ''}</span></div>
+    <div class="kpi"><b>${esc(p.csNumber || '-')}</b><span>Compliance schedule${p.csIssued ? ', issued ' + nzDate(p.csIssued) : ''}${p.iqp ? ' · IQP ' + esc(p.iqp) : ''}${CS.openLink(null, 'Open it') ? '<br>' + CS.openLink(null, 'Open it') : ''}</span></div>
   </div>
   <p class="note">Each year the owner signs the BWoF, supported by a Form 12A from the IQP for every specified system, and displays it in a public place. Record each 12A here when received.</p>
-  ${SY.length ? `<table class="ftable"><tr><th>System</th><th>Description</th><th class="hm">Performance standard / inspections</th><th>Next inspection</th><th>Form 12A ${yr}</th></tr>
-  ${SY.map(s => { const ts = T.filter(t => t.ss === s.ss).sort((a, b) => (a.nextDue || '9').localeCompare(b.nextDue || '9')); const c = (s.cert12A || {})[yr];
-    return `<tr class="click" data-id="${esc(s.id)}"><td><b>${esc(s.ss)}</b></td><td>${esc(s.name)}<br><span class="muted small">${esc(s.location || '')}</span></td><td class="hm small">${esc(s.standard || '')}<br><span class="muted">${esc(s.inspections || '')}</span></td><td>${ts[0] ? dueBadge(ts[0].nextDue) + `<br><span class="muted small">${esc(ts[0].title)}</span>` : '<span class="muted small">No task</span>'}</td><td>${c ? `<span class="st st-ok">Received ${esc(nzDate(c.date))}</span>` : `<span class="st st-warn">Outstanding</span>`}${can.edit() || can.client() ? ` <button class="btn2 sm" data-12a="${esc(s.id)}">${c ? 'Update' : 'Record'}</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">No specified systems yet. Add them from the compliance schedule (or the consent\'s AC1129 list), or import the starter list.</div>'}`;
-  if ($('cKey')) $('cKey').onclick = keyDates; if ($('cNew')) $('cNew').onclick = () => editSystem(null);
+  ${SY.length ? `<table class="ftable"><tr><th>System</th><th>Description</th><th class="hm">Performance standard / inspections</th><th>Next inspection</th><th class="hm">Schedule documents</th><th>Form 12A ${yr}</th></tr>
+  ${SY.map(s => { const ts = T.filter(t => CS.ssKey(t.ss) === CS.ssKey(s.ss)).sort((a, b) => (a.nextDue || '9').localeCompare(b.nextDue || '9')); const c = (s.cert12A || {})[yr];
+    return `<tr class="click" data-id="${esc(s.id)}"><td><b>${esc(s.ss)}</b></td><td>${esc(s.name)}<br><span class="muted small">${esc(clip(s.location, 140))}</span></td><td class="hm small">${esc(clip(s.standard, 160))}<br><span class="muted">${(s.freqs || []).length ? s.freqs.map(f => esc(f.label + ' ' + f.kind.toLowerCase() + ': ' + (f.who || 'not stated'))).join('<br>') : esc(clip(s.inspections, 160))}</span></td><td>${ts[0] ? dueBadge(ts[0].nextDue) + `<br><span class="muted small">${esc(ts[0].title)}</span>` : '<span class="muted small">No task</span>'}</td><td class="hm">${(a => a.n ? `<span class="st ${a.have < a.n ? 'st-warn' : 'st-ok'}">${a.have} of ${a.n}</span>` : '<span class="muted small">None listed</span>')(CS.attState(s))}</td><td>${c ? `<span class="st st-ok">Received ${esc(nzDate(c.date))}</span>` : `<span class="st st-warn">Outstanding</span>`}${can.edit() || can.client() ? ` <button class="btn2 sm" data-12a="${esc(s.id)}">${c ? 'Update' : 'Record'}</button>` : ''}</td></tr>`; }).join('')}</table>` : '<div class="empty2">No specified systems yet. Add them from the compliance schedule (or the consent\'s AC1129 list), or import the starter list.</div>'}`;
+  if ($('cRead')) $('cRead').onclick = CS.readDialog; CS.wireAtt(); if ($('cKey')) $('cKey').onclick = keyDates; if ($('cNew')) $('cNew').onclick = () => editSystem(null);
   $('cX').onclick = exportFmRegister;
   document.querySelectorAll('tr[data-id]').forEach(r => r.onclick = e => { if (e.target.closest('[data-12a]')) return; editSystem(fm().systems.find(s => s.id === r.dataset.id)); });
   document.querySelectorAll('[data-12a]').forEach(b => b.onclick = () => record12A(fm().systems.find(s => s.id === b.dataset['12a']), yr));
@@ -451,12 +453,17 @@ function editSystem(s) {
   const isNew = !s; s = s ? JSON.parse(JSON.stringify(s)) : { id: uid(), ss: '', name: '', cert12A: {} };
   sheet(isNew ? 'New specified system' : s.ss + ' ' + s.name, `<div class="grid">
     ${field('Specified system no.', 'yS', s.ss, 'placeholder="e.g. SS1/1"')}${field('Description', 'yN', s.name, 'placeholder="e.g. Automatic sprinkler system"')}
-    ${field('Location', 'yL', s.location, '', true)}${field('Performance standard', 'yP', s.standard, 'placeholder="e.g. NZS 4541:2020"', true)}
-    ${area('Inspection, maintenance and reporting procedures', 'yI', s.inspections)}
-  </div><h3 class="sec">Form 12A history</h3><div class="hist">${Object.entries(s.cert12A || {}).sort().reverse().map(([y, c]) => `<div><b>${esc(y)}</b> · received ${esc(nzDate(c.date))}${c.by ? ' from ' + esc(c.by) : ''}</div>`).join('') || '<div>None recorded.</div>'}</div>
+    ${s.csNumber ? `<p class="note full">Read from compliance schedule ${esc(s.csNumber)}, version ${esc(s.csVersion || '1')}, page ${s.csPage || '?'}. The wording is the schedule's own. ${CS.openLink(s, 'Open the schedule at this page')}</p>` : ''}
+    ${(s.freqs || []).length ? `<div class="full small"><b>How often:</b> ${s.freqs.map(f => `${esc(f.label)} ${esc(f.kind.toLowerCase())} by ${esc(f.who === 'IQP' ? 'an Independent Qualified Person (IQP)' : f.who || 'not stated')}`).join(' · ')}</div>` : ''}
+    ${s.csNumber ? area('Type', 'yTy', s.sysType) + area('Make / model', 'yMk', s.make) : ''}
+    ${s.csNumber ? area('Location', 'yL', s.location) + area('Performance standard', 'yP', s.standard) : field('Location', 'yL', s.location, '', true) + field('Performance standard', 'yP', s.standard, 'placeholder="e.g. NZS 4541:2020"', true)}
+    ${area(s.csNumber ? 'Inspections procedure' : 'Inspection, maintenance and reporting procedures', 'yI', s.inspections)}
+    ${s.csNumber ? area('Interface testing', 'yIf', s.interfaceTest) + area('Maintenance procedure', 'yMn', s.maintenance) + area('Reporting', 'yRp', s.reporting) : ''}
+  </div>${CS.attHtml(s)}<h3 class="sec">Form 12A history</h3><div class="hist">${Object.entries(s.cert12A || {}).sort().reverse().map(([y, c]) => `<div><b>${esc(y)}</b> · received ${esc(nzDate(c.date))}${c.by ? ' from ' + esc(c.by) : ''}</div>`).join('') || '<div>None recorded.</div>'}</div>
   ${!isNew && can.edit() ? '<p><button class="mini" id="yT">+ Inspection task for this system</button></p>' : ''}`,
-  { ro: !can.edit(), onSave: async () => { const o = { ...s, ss: val('yS'), name: val('yN'), location: val('yL'), standard: val('yP'), inspections: val('yI'), updated: nowISO() }; if (!o.ss) { toast('Enter the system number'); return false; } await S.store.saveItem(S.project.id, 'systems', o); },
+  { ro: !can.edit(), onSave: async () => { const o = { ...s, ss: val('yS'), name: val('yN'), location: val('yL'), standard: val('yP'), inspections: val('yI'), ...(s.csNumber ? { sysType: val('yTy'), make: val('yMk'), interfaceTest: val('yIf'), maintenance: val('yMn'), reporting: val('yRp') } : {}), updated: nowISO() }; if (!o.ss) { toast('Enter the system number'); return false; } await S.store.saveItem(S.project.id, 'systems', o); },
     onDelete: isNew ? null : () => S.store.deleteItem(S.project.id, 'systems', s.id) });
+  CS.wireAtt(closeSheet); document.querySelectorAll('#sheet2 textarea').forEach(t => { t.style.height = 'auto'; t.style.height = Math.min(420, t.scrollHeight + 4) + 'px'; });
   if ($('yT')) $('yT').onclick = () => { closeSheet(); editTask(null, { ss: s.ss, category: 'Compliance (BWoF)', system: '14 Compliance Schedule & BWoF', title: s.ss + ' ' + s.name + ' - inspection', standard: s.standard, responsible: S.project.iqp || 'IQP', freqN: 1, freqUnit: 'months' }); };
 }
 function record12A(s, yr) {
