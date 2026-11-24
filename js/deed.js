@@ -2,7 +2,7 @@
 // register, as a fillable PDF. The warrantor checks the details, dates it and signs. Everything they still need to do is boxed
 // and explained on a cover page.
 import { S, can } from './state.js';
-import { $, esc, toast, modal, closeModal, busy, natural, safeName, deliver, loadScript, stamp, uid } from './util.js';
+import { $, esc, toast, modal, closeModal, busy, natural, safeName, deliver, loadScript, stamp, uid, dismissModal } from './util.js';
 
 let X = {};
 export function init(ctx) { X = ctx; }
@@ -156,7 +156,7 @@ export function prepareDialog(preset) {
   $('pdQ').oninput = e => { const q = e.target.value.toLowerCase().trim(); document.querySelectorAll('.pdr').forEach(r => r.style.display = !q || q.split(' ').every(w => r.dataset.s.includes(w)) ? '' : 'none'); };
   document.querySelectorAll('[data-pu]').forEach(b => b.onclick = () => { const i = +b.dataset.pu; document.querySelector(`[data-pw="${i}"]`).value = L[i].seenWorks; });
   document.querySelectorAll('[data-pr]').forEach(b => b.onclick = () => { const i = +b.dataset.pr; document.querySelector(`[data-pw="${i}"]`).value = listOf(L[i]); });
-  $('pdX').onclick = closeModal;
+  $('pdX').onclick = () => dismissModal();   // asks first if anything was ticked or typed
   const picked = () => {
     return [...document.querySelectorAll('[data-pi]:checked')].map(cb => { const i = +cb.dataset.pi, v = k => document.querySelector(`[data-p${k}="${i}"]`).value.trim(); const wk = v('w'), ex = v('x').replace(/^excludes?\s*:?\s*/i, '').replace(/\.$/, ''); return { ...L[i], legal: v('l'), email: v('e'), worksOnly: wk, excl: ex, works: wk.replace(/\s*$/, '') + (ex ? (/[.;:]$/.test(wk) ? ' ' : '. ') + 'Excludes ' + ex + '.' : ''), period: yrs(v('p')) || v('p') }; });
   };
