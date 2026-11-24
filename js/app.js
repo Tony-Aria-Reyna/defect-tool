@@ -1177,7 +1177,10 @@ async function sendItem() {
 const wireTg = () => document.querySelectorAll('.tg input').forEach(x => x.onchange = () => x.closest('.tg').classList.toggle('off', !x.checked));
 
 /* ================================================================ export */
-export function getBytes(u) { return (async () => { const src = u.startsWith('data:') ? u : await imgUrl(u); let r = await fetch(src, { mode: 'cors' }); if (!r.ok) r = await fetch(src + (src.includes('?') ? '&' : '?') + 'pdf=' + Date.now(), { mode: 'cors', cache: 'no-store' }); if (!r.ok) throw new Error('fetch ' + r.status); return await r.arrayBuffer(); })(); }
+export function getBytes(u) { return (async () => { const src = u.startsWith('data:') ? u : await imgUrl(u); let r = await fetch(src, { mode: 'cors' }); if (!r.ok) r = await fetch(src + (src.includes('?') ? '&' : '?') + 'pdf=' + Date.now(), { mode: 'cors', cache: 'no-store' }); if (r.status === 403 || r.status === 404) { const fixed = await relink(u); if (fixed) r = await fetch(fixed, { mode: 'cors' }); } if (!r.ok) throw new Error('fetch ' + r.status); return await r.arrayBuffer(); })(); }
+// A stored file whose download link has gone stale (its access token changed): ask storage for a fresh link and save it on the document
+async function relink(u) { try { const d = ((S.fm || {}).docs || []).find(x => x.url === u) || ((S.fm || {}).rdocs || []).find(x => x.url === u); if (!d || !d.path || !S.store.freshUrl) return '';
+  const nu = await S.store.freshUrl(d.path); if (!nu || nu === u) return ''; d.url = nu; if (can.edit()) S.store.patchItem(S.project.id, d.restrictedAt ? 'rdocs' : 'docs', d.id, { url: nu }).catch(() => {}); return nu; } catch (e) { return ''; } }
 function openExport() {
   const L = filtered(), p = S.project;
   modal(`<h2>Export</h2>
