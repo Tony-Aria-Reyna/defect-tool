@@ -5,6 +5,7 @@ import { S, can } from './state.js';
 import { aiCall } from './ai.js';
 import * as DV from './docview.js';
 import * as Deed from './deed.js';
+import * as Reg from './coreg.js';
 import { pageRuns, locate, pageImage, parse } from './docai.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, nzDate, natural, safeName, deliver, loadScript, stamp } from './util.js';
 
@@ -596,6 +597,7 @@ const handMarks = d => (d.marks || []).filter(m => !m.chk && (m.flag || m.note))
 // The document viewer's side panel is the review screen: the check, the actions, and the next one to review.
 const queueFor = () => { const ed = can.edit(), want = ed ? ['Awaiting review'] : ['Failed check', 'Sent back']; return fm().docs.filter(x => isSub(x) && want.includes(x.sub.status) && DV.isPdf(x)).sort((a, b) => String(a.sub.at || '').localeCompare(String(b.sub.at || ''))); };
 export function wireBox(d, openDoc, goMark) {
+  if (isSub(d)) Reg.wire(fm().docs.find(x => x.id === d.id) || d, () => openDoc(fm().docs.find(x => x.id === d.id) || d));
   if (!isSub(d) || !$('sbvNx')) return; const cur = fm().docs.find(x => x.id === d.id) || d;
   // a point in the list takes you to its box on the page
   document.querySelectorAll('.sbv [data-ck]').forEach(el => el.onclick = () => { const m = (cur.marks || []).find(x => x.ck === el.dataset.ck); if (m && goMark) goMark(m); else toast('This point has no box on the page'); });
@@ -609,7 +611,7 @@ export function boxHtml(d, selMark) {
   if (!isSub(d)) return ''; d = fm().docs.find(x => x.id === d.id) || d; const s = d.sub, a = assetOf(d), ed = can.edit(), n = queueFor().filter(x => x.id !== d.id).length;
   return `<div class="sbv"><div class="sbvh"><b>${esc(a ? (a.ref || '') + ' ' + a.element : 'Submission')}</b>${chip(checking(d.id) ? 'Checking' : s.status)}</div>
   ${s.review && s.review.note ? `<div class="sbrev ${s.review.accepted ? 'ok' : ''}">${esc(s.review.note).replace(/\n/g, '<br>')}</div>` : ''}
-  ${checking(d.id) || s.status === 'Checking' ? '<p class="muted small">Checking now. The result appears here when it finishes.</p>' : checkHtml(s.check, selMark && selMark.ck, d)}${(s.check && s.check.items || []).length && !(d.marks || []).some(m => m.pass) ? '<p class="muted small">Checked before the passed points were boxed on the page. Use Details > Check again to box every point.</p>' : ''}
+  ${checking(d.id) || s.status === 'Checking' ? '<p class="muted small">Checking now. The result appears here when it finishes.</p>' : checkHtml(s.check, selMark && selMark.ck, d) + Reg.html(d)}${(s.check && s.check.items || []).length && !(d.marks || []).some(m => m.pass) ? '<p class="muted small">Checked before the passed points were boxed on the page. Use Details > Check again to box every point.</p>' : ''}
   <div class="sbact">${ed && s.status !== 'Superseded' && s.status !== 'Accepted' ? '<button class="btn2 go" id="sbvAcc">✔ Accept</button>' : ''}${ed && s.status !== 'Superseded' ? '<button class="btn2 warn" id="sbvBack">↩ Send back</button>' : ''}<button class="btn2" id="sbvMk">⬇ With markup</button><button class="btn2" id="sbvDet">Details</button><button class="btn2" id="sbvNx">Next ›${n ? ' (' + n + ')' : ''}</button></div>
   <p class="muted small">Press <b>Mark</b> and drag a box on the page to add your own point. It appears in the send-back note and the marked-up copy.</p></div>`;
 }
