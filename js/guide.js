@@ -361,9 +361,10 @@ function exportDialog() {
   X.modal(`<h2>Export a guide</h2>
     <label class="f">Which guide<select id="geuK"><option value="home">Home User Guide, for residents (${nh} pages)</option><option value="fm">Facilities Guide, for the building team </option></select></label>
     <label class="f" style="margin-top:8px">For unit (leave blank for a general copy)<input id="geuU" placeholder="e.g. 15, or 1-42 for every unit"></label>
+    <label class="f" style="margin-top:8px">File size<select id="geuQ"><option value="email">Email and phone (smaller, about a quarter of the size)</option><option value="print">Print quality (sharpest, largest)</option></select></label>
     <p class="note">A range such as 1-42 makes one PDF per unit, each with that unit's visitor code, in a single zip file. The Facilities Guide is a separate document for the building team: who to call, warranties, each building system, the maintenance calendar, compliance and a linked index of every document, with the residents' pages shown at the back.</p><div class="act"><button id="geuX">Cancel</button><button class="go" id="geuOk">Export</button></div>`);
   $('geuX').onclick = X.closeModal;
-  $('geuOk').onclick = async () => { const v = $('geuU').value.trim(), kind = $('geuK').value, m = /^(\d+)\s*-\s*(\d+)$/.exec(v); X.closeModal(); const units = m ? Array.from({ length: +m[2] - +m[1] + 1 }, (_, i) => String(+m[1] + i)) : [v];
+  $('geuOk').onclick = async () => { const v = $('geuU').value.trim(), kind = $('geuK').value; PQ = $('geuQ').value; const m = /^(\d+)\s*-\s*(\d+)$/.exec(v); X.closeModal(); const units = m ? Array.from({ length: +m[2] - +m[1] + 1 }, (_, i) => String(+m[1] + i)) : [v];
     const nm = kind === 'fm' ? 'Facilities Guide' : 'Home User Guide', b = busy('Building the guide…');
     try { const files = []; for (const [i, u] of units.entries()) { b.set(units.length > 1 ? `Building unit ${u} (${i + 1} of ${units.length})…` : 'Building the guide…'); if (kind === 'fm') { files.push({ name: `${safeName(S.project.name)} - Facilities Guide.pdf`, blob: await fmPdf(t => b.set(t)) }); break; } files.push({ name: `${safeName(S.project.name)} - ${nm}${u ? ' - Unit ' + u : ''}.pdf`, blob: await pdf(u, kind) }); }
       b.done(); if (files.length === 1) return deliver(files[0].blob, files[0].name, nm);
@@ -378,6 +379,11 @@ async function fmPdf(status) {
     await draw(cv, p, ''); if (p.aud === 'fm') { if (p.photo) fmPages.push(await jpg(900, 0.8)); } else resPages.push({ title: `${resPages.length + 1}. ${p.title || ''}`, jpg: await jpg(520, 0.72) }); }
   return FG.build({ status, getBytes: X.getBytes, resPages, fmPages, fmMap });
 }
+// Page images: print quality keeps the full A4 at 150 dpi; email size draws the same page smaller and a little more compressed
+let PQ = 'email';
+async function pageJpg(cv, q) { if (PQ === 'print') return (await new Promise(r => cv.toBlob(r, 'image/jpeg', q))).arrayBuffer();
+  const s = document.createElement('canvas'); s.width = 1000; s.height = Math.round(1000 * H / W); const c = s.getContext('2d'); c.imageSmoothingQuality = 'high'; c.drawImage(cv, 0, 0, s.width, s.height);
+  return (await new Promise(r => s.toBlob(r, 'image/jpeg', 0.7))).arrayBuffer(); }
 async function pdf(unit, kind = 'home') {
   if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js'); const doc = await window.PDFLib.PDFDocument.create(), cv = document.createElement('canvas');
   const P = pages().filter(p => kind === 'fm' || p.aud !== 'fm'), list = P.slice();
@@ -385,11 +391,11 @@ async function pdf(unit, kind = 'home') {
   if (P.length > 4) { const rows = P.map((p, i) => ({ t: fill(p.title || 'Untitled', unit), i })), per = 60, nC = Math.ceil(rows.length / per);
     const num = i => (i === 0 ? 1 : i + 1 + nC);
     for (let k = 0; k < nC; k++) list.splice(1 + k, 0, { contents: rows.slice(k * per, (k + 1) * per).map(r => ({ t: r.t, n: num(r.i) })), title: nC > 1 ? `What is in this guide (${k + 1} of ${nC})` : 'What is in this guide' }); }
-  if (kind !== 'fm') { await drawCover(cv, unit, (P.find(x => x.photo) || {}).photo); const im = await doc.embedJpg(await (await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9))).arrayBuffer()); doc.addPage([595.28, 841.89]).drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
+  if (kind !== 'fm') { await drawCover(cv, unit, (P.find(x => x.photo) || {}).photo); const im = await doc.embedJpg(await pageJpg(cv, 0.9)); doc.addPage([595.28, 841.89]).drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
   for (const [n, p] of list.entries()) {
     if (p.contents) await drawContents(cv, p, unit); else await draw(cv, p, unit);
     if (list.length > 1) { const c = cv.getContext('2d'); c.fillStyle = '#5a6675'; c.font = font(26); c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(`Page ${n + 1}`, PX, 66); }
-    const bytes = await (await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.86))).arrayBuffer(); const im = await doc.embedJpg(bytes), pg = doc.addPage([595.28, 841.89]); pg.drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
+    const bytes = await pageJpg(cv, 0.86); const im = await doc.embedJpg(bytes), pg = doc.addPage([595.28, 841.89]); pg.drawImage(im, { x: 0, y: 0, width: 595.28, height: 841.89 }); }
   if (kind === 'fm') await registers(doc);
   return new Blob([await doc.save()], { type: 'application/pdf' });
 }
