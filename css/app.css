@@ -783,3 +783,5 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .kpi[style*="#d64545"] b{color:#b3261e}
 
 .apick{border:1px solid var(--line);border-radius:6px;max-height:300px;overflow:auto;background:#fff;margin-top:4px}.apick:empty{display:none}.apickh{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:6px 10px 2px}.apicki{padding:6px 10px;cursor:pointer;font-size:13px;line-height:1.35;border-top:1px solid #f0f2f4}.apicki:hover,.apicki.on{background:#eaf3fb}
+
+.ck.wait{background:#fffaf0}.ck.wait i{background:#d98c0d}.ck small.wait{color:#8a5e00;font-weight:600}

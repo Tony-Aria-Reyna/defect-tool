@@ -68,12 +68,12 @@ function shell() {
     <button id="dvFind" class="ic" title="Find in the document">🔍</button>
     <span class="dvgrp"><button id="dvPrev" class="ic" title="Previous page">↑</button><button id="dvNext" class="ic" title="Next page">↓</button><input id="dvP" type="number" min="1" title="Go to page"><span id="dvN" class="muted"></span></span>
     <span class="dvgrp"><button id="dvZo" class="ic" title="Zoom out">−</button><span id="dvZ" class="muted" title="Zoom">100%</span><button id="dvZi" class="ic" title="Zoom in">+</button><button id="dvFit" class="ic" title="Fit to width">↔</button></span>
-    <span class="dvgrp" id="dvRotG"><button id="dvRot" class="ic" title="Turn this page a quarter turn clockwise (saved to the file)">⟳</button><button id="dvRotA" title="Turn every page a quarter turn clockwise (saved to the file)">⟳ All</button></span>
+    <span class="dvgrp" id="dvRotG"><button id="dvRot" class="ic" title="Turn this page a quarter turn clockwise (saved to the file)">⟳</button><button id="dvRotA" title="Turn every page a quarter turn clockwise (saved to the file)">⟳ All</button><button id="dvDel" title="Remove this page from the file, for example a cover sheet (the file as it was is kept)">🗑 Page</button></span>
     <button id="dvMark" class="go" title="Draw a box around a clause or detail and link it to an asset or task">▭ Mark</button>
     <button id="dvDl" class="ic" title="Download the original file">⬇</button><button id="dvDlM" title="Download a copy with every box drawn on it and a summary page">⬇ With markup</button><button id="dvTab" class="ic" title="Open in a new tab (to print)">↗</button></div>
     <div class="dvb"><div class="dvpage" id="dvScroll"><div id="dvPages"></div></div><aside class="dvside" id="dvSide"></aside></div>`;
   document.body.appendChild(el);
-  $('dvX').onclick = () => close(); $('dvRot').onclick = () => rotate(false); $('dvRotA').onclick = () => rotate(true); $('dvPrev').onclick = () => show(V.page - 1); $('dvNext').onclick = () => show(V.page + 1);
+  $('dvX').onclick = () => close(); $('dvRot').onclick = () => rotate(false); $('dvRotA').onclick = () => rotate(true); $('dvDel').onclick = delPage; $('dvPrev').onclick = () => show(V.page - 1); $('dvNext').onclick = () => show(V.page + 1);
   $('dvP').onchange = e => show(+e.target.value || 1);
   const zoom = z => { const keep = V.page; V.zoom = Math.max(0.4, Math.min(5, z)); V.gen++; size(); show(keep); };
   $('dvZi').onclick = () => zoom(V.zoom * 1.2); $('dvZo').onclick = () => zoom(V.zoom / 1.2); $('dvFit').onclick = () => zoom(1);
@@ -119,6 +119,23 @@ async function rotate(all) {
     const patch = { url, path, size: blob.size, prevFiles: prev, marks, textIdx: null }; await S.store.patchItem(S.project.id, 'docs', d.id, patch); Object.assign(d, patch);
     b.done(); rotBusy = false; await open(d, { page: pg });
   } catch (e) { b.done(); rotBusy = false; toast('Could not turn the page: ' + e.message, 8000); }
+}
+// Remove the page being looked at (a cover sheet, a stray blank) and save the file again. The file as it was is kept with the
+// entry. Boxes on that page go with it; boxes on later pages move up one.
+async function delPage() {
+  if (!V || !V.d || rotBusy || !can.edit()) return; const d = V.d, pg = V.page; if (V.n < 2) return toast('This is the only page');
+  let signed = false, bytes0; try { bytes0 = await X.getBytes(d.url); const head = new TextDecoder('latin1').decode(new Uint8Array(bytes0.buffer || bytes0)); signed = /\/ByteRange\s*\[/.test(head); } catch (e) {}
+  if (!(await confirmBox(`Remove page ${pg} of ${V.n} from this document?${signed ? ' WARNING: this file carries a digital signature. Removing a page changes the file, so the digital signature will show as invalid. If it was signed digitally, leave the cover page on.' : ''} The file as it is now is kept, and can be put back from the document's details.`, signed ? 'Remove it anyway' : 'Remove page ' + pg))) return open(d, { page: pg });
+  rotBusy = true; const b = busy('Removing page ' + pg + '…');
+  try { if (!window.PDFLib) await loadScript('lib/pdf-lib.min.js');
+    const P = window.PDFLib, doc = await P.PDFDocument.load(bytes0 || await X.getBytes(d.url), { ignoreEncryption: true }); doc.removePage(pg - 1);
+    const blob = new Blob([await doc.save()], { type: 'application/pdf' });
+    const dir = String(d.path || `projects/${S.project.id}/docs/${d.id}/x`).split('/').slice(0, -1).join('/'), path = `${dir}/${Date.now().toString(36)}-${safeName(d.fileName || 'document.pdf')}`, url = await S.store.putFile(path, blob);
+    const prev = [...(d.prevFiles || []), { url: d.url, path: d.path || '', size: d.size || 0, at: new Date().toISOString(), by: S.user.email, why: `Before page ${pg} was removed`, marks: d.marks || [] }].slice(-5);
+    const marks = (d.marks || []).filter(m => m.page !== pg).map(m => m.page > pg ? { ...m, page: m.page - 1 } : m);
+    const patch = { url, path, size: blob.size, prevFiles: prev, marks, textIdx: null }; await S.store.patchItem(S.project.id, 'docs', d.id, patch); Object.assign(d, patch);
+    b.done(); rotBusy = false; await open(d, { page: Math.min(pg, V.n - 1) });
+  } catch (e) { b.done(); rotBusy = false; toast('Could not remove the page: ' + e.message, 8000); }
 }
 export async function open(d, opts = {}) {
   if (!isPdf(d)) return toast('Only PDF documents open in the viewer');
