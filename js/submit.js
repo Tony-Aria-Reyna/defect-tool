@@ -150,6 +150,7 @@ const Q_BOX = '"box":[x,y,w,h] as fractions 0 to 1 of the picture width and heig
 export async function runCheck(d0, onProg = () => {}) {
   let d = fm().docs.find(x => x.id === d0.id) || d0; const p = S.project, a = assetOf(d), kind = d.sub.kind, hist = (d.sub.history || []).slice();
   const save = async (status, check, extra = {}) => {
+    if (d0.sub && d0.sub.status === 'Accepted') status = 'Accepted';   // checking an accepted document again refreshes the findings, never the decision
     const sub = { ...d.sub, status, check, history: [...hist, { t: now(), who: 'Automatic check', txt: check.error ? 'Could not be checked automatically: ' + check.error : check.skipped ? 'Not a warranty: no automatic check.' : (check.items.filter(i => i.ok === false).length ? check.items.filter(i => i.ok === false).length + ' point(s) to fix.' : check.toSign ? 'Ready for ' + (p.contractor || 'the Contractor') + ' to sign.' : 'All points passed.') }] };
     const patch = plain({ sub, ...extra }); patch.title = convName({ ...d, ...patch }, sub); if (sub.check && sub.check.warrantor) patch.party = String(sub.check.warrantor).slice(0, 80); await S.store.patchItem(p.id, 'docs', d.id, patch); d = { ...d, ...patch }; return d;
   };
