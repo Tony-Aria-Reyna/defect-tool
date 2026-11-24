@@ -150,23 +150,28 @@ export function prepareDialog(preset) {
       <div class="full small" style="margin:-4px 0 6px">${c.seenWorks ? `<button type="button" class="mini" data-pu="${i}" title="${esc(c.seenDoc)}">⤓ Use their draft wording</button> ` : ''}<button type="button" class="mini" data-pr="${i}">↺ List from the register</button>${c.seenWorks ? ` <span class="muted">Their draft says: ${esc(c.seenWorks)}</span>` : ''}</div>
       <label class="f full">Excludes <span class="muted small">(optional, added at the end, e.g. reinforcing, propping and scaffolding)</span><input data-px="${i}" value="${esc(sv.deedExcl || '')}" placeholder="leave blank if nothing is excluded"></label>
       <label class="f">Warranty Period (years)<input data-pp="${i}" value="${esc(per)}" inputmode="numeric" placeholder="blank: they fill it in"></label><div class="small muted" style="align-self:end;padding-bottom:8px">${req ? 'Register requires: ' + esc(req) : 'No period set in the register'}${c.seenPeriod ? ' · their draft: ' + esc(c.seenPeriod) : ''}</div></div></div>`; }).join('') || '<p class="muted">No companies yet. Add them under Contacts, or name the installer on each element in the register.</p>'}</div>
-  <div class="act"><button id="pdX">Cancel</button><button class="go" id="pdGo">Build PDFs</button></div>`, true);
+  <div class="act"><button id="pdX">Cancel</button><button id="pdSv" title="Keep the details of the ticked companies without building the PDFs yet">Save details</button><button class="go" id="pdGo">Build PDFs</button></div>`, true);
   const sync = () => document.querySelectorAll('[data-pi]').forEach(cb => cb.closest('.pdr').querySelector('.pdf').hidden = !cb.checked);
   document.querySelectorAll('[data-pi]').forEach(cb => cb.onchange = sync); sync();
   $('pdQ').oninput = e => { const q = e.target.value.toLowerCase().trim(); document.querySelectorAll('.pdr').forEach(r => r.style.display = !q || q.split(' ').every(w => r.dataset.s.includes(w)) ? '' : 'none'); };
   document.querySelectorAll('[data-pu]').forEach(b => b.onclick = () => { const i = +b.dataset.pu; document.querySelector(`[data-pw="${i}"]`).value = L[i].seenWorks; });
   document.querySelectorAll('[data-pr]').forEach(b => b.onclick = () => { const i = +b.dataset.pr; document.querySelector(`[data-pw="${i}"]`).value = listOf(L[i]); });
   $('pdX').onclick = closeModal;
+  const picked = () => {
+    return [...document.querySelectorAll('[data-pi]:checked')].map(cb => { const i = +cb.dataset.pi, v = k => document.querySelector(`[data-p${k}="${i}"]`).value.trim(); const wk = v('w'), ex = v('x').replace(/^excludes?\s*:?\s*/i, '').replace(/\.$/, ''); return { ...L[i], legal: v('l'), email: v('e'), worksOnly: wk, excl: ex, works: wk.replace(/\s*$/, '') + (ex ? (/[.;:]$/.test(wk) ? ' ' : '. ') + 'Excludes ' + ex + '.' : ''), period: yrs(v('p')) || v('p') }; });
+  };
+  // keep what was confirmed, so next time it is already filled in. Says so plainly if it could not be saved.
+  const keep = async pick => { const dir = (p.directory || []).slice(); pick.forEach(c => { const i = dir.findIndex(x => coKey(x.company) === c.key); const o = { ...(i > -1 ? dir[i] : { id: uid(), company: c.company, role: 'Subcontractor', audience: 'FM' }), legal: c.legal, email: c.email || (i > -1 ? dir[i].email : ''), assetIds: c.assets.map(a => a.id), deedWorks: c.worksOnly, deedExcl: c.excl, deedPeriod: c.period, updated: new Date().toISOString() }; if (i > -1) dir[i] = o; else dir.push(o); });
+    try { await S.store.updateProject(p.id, { directory: dir }); S.project.directory = dir; return true; } catch (e) { console.warn('directory', e); toast('The details could not be saved (' + (e.code || e.message) + '). The PDFs are not affected. Tell the project admin.', 9000); return false; } };
+  $('pdSv').onclick = async () => { const pick = picked(); if (!pick.length) return toast('Tick the companies whose details you want to keep'); const b = busy('Saving…'); const ok = await keep(pick); b.done(); if (ok) toast(`Details saved for ${pick.length} compan${pick.length === 1 ? 'y' : 'ies'}`, 4000); };
   $('pdGo').onclick = async () => {
-    const pick = [...document.querySelectorAll('[data-pi]:checked')].map(cb => { const i = +cb.dataset.pi, v = k => document.querySelector(`[data-p${k}="${i}"]`).value.trim(); const wk = v('w'), ex = v('x').replace(/^excludes?\s*:?\s*/i, '').replace(/\.$/, ''); return { ...L[i], legal: v('l'), email: v('e'), worksOnly: wk, excl: ex, works: wk.replace(/\s*$/, '') + (ex ? (/[.;:]$/.test(wk) ? ' ' : '. ') + 'Excludes ' + ex + '.' : ''), period: yrs(v('p')) || v('p') }; });
+    const pick = picked();
     if (!pick.length) return toast('Tick at least one company');
     const miss = pick.filter(c => !c.works); if (miss.length) return toast(`Describe the Warranted Works for ${miss.map(c => c.company).join(', ')}`, 6000);
     closeModal(); const b = busy('Building the deeds…');
     try {
       const files = []; for (const [i, c] of pick.entries()) { b.set(`Building ${i + 1} of ${pick.length}: ${c.company}`); files.push({ name: `${safeName(c.legal)} - Schedule 13 Deed - for signing.pdf`, blob: await buildDeed({ ...c, returnTo: ret ? ret.email : '' }) }); }
-      // keep what was confirmed, so next time it is already filled in
-      const dir = (p.directory || []).slice(); pick.forEach(c => { const i = dir.findIndex(x => coKey(x.company) === c.key); const o = { ...(i > -1 ? dir[i] : { id: uid(), company: c.company, role: 'Subcontractor', audience: 'FM' }), legal: c.legal, email: c.email || (i > -1 ? dir[i].email : ''), assetIds: c.assets.map(a => a.id), deedWorks: c.worksOnly, deedExcl: c.excl, deedPeriod: c.period, updated: new Date().toISOString() }; if (i > -1) dir[i] = o; else dir.push(o); });
-      try { await S.store.updateProject(p.id, { directory: dir }); S.project.directory = dir; } catch (e) { console.warn('directory', e); }
+      await keep(pick);
       if (files.length === 1) { b.done(); return deliver(files[0].blob, files[0].name, 'Deed for signing'); }
       if (!window.JSZip) await loadScript('lib/jszip.min.js'); const z = new window.JSZip(); files.forEach(x => z.file(x.name, x.blob));
       const blob = await z.generateAsync({ type: 'blob' }); b.done(); deliver(blob, `${safeName(p.name)} - Schedule 13 deeds for signing - ${stamp()}.zip`, 'Deeds for signing');
