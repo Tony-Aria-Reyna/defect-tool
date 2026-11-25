@@ -54,7 +54,10 @@ export function harvest(text) {
     const hit = names.find(x => Math.abs(x.at - m.index) < 260 && parts.some(w => w.length > 2 && nkey(x.n).split(' ').includes(w)));
     const who = hit ? hit.n : parts.length >= 2 ? guess : ''; if (!who) continue; const P = person(who); P.e = P.e || e; P.sure = 1; if (hit && !P.r) P.r = role(hit); }
   while ((m = reP.exec(t))) { const raw = m[0], d = digits(raw); if (d.length < 9 || d.length > 11 || BAD_P.includes(d)) continue; const f = fmtPhone(raw); if (!out.p.includes(f)) out.p.push(f);
-    const x = near(m.index, m.index + raw.length, isMobile(d) ? 150 : 70); if (!x) continue; const P = person(x.n); if (isMobile(d)) P.m = P.m || f; else if (!/^0(800|508)/.test(d)) P.p = P.p || f; if (!P.r) P.r = role(x); }
+    const x = near(m.index, m.index + raw.length, isMobile(d) ? 150 : 70); if (!x) continue;
+    // a capitalised pair of words beside a number is only taken as a person when something says so: their email, a job title, or a label such as "Contact:"
+    const r0 = role(x), known = people.has(nkey(x.n)), lab = /(contact|attention|attn|name|prepared by|signed by|signed|call|ask for|representative|regards|sincerely)\W{0,5}$/i.test(t.slice(Math.max(0, x.at - 24), x.at)); if (!known && !r0 && !lab) continue;
+    const P = person(x.n); if (isMobile(d)) P.m = P.m || f; else if (!/^0(800|508)/.test(d)) P.p = P.p || f; if (!P.r) P.r = role(x); }
   out.people = [...people.values()].filter(P => P.e || P.m || P.p).slice(0, 12).map(P => { const o = { n: P.n }; ['r', 'p', 'm', 'e'].forEach(k => { if (P[k]) o[k] = P[k]; }); if (P.sure) o.sure = 1; return o; });
   out.e = out.e.slice(0, 12); out.p = out.p.slice(0, 12);
   return out;
