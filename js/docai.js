@@ -4,6 +4,7 @@ import { S, can } from './state.js';
 import { aiCall } from './ai.js';
 import { loadPdf, pdfLib, isPdf } from './docview.js';
 import { uid } from './util.js';
+import { note as noteContacts } from './contacts.js';
 
 const fm = () => S.fm || { assets: [], docs: [] };
 const nrm = t => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -60,6 +61,7 @@ export async function readDoc(d, onProg = () => {}) {
     const want = n <= 12 ? [...Array(n)].map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, n - 3, n - 2, n - 1, n];
     const pages = []; let chars = 0;
     for (const p of want) { onProg(`reading page ${p} of ${n}`); const pg = await pdf.getPage(p), runs = await pageRuns(L, pg), t = runs.map(r => r.s).join(' ').replace(/\s+/g, ' ').trim(); chars += t.length; pages.push({ p, pg, runs, t }); }
+    noteContacts(d, pages.map(x => x.t).join(' \n '));
     const sysA = fm().assets.filter(a => !d.system || a.system === d.system || /^00/.test(a.system || '')), assets = (sysA.length >= 3 ? sysA : fm().assets).slice(0, 120), base = brief(d, assets);
     let J = { findings: [], problems: [] };
     const scanned = chars < 60 * pages.length;

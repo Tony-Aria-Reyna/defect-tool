@@ -5,6 +5,7 @@ import * as Nav from './nav.js';
 import { aiCall } from './ai.js';
 import { $, esc, toast, busy, confirmBox, uid, natural, nzDate, loadScript, safeName } from './util.js';
 import { search, norm } from './clausefind.js';
+import { note as noteContacts } from './contacts.js';
 
 let X = null, pdfjs = null, V = null;
 export const KINDS = ['Warranty requirement', 'Maintenance requirement', 'Document requirement', 'Product or finish detail', 'Warranty period', 'Parties', 'Execution and signatures', 'Date', 'Condition or exclusion', 'Other'];
@@ -34,10 +35,10 @@ async function loadPdf(d) {
 const idxCache = {};
 async function textIndex(d, pdf, onProg) {
   if (idxCache[d.id]) return idxCache[d.id];
-  if (d.textIdx) { try { const j = JSON.parse(new TextDecoder().decode(await X.getBytes(d.textIdx))); if (j && j.pages) return (idxCache[d.id] = j.pages); } catch (e) { console.warn('saved index unreadable, rebuilding', e); } }
+  if (d.textIdx) { try { const j = JSON.parse(new TextDecoder().decode(await X.getBytes(d.textIdx))); if (j && j.pages) { if (!(d.found || {}).full) noteContacts(d, j.pages.map(x => x.t).join(' \n '), { full: 1 }); return (idxCache[d.id] = j.pages); } } catch (e) { console.warn('saved index unreadable, rebuilding', e); } }
   pdf = pdf || await loadPdf(d); const pages = []; let chars = 0;
   for (let i = 1; i <= pdf.numPages; i++) { const pg = await pdf.getPage(i); const tc = await pg.getTextContent(); const t = tc.items.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim(); chars += t.length; pages.push({ p: i, t }); onProg && onProg(i, pdf.numPages); }
-  idxCache[d.id] = pages;
+  idxCache[d.id] = pages; noteContacts(d, pages.map(x => x.t).join(' \n '), { full: 1 });
   if (can.edit()) { try { const url = await S.store.putFile(`projects/${S.project.id}/docs/${d.id}/text.json`, new Blob([JSON.stringify({ v: 1, pages })], { type: 'application/json' })); await S.store.patchItem(S.project.id, 'docs', d.id, { textIdx: url, pageCount: pdf.numPages, scanned: chars < pdf.numPages * 40 }); } catch (e) { console.warn('could not save the text index', e); } }
   return pages;
 }

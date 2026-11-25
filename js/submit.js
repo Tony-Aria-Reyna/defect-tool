@@ -6,6 +6,7 @@ import { aiCall } from './ai.js';
 import * as DV from './docview.js';
 import * as Deed from './deed.js';
 import * as Reg from './coreg.js';
+import { note as noteContacts } from './contacts.js';
 import { pageRuns, locate, pageImage, parse } from './docai.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, nzDate, natural, safeName, deliver, loadScript, stamp } from './util.js';
 
@@ -156,9 +157,9 @@ export async function runCheck(d0, onProg = () => {}) {
     const patch = plain({ sub, ...extra }); patch.title = convName({ ...d, ...patch }, sub); if (sub.check && sub.check.warrantor) patch.party = String(sub.check.warrantor).slice(0, 80); await S.store.patchItem(p.id, 'docs', d.id, patch); d = { ...d, ...patch }; return d;
   };
   if (kind === 'other' || !DV.isPdf(d)) return save('Awaiting review', { at: now(), skipped: true, items: [] });
-  let pdf = null;
+  let pdf = null, seen = null;
   try {
-    onProg('Opening the document…'); const L = await DV.pdfLib(); pdf = await DV.loadPdf(d); const n = pdf.numPages, pages = {};
+    onProg('Opening the document…'); const L = await DV.pdfLib(); pdf = await DV.loadPdf(d); const n = pdf.numPages, pages = {}; seen = pages;
     const page = async k => pages[k] || (pages[k] = await (async () => { const pg = await pdf.getPage(k), runs = await pageRuns(L, pg); return { pg, runs, t: runs.map(r => r.s).join(' ').replace(/\s+/g, ' ').trim() }; })());
     const first = Math.min(n, 3); for (let k = 1; k <= first; k++) await page(k);
     const scanned = pages[1].t.length < 200, found = {}, meta = {};
@@ -202,7 +203,7 @@ export async function runCheck(d0, onProg = () => {}) {
   } catch (e) {
     console.warn('submission check', e);
     return save('Awaiting review', { at: now(), error: e.message === 'offline' ? 'no connection at the time' : (e.message || 'the check did not run'), items: [] });
-  } finally { try { pdf && pdf.destroy(); } catch (e) {} }
+  } finally { try { pdf && pdf.destroy(); } catch (e) {} if (seen) noteContacts(d0, Object.values(seen).map(x => x.t).join(' \n ')); }
 }
 
 /* ================================================================ background checks: up to three at once, the page stays usable */

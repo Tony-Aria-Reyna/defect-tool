@@ -11,6 +11,7 @@ import * as AI from './docai.js';
 import * as Act from './actions.js';
 import * as Sub from './submit.js';
 import * as CS from './cschedule.js';
+import * as Con from './contacts.js';
 import { rankAssets } from './clausefind.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, askDiscard, opts, uid, todayISO, nzDate, stamp, natural, safeName, deliver, loadScript } from './util.js';
 
@@ -613,25 +614,31 @@ const CO_SKIP = ['ltd', 'limited', 'nz', 'new', 'zealand', 'auckland', 'group', 
 const coKey = n => String(n || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9+& ]/g, ' ').split(/\s+/).filter(x => x && !CO_SKIP.includes(x)).slice(0, 2).join(' ');
 function directory() {
   const saved = S.project.directory || [], map = new Map();
-  const get = name => { const k = coKey(name); if (!k) return null; if (!map.has(k)) map.set(k, { key: k, company: String(name).replace(/\s*\(.*?\)\s*/g, ' ').trim(), systems: new Set(), docs: [], emails: {}, phones: {}, assets: [], saved: null }); return map.get(k); };
-  for (const d of fm().docs) { if (!d.party) continue; const c = get(d.party); if (!c) continue; if (d.system) c.systems.add(d.system); c.docs.push(d); ((d.found || {}).e || []).forEach(e => c.emails[e] = (c.emails[e] || 0) + 1); ((d.found || {}).p || []).forEach(x => c.phones[x] = (c.phones[x] || 0) + 1); }
+  const get = name => { const k = coKey(name); if (!k) return null; if (!map.has(k)) map.set(k, { key: k, company: String(name).replace(/\s*\(.*?\)\s*/g, ' ').trim(), systems: new Set(), docs: [], emails: {}, phones: {}, ppl: {}, assets: [], saved: null }); return map.get(k); };
+  for (const d of fm().docs) { if (!d.party) continue; const c = get(d.party); if (!c) continue; if (d.system) c.systems.add(d.system); c.docs.push(d); ((d.found || {}).e || []).forEach(e => c.emails[e] = (c.emails[e] || 0) + 1); ((d.found || {}).p || []).forEach(x => { x = Con.fmtPhone(x); c.phones[x] = (c.phones[x] || 0) + 1; }); ((d.found || {}).people || []).forEach(P => { const k = P.n.toLowerCase(); const q = c.ppl[k] || (c.ppl[k] = { n: P.n, docs: 0 }); q.docs++; ['r', 'p', 'm', 'e', 'sure'].forEach(f => { if (P[f] && !q[f]) q[f] = P[f]; }); }); }
+  // a number, address or person printed on many companies' documents (the head contractor, the client, the designer) belongs to none of them
+  const seenIn = {}, tally = (k, c) => (seenIn[k] || (seenIn[k] = new Set())).add(c.key); for (const c of map.values()) { Object.keys(c.emails).forEach(e => tally('e' + e, c)); Object.keys(c.phones).forEach(x => tally('p' + Con.digits(x), c)); Object.keys(c.ppl).forEach(k => tally('n' + k, c)); }
+  const shared = k => (seenIn[k] || new Set()).size >= 4;
   for (const sv of saved) { const c = get(sv.company); if (c) { c.saved = sv; c.company = sv.company; } }
   for (const c of map.values()) { const w = c.key.split(' ')[0]; if (w.length >= 3) c.assets = fm().assets.filter(a => [a.installer, a.product].join(' ').toLowerCase().includes(w));
     const words = c.key.split(' ').filter(x => x.length >= 4), own = e => words.some(x => e.split('@')[1].replace(/[^a-z]/g, '').includes(x.replace(/[^a-z]/g, '')));
-    c.emailList = Object.keys(c.emails).sort((a, b) => (own(b) - own(a)) || c.emails[b] - c.emails[a]); c.emailOwn = c.emailList.length && own(c.emailList[0]);
-    c.phoneList = Object.keys(c.phones).sort((a, b) => c.phones[b] - c.phones[a]);
+    c.emailList = Object.keys(c.emails).filter(e => own(e) || !shared('e' + e)).sort((a, b) => (own(b) - own(a)) || c.emails[b] - c.emails[a]); c.emailOwn = c.emailList.length && own(c.emailList[0]);
+    c.phoneList = Object.keys(c.phones).filter(x => !shared('p' + Con.digits(x))).sort((a, b) => c.phones[b] - c.phones[a]);
+    const sc = P => (P.e && own(P.e) ? 3 : 0) + (P.m ? 2 : 0) + (P.p ? 1 : 0) + (P.sure ? 1 : 0) + (P.r ? 0.5 : 0) + Math.min(2, P.docs * 0.4);
+    c.people = Object.entries(c.ppl).filter(([k, P]) => (P.e && own(P.e)) || (!shared('n' + k) && !(P.e && !own(P.e) && shared('e' + P.e)))).map(([, P]) => P).sort((a, b) => sc(b) - sc(a)); c.best = c.people[0] && sc(c.people[0]) >= 2 ? c.people[0] : null;
+    c.sName = c.best ? c.best.n : c.emailOwn ? nameFromEmail(c.emailList[0]) : ''; c.sPhone = c.best ? (c.best.m || c.best.p || c.phoneList[0] || '') : (c.phoneList[0] || ''); c.sEmail = c.best && c.best.e ? c.best.e : (c.emailList[0] || '');
     c.work = c.assets.length ? [...new Set(c.assets.map(a => a.element))].slice(0, 3).join('; ') : [...c.systems].map(x => x.slice(3)).slice(0, 2).join('; '); }
   return [...map.values()].sort((a, b) => natural(a.company, b.company));
 }
-const nameFromEmail = e => { const l = String(e || '').split('@')[0]; return /^(info|admin|sales|contracts|accounts|office|service|support|enquiries|hello|auckland)/i.test(l) ? '' : l.split(/[._-]/).filter(x => /^[a-z]+$/i.test(x)).map(x => x[0].toUpperCase() + x.slice(1)).join(' '); };
+const nameFromEmail = Con.nameFromEmail;
 function contactsView() {
   const D = directory(), q = F.q.toLowerCase(), L = D.filter(c => !q || [c.company, c.work, (c.saved || {}).name, (c.saved || {}).trade].join(' ').toLowerCase().includes(q));
-  const unread = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found).length;
+  const unread = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.restricted && Con.needsRead(d)).length;
   $('fmView').innerHTML = `<div class="fbar"><h2>Contacts</h2><input type="search" id="cQ" placeholder="Search company, trade, name…" value="${esc(F.q)}">${can.edit() ? `<button class="btn2 go" id="cNew">+ Contact</button>` : ''}${D.length ? `<button class="btn2" id="cXl" title="Every company with its contact, phone, email and what they did, as an Excel workbook">⬇ Excel</button>` : ''}${can.edit() && unread && !scan.on && scan.stopped ? `<button class="btn2" id="cRead">🔍 Carry on reading ${unread} document${unread === 1 ? '' : 's'}</button>` : ''}</div>
   ${scan.on ? `<p class="muted small" id="cScan">Reading new documents for phone numbers and email addresses: ${scan.n} of ${scan.of}…</p>` : ''}
   <p class="muted small">${D.length} compan${D.length === 1 ? 'y' : 'ies'} found from the documents received · ${D.filter(c => c.saved).length} confirmed. Suggested details come from the documents and need a quick check before they are relied on.</p>
   ${L.length ? `<table class="ftable"><tr><th>Company</th><th class="hm">What they did</th><th>Contact</th><th>Phone</th><th class="hm">Email</th><th class="hm">Docs</th><th></th></tr>${L.map(c => { const sv = c.saved || {}, sug = !c.saved;
-    return `<tr class="click" data-k="${esc(c.key)}"><td><b>${esc(c.company)}</b></td><td class="hm small">${esc(sv.trade || c.work || '')}</td><td>${esc(sv.name || '')}${sug && c.emailOwn && nameFromEmail(c.emailList[0]) ? `<span class="muted">${esc(nameFromEmail(c.emailList[0]))}</span>` : ''}</td><td>${esc(sv.phone || '')}${sug && c.phoneList[0] ? `<span class="muted">${esc(c.phoneList[0])}</span>` : ''}</td><td class="hm small">${esc(sv.email || '')}${sug && c.emailList[0] ? `<span class="muted">${esc(c.emailList[0])}</span>` : ''}</td><td class="hm">${c.docs.length || '-'}</td><td>${c.saved ? '<span class="st st-ok">Confirmed</span>' : '<span class="st st-grey">Suggested</span>'}</td></tr>`; }).join('')}</table>` : `<div class="empty2">${D.length ? 'No contacts match.' : 'No companies yet. They appear here as documents are uploaded: the company is the name before the first " - " in each file name.'}</div>`}`;
+    return `<tr class="click" data-k="${esc(c.key)}"><td><b>${esc(c.company)}</b></td><td class="hm small">${esc(sv.trade || c.work || '')}</td><td>${esc(sv.name || '')}${!sv.name && c.sName ? `<span class="muted">${esc(c.sName)}</span>` : ''}</td><td>${esc(sv.phone || '')}${!sv.phone && c.sPhone ? `<span class="muted">${esc(c.sPhone)}</span>` : ''}</td><td class="hm small">${esc(sv.email || '')}${!sv.email && c.sEmail ? `<span class="muted">${esc(c.sEmail)}</span>` : ''}</td><td class="hm">${c.docs.length || '-'}</td><td>${c.saved ? '<span class="st st-ok">Confirmed</span>' : '<span class="st st-grey">Suggested</span>'}</td></tr>`; }).join('')}</table>` : `<div class="empty2">${D.length ? 'No contacts match.' : 'No companies yet. They appear here as documents are uploaded: the company is the name before the first " - " in each file name.'}</div>`}`;
   $('cQ').oninput = e => { F.q = e.target.value; contactsView(); $('cQ').focus(); $('cQ').setSelectionRange(F.q.length, F.q.length); };
   if ($('cNew')) $('cNew').onclick = () => editContact(null);
   if ($('cRead')) $('cRead').onclick = () => readContacts();
@@ -640,19 +647,20 @@ function contactsView() {
   document.querySelectorAll('tr[data-k]').forEach(r => r.onclick = () => editContact(D.find(c => c.key === r.dataset.k)));
 }
 function editContact(c) {
-  const isNew = !c; c = c || { key: '', company: '', docs: [], assets: [], emailList: [], phoneList: [], work: '', saved: null };
+  const isNew = !c; c = c || { key: '', company: '', docs: [], assets: [], emailList: [], phoneList: [], people: [], work: '', saved: null };
   const sv = c.saved || {}, ro = !can.edit();
   sheet(isNew ? 'New contact' : c.company, `<div class="grid">
     ${field('Company (as you know it)', 'kC', sv.company || c.company)}${sel('Role', 'kR', opts(['Subcontractor', 'Supplier', 'Consultant', 'Contractor', 'Client', 'Other'], sv.role || 'Subcontractor'))}
     ${field('Full registered name (used on deeds)', 'kL', sv.legal || '', 'placeholder="e.g. Triden Construction Limited"', true)}
     ${field('Company number or NZBN', 'kZ', sv.nzbn || '')}${field('Address', 'kAd', sv.address || '')}
     ${field('Trade or what they did', 'kT', sv.trade || c.work, 'placeholder="e.g. Plumbing; hot water cylinders"', true)}
-    ${field('Contact person', 'kN', sv.name || (c.emailOwn ? nameFromEmail(c.emailList[0]) : ''))}${field('Phone', 'kP', sv.phone || c.phoneList[0] || '', 'list="kPl"')}
-    ${field('Email', 'kE', sv.email || c.emailList[0] || '', 'list="kEl"', true)}
+    ${field('Contact person', 'kN', sv.name || c.sName || '')}${field('Phone', 'kP', sv.phone || c.sPhone || '', 'list="kPl"')}
+    ${field('Email', 'kE', sv.email || c.sEmail || '', 'list="kEl"', true)}
     ${sel('Shown in', 'kA', opts(['FM', 'Both', 'Not shown'], sv.audience || 'FM'))}${field('After-hours phone', 'kH', sv.afterHours)}
     ${area('Notes', 'kO', sv.notes)}
   </div><datalist id="kPl">${c.phoneList.map(x => `<option>${esc(x)}</option>`).join('')}</datalist><datalist id="kEl">${c.emailList.map(x => `<option>${esc(x)}</option>`).join('')}</datalist>
   ${!c.saved && (c.emailList.length || c.phoneList.length) ? '<p class="note">The phone and email were read from this company\'s documents. Other numbers and addresses found are offered when you click in the box. Check them, then Save to confirm.</p>' : ''}
+  ${(c.people || []).length ? `<h3 class="sec">People named in their documents <span class="muted small">(read automatically; check before relying on them)</span></h3>${c.people.slice(0, 8).map((P, i) => `<div class="prow"><div class="g"><b>${esc(P.n)}</b>${P.r ? ' <span class="muted">' + esc(P.r) + '</span>' : ''}<small>${esc([P.m, P.p, P.e].filter(Boolean).join(' · '))} · ${P.docs} document${P.docs === 1 ? '' : 's'}</small></div>${ro ? '' : `<button class="btn2" data-use="${i}">Use</button>`}</div>`).join('')}` : ''}
   <h3 class="sec">Elements this company did <span class="muted small">(warranties from them are matched to these first)</span></h3>
   <input type="search" id="kAq" placeholder="Filter elements…" style="width:100%;margin-bottom:4px"><div class="kal">${(() => { const mine = new Set(sv.assetIds || (c.assets || []).map(a => a.id)); return fm().assets.slice().sort((a, b) => (mine.has(b.id) - mine.has(a.id)) || natural(a.ref || '', b.ref || '')).map(a => `<label data-s="${esc([a.ref, a.element, a.installer, a.system].join(' ').toLowerCase())}"><input type="checkbox" value="${esc(a.id)}" ${mine.has(a.id) ? 'checked' : ''} ${ro ? 'disabled' : ''}> <b>${esc(a.ref || '')}</b> ${esc(a.element)} <span class="muted small">${esc(a.installer || '')}</span></label>`).join(''); })()}</div>
   ${c.docs.length ? `<h3 class="sec">Documents (${c.docs.length})</h3>${c.docs.slice(0, 40).map(d => `<div class="prow"><div class="g"><a href="#" data-open="${esc(d.id)}">${esc(d.title)}</a><small>${esc(d.type || '')}</small></div></div>`).join('')}` : ''}`,
@@ -660,23 +668,33 @@ function editContact(c) {
       const dir = (S.project.directory || []).filter(x => x.id !== o.id && coKey(x.company) !== coKey(o.company)).concat(o); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); },
     onDelete: c.saved ? async () => { const dir = (S.project.directory || []).filter(x => x.id !== sv.id); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); } : null });
   document.querySelectorAll('#s2Body [data-open]').forEach(l => l.onclick = e => { e.preventDefault(); openDoc(fm().docs.find(d => d.id === l.dataset.open)); });
+  document.querySelectorAll('#s2Body [data-use]').forEach(u => u.onclick = () => { const P = c.people[+u.dataset.use]; $('kN').value = P.n; $('kP').value = P.m || P.p || $('kP').value; if (P.e) $('kE').value = P.e; if (P.m && P.p && !$('kH').value) $('kO').value = [$('kO').value, 'Landline ' + P.p].filter(Boolean).join('. '); toast('Filled in. Save to confirm.'); });
   if ($('kAq')) $('kAq').oninput = e => { const q = e.target.value.toLowerCase().trim(); document.querySelectorAll('.kal label').forEach(l => l.style.display = !q || q.split(' ').every(w => l.dataset.s.includes(w)) ? '' : 'none'); };
 }
-const RE_EMAIL = /[a-z0-9][a-z0-9._%+-]*@[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi, RE_PHONE = /(?:\+?64[\s-]?\(?0?\)?|\(?0)(?:2\d|[34679]|800|508)\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b/g;
 const scan = { on: false, n: 0, of: 0, stopped: false };
 async function readContacts(quiet) {
   if (scan.on) return;
   const pri = d => /warrant|deed|o&m|care|product data|producer|commission/i.test(d.type || '') ? 0 : 1;
-  const L = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found && !d.restricted).sort((a, b) => pri(a) - pri(b)); if (!L.length) { if (!quiet) toast('Every document has been read for contact details already'); return; }
+  const L = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.restricted && Con.needsRead(d)).sort((a, b) => pri(a) - pri(b)); if (!L.length) { if (!quiet) toast('Every document has been read for contact details already'); return; }
   const b = quiet ? null : busy('Reading documents…'); let hit = 0, next = 0; Object.assign(scan, { on: true, n: 0, of: L.length, stopped: false });
   const say = d => { if (b) b.set(`Reading ${scan.n} of ${L.length}: ${d.title}`); else if ($('cScan')) $('cScan').textContent = `Reading new documents for phone numbers and email addresses: ${scan.n} of ${L.length}…`; };
   const one = async d => { scan.n++; say(d);
-      let found = { e: [], p: [], at: nowISO() };
-      try { const t = await DV.frontText(d, 3); found.e = [...new Set((t.match(RE_EMAIL) || []).map(x => x.toLowerCase().replace(/\.$/, '')))].filter(x => !/aucklandcouncil|example\./.test(x)).slice(0, 6); found.p = [...new Set((t.match(RE_PHONE) || []).map(x => x.replace(/\s+/g, ' ').trim()))].filter(x => x.replace(/\D/g, '').length >= 9 && !/^0?9\s?301\s?0101$/.test(x)).slice(0, 6); if (found.e.length || found.p.length) hit++; }
-      catch (e) { console.warn('contacts', d.title, e); found.err = 1; }
-      d.found = found; await S.store.patchItem(S.project.id, 'docs', d.id, { found }); };
+      // the first six and last four pages (all of a short document), with what was typed into form fields; a scan or a photo goes to the AI as a picture
+      let pdf = null;
+      try { const Lb = await DV.pdfLib(); pdf = await DV.loadPdf(d); const n = pdf.numPages, want = n <= 12 ? [...Array(n)].map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, n - 3, n - 2, n - 1, n]; let t = '', chars = 0;
+        for (const k of want) { const x = (await AI.pageRuns(Lb, await pdf.getPage(k))).map(r => r.s).join(' '); chars += x.replace(/\s/g, '').length; t += ' \n ' + x; }
+        let found = Con.harvest(t), ai = false;
+        if (chars < 60 * want.length && navigator.onLine && scan.aiOk !== false) { const got = { e: [], p: [], people: [] };
+          for (const k of [...new Set(n <= 6 ? [1, n] : [1, 2])]) { try { const j = AI.parse(await aiCall(Con.aiPrompt(d), await AI.pageImage(await pdf.getPage(k)))); const m = Con.merge(got, Con.fromAi(j)); if (m) Object.assign(got, m); ai = true; scan.aiOk = true; }
+            catch (e) { if (scan.aiOk == null) scan.aiOk = false; console.warn('contacts by AI', d.title, e); break; } }
+          const m = Con.merge(found, got); if (m) found = m; if (!ai) scan.noAi = (scan.noAi || 0) + 1; }
+        if (found.e.length || found.p.length) hit++;
+        await Con.note(d, '', { found, full: n <= 12, ai });
+        if (!d.found || d.found.v !== Con.VER) throw new Error('not saved');
+      } catch (e) { console.warn('contacts', d.title, e); try { const found = { ...(d.found || { e: [], p: [] }), at: nowISO(), v: Con.VER, err: 1 }; d.found = found; await S.store.patchItem(S.project.id, 'docs', d.id, { found }); } catch (x) {} }
+      finally { try { pdf && pdf.destroy(); } catch (e) {} } };
   try { const worker = async () => { while (next < L.length) await one(L[next++]); }; await Promise.all(quiet ? [worker(), worker()] : [worker(), worker(), worker()]);
-    scan.on = false; if (b) b.done(); if (!quiet || hit) toast(`Read ${scan.n} document${scan.n === 1 ? '' : 's'}; contact details found in ${hit}`, 6000); if (!quiet || $('cQ')) setTimeout(render, 300);
+    scan.on = false; if (b) b.done(); if (!quiet || hit) toast(`Read ${scan.n} document${scan.n === 1 ? '' : 's'}; contact details found in ${hit}${scan.noAi ? `. ${scan.noAi} scanned document${scan.noAi === 1 ? ' was' : 's were'} not read because the AI helper could not be reached` : ''}`, 7000); scan.noAi = 0; if (!quiet || $('cQ')) setTimeout(render, 300);
   } catch (e) { scan.on = false; scan.stopped = true; if (b) b.done(); if (!quiet) toast(`Stopped after ${scan.n}: ${e.message}. Press the button again to carry on.`, 8000); else if ($('cQ')) setTimeout(render, 300); }
 }
 async function exportContacts() {
@@ -684,13 +702,14 @@ async function exportContacts() {
   try { if (!window.XLSX) await loadScript('lib/xlsx.bundle.js');
     const D = directory(), p = S.project, el = id => { const a = fm().assets.find(x => x.id === id); return a ? [a.ref, a.element].filter(Boolean).join(' ') : ''; };
     const head = ['Company', 'Registered name', 'Company number / NZBN', 'Role', 'Trade / what they did', 'Contact person', 'Phone', 'After-hours phone', 'Email', 'Address', 'Directors (Companies Register)', 'Elements', 'Documents', 'Status', 'Other phone numbers found', 'Other emails found', 'Shown in', 'Notes'];
-    const rows = D.map(c => { const sv = c.saved || {}, ph = sv.phone || c.phoneList[0] || '', em = sv.email || c.emailList[0] || '';
-      return [c.company, sv.legal || (sv.reg || {}).name || '', sv.nzbn || (sv.reg || {}).number || '', sv.role || '', sv.trade || c.work || '', sv.name || (c.emailOwn ? nameFromEmail(c.emailList[0]) : ''), ph, sv.afterHours || '', em, sv.address || '', ((sv.reg || {}).directors || []).map(x => x.name || x).join('; '),
+    const rows = D.map(c => { const sv = c.saved || {}, ph = sv.phone || c.sPhone || '', em = sv.email || c.sEmail || '';
+      return [c.company, sv.legal || (sv.reg || {}).name || '', sv.nzbn || (sv.reg || {}).number || '', sv.role || '', sv.trade || c.work || '', sv.name || c.sName || '', ph, sv.afterHours || '', em, sv.address || '', ((sv.reg || {}).directors || []).map(x => x.name || x).join('; '),
         (sv.assetIds ? sv.assetIds.map(el).filter(Boolean) : [...new Set(c.assets.map(a => [a.ref, a.element].filter(Boolean).join(' ')))]).join('; '), c.docs.length, c.saved ? 'Confirmed' : 'Suggested (check before use)', c.phoneList.filter(x => x !== ph).join('; '), c.emailList.filter(x => x !== em).join('; '), sv.audience || '', sv.notes || '']; });
     const src = []; D.forEach(c => c.docs.forEach(d => { const f = d.found || {}; [...(f.p || []).map(x => ['Phone', x]), ...(f.e || []).map(x => ['Email', x])].forEach(([k, v]) => src.push([c.company, k, v, d.title, d.type || ''])); }));
     const mk = (title, hd, rs, w) => { const ws = XLSX.utils.aoa_to_sheet([[`${p.name} - ${title}`], [`Exported ${nzDate(todayISO())} from Resero Site. Suggested details were read from the documents and have not been confirmed.`], [], hd, ...rs]); ws['!cols'] = w.map(wch => ({ wch })); ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + rs.length, c: hd.length - 1 } }) }; return ws; };
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, mk('Contact list', head, rows, [30, 34, 18, 14, 36, 22, 16, 16, 32, 34, 30, 44, 10, 24, 30, 40, 10, 40]), 'Contacts');
+    XLSX.utils.book_append_sheet(wb, mk('People named in the documents', ['Company', 'Name', 'Role', 'Mobile', 'Phone', 'Email', 'Documents naming them', 'Status'], D.flatMap(c => { const sv = c.saved || {}, L = c.people.map(P => [c.company, P.n, P.r || '', P.m || '', P.p || '', P.e || '', P.docs, sv.name && sv.name.toLowerCase() === P.n.toLowerCase() ? 'Confirmed contact' : 'Read from documents']); if (sv.name && !c.people.some(P => P.n.toLowerCase() === sv.name.toLowerCase())) L.unshift([c.company, sv.name, '', Con.isMobile(sv.phone) ? sv.phone : '', Con.isMobile(sv.phone) ? '' : sv.phone || '', sv.email || '', '', 'Confirmed contact']); return L; }), [30, 24, 22, 16, 16, 34, 12, 20]), 'People');
     XLSX.utils.book_append_sheet(wb, mk('Where each detail was found', ['Company', 'Detail', 'Value', 'Document', 'Type'], src, [30, 8, 34, 70, 22]), 'Found in documents');
     b.done(); deliver(new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeName(p.name)} - Contact list - ${stamp()}.xlsx`, 'Contact list');
   } catch (e) { b.done(); toast('Could not build the contact list: ' + e.message, 7000); }
