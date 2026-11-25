@@ -627,13 +627,16 @@ const nameFromEmail = e => { const l = String(e || '').split('@')[0]; return /^(
 function contactsView() {
   const D = directory(), q = F.q.toLowerCase(), L = D.filter(c => !q || [c.company, c.work, (c.saved || {}).name, (c.saved || {}).trade].join(' ').toLowerCase().includes(q));
   const unread = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found).length;
-  $('fmView').innerHTML = `<div class="fbar"><h2>Contacts</h2><input type="search" id="cQ" placeholder="Search company, trade, name…" value="${esc(F.q)}">${can.edit() ? `<button class="btn2 go" id="cNew">+ Contact</button>${unread ? `<button class="btn2" id="cRead" title="Reads the first pages of each document for phone numbers and email addresses">🔍 Read contact details from ${unread} document${unread === 1 ? '' : 's'}</button>` : ''}` : ''}</div>
+  $('fmView').innerHTML = `<div class="fbar"><h2>Contacts</h2><input type="search" id="cQ" placeholder="Search company, trade, name…" value="${esc(F.q)}">${can.edit() ? `<button class="btn2 go" id="cNew">+ Contact</button>` : ''}${D.length ? `<button class="btn2" id="cXl" title="Every company with its contact, phone, email and what they did, as an Excel workbook">⬇ Excel</button>` : ''}${can.edit() && unread && !scan.on && scan.stopped ? `<button class="btn2" id="cRead">🔍 Carry on reading ${unread} document${unread === 1 ? '' : 's'}</button>` : ''}</div>
+  ${scan.on ? `<p class="muted small" id="cScan">Reading new documents for phone numbers and email addresses: ${scan.n} of ${scan.of}…</p>` : ''}
   <p class="muted small">${D.length} compan${D.length === 1 ? 'y' : 'ies'} found from the documents received · ${D.filter(c => c.saved).length} confirmed. Suggested details come from the documents and need a quick check before they are relied on.</p>
   ${L.length ? `<table class="ftable"><tr><th>Company</th><th class="hm">What they did</th><th>Contact</th><th>Phone</th><th class="hm">Email</th><th class="hm">Docs</th><th></th></tr>${L.map(c => { const sv = c.saved || {}, sug = !c.saved;
     return `<tr class="click" data-k="${esc(c.key)}"><td><b>${esc(c.company)}</b></td><td class="hm small">${esc(sv.trade || c.work || '')}</td><td>${esc(sv.name || '')}${sug && c.emailOwn && nameFromEmail(c.emailList[0]) ? `<span class="muted">${esc(nameFromEmail(c.emailList[0]))}</span>` : ''}</td><td>${esc(sv.phone || '')}${sug && c.phoneList[0] ? `<span class="muted">${esc(c.phoneList[0])}</span>` : ''}</td><td class="hm small">${esc(sv.email || '')}${sug && c.emailList[0] ? `<span class="muted">${esc(c.emailList[0])}</span>` : ''}</td><td class="hm">${c.docs.length || '-'}</td><td>${c.saved ? '<span class="st st-ok">Confirmed</span>' : '<span class="st st-grey">Suggested</span>'}</td></tr>`; }).join('')}</table>` : `<div class="empty2">${D.length ? 'No contacts match.' : 'No companies yet. They appear here as documents are uploaded: the company is the name before the first " - " in each file name.'}</div>`}`;
   $('cQ').oninput = e => { F.q = e.target.value; contactsView(); $('cQ').focus(); $('cQ').setSelectionRange(F.q.length, F.q.length); };
   if ($('cNew')) $('cNew').onclick = () => editContact(null);
-  if ($('cRead')) $('cRead').onclick = readContacts;
+  if ($('cRead')) $('cRead').onclick = () => readContacts();
+  if ($('cXl')) $('cXl').onclick = exportContacts;
+  if (can.edit() && unread && !scan.on && !scan.stopped && navigator.onLine) { readContacts(true); if (scan.on && !$('cScan')) document.querySelector('#fmView .fbar').insertAdjacentHTML('afterend', `<p class="muted small" id="cScan">Reading new documents for phone numbers and email addresses: ${scan.n} of ${scan.of}…</p>`); }   // new documents are read without being asked
   document.querySelectorAll('tr[data-k]').forEach(r => r.onclick = () => editContact(D.find(c => c.key === r.dataset.k)));
 }
 function editContact(c) {
@@ -660,18 +663,37 @@ function editContact(c) {
   if ($('kAq')) $('kAq').oninput = e => { const q = e.target.value.toLowerCase().trim(); document.querySelectorAll('.kal label').forEach(l => l.style.display = !q || q.split(' ').every(w => l.dataset.s.includes(w)) ? '' : 'none'); };
 }
 const RE_EMAIL = /[a-z0-9][a-z0-9._%+-]*@[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi, RE_PHONE = /(?:\+?64[\s-]?\(?0?\)?|\(?0)(?:2\d|[34679]|800|508)\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b/g;
-async function readContacts() {
+const scan = { on: false, n: 0, of: 0, stopped: false };
+async function readContacts(quiet) {
+  if (scan.on) return;
   const pri = d => /warrant|deed|o&m|care|product data|producer|commission/i.test(d.type || '') ? 0 : 1;
-  const L = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found && !d.restricted).sort((a, b) => pri(a) - pri(b)); if (!L.length) return toast('Every document has been read for contact details already');
-  const b = busy('Reading documents…'); let n = 0, hit = 0, next = 0;
-  const one = async d => { b.set(`Reading ${++n} of ${L.length}: ${d.title}`);
+  const L = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.found && !d.restricted).sort((a, b) => pri(a) - pri(b)); if (!L.length) { if (!quiet) toast('Every document has been read for contact details already'); return; }
+  const b = quiet ? null : busy('Reading documents…'); let hit = 0, next = 0; Object.assign(scan, { on: true, n: 0, of: L.length, stopped: false });
+  const say = d => { if (b) b.set(`Reading ${scan.n} of ${L.length}: ${d.title}`); else if ($('cScan')) $('cScan').textContent = `Reading new documents for phone numbers and email addresses: ${scan.n} of ${L.length}…`; };
+  const one = async d => { scan.n++; say(d);
       let found = { e: [], p: [], at: nowISO() };
       try { const t = await DV.frontText(d, 3); found.e = [...new Set((t.match(RE_EMAIL) || []).map(x => x.toLowerCase().replace(/\.$/, '')))].filter(x => !/aucklandcouncil|example\./.test(x)).slice(0, 6); found.p = [...new Set((t.match(RE_PHONE) || []).map(x => x.replace(/\s+/g, ' ').trim()))].filter(x => x.replace(/\D/g, '').length >= 9 && !/^0?9\s?301\s?0101$/.test(x)).slice(0, 6); if (found.e.length || found.p.length) hit++; }
       catch (e) { console.warn('contacts', d.title, e); found.err = 1; }
-      await S.store.patchItem(S.project.id, 'docs', d.id, { found }); };
-  try { const worker = async () => { while (next < L.length) await one(L[next++]); }; await Promise.all([worker(), worker(), worker()]);
-    b.done(); toast(`Read ${n} documents; contact details found in ${hit}`, 6000); setTimeout(render, 300);
-  } catch (e) { b.done(); toast(`Stopped after ${n}: ${e.message}. Press the button again to carry on.`, 8000); }
+      d.found = found; await S.store.patchItem(S.project.id, 'docs', d.id, { found }); };
+  try { const worker = async () => { while (next < L.length) await one(L[next++]); }; await Promise.all(quiet ? [worker(), worker()] : [worker(), worker(), worker()]);
+    scan.on = false; if (b) b.done(); if (!quiet || hit) toast(`Read ${scan.n} document${scan.n === 1 ? '' : 's'}; contact details found in ${hit}`, 6000); if (!quiet || $('cQ')) setTimeout(render, 300);
+  } catch (e) { scan.on = false; scan.stopped = true; if (b) b.done(); if (!quiet) toast(`Stopped after ${scan.n}: ${e.message}. Press the button again to carry on.`, 8000); else if ($('cQ')) setTimeout(render, 300); }
+}
+async function exportContacts() {
+  const b = busy('Building the contact list…');
+  try { if (!window.XLSX) await loadScript('lib/xlsx.bundle.js');
+    const D = directory(), p = S.project, el = id => { const a = fm().assets.find(x => x.id === id); return a ? [a.ref, a.element].filter(Boolean).join(' ') : ''; };
+    const head = ['Company', 'Registered name', 'Company number / NZBN', 'Role', 'Trade / what they did', 'Contact person', 'Phone', 'After-hours phone', 'Email', 'Address', 'Directors (Companies Register)', 'Elements', 'Documents', 'Status', 'Other phone numbers found', 'Other emails found', 'Shown in', 'Notes'];
+    const rows = D.map(c => { const sv = c.saved || {}, ph = sv.phone || c.phoneList[0] || '', em = sv.email || c.emailList[0] || '';
+      return [c.company, sv.legal || (sv.reg || {}).name || '', sv.nzbn || (sv.reg || {}).number || '', sv.role || '', sv.trade || c.work || '', sv.name || (c.emailOwn ? nameFromEmail(c.emailList[0]) : ''), ph, sv.afterHours || '', em, sv.address || '', ((sv.reg || {}).directors || []).map(x => x.name || x).join('; '),
+        (sv.assetIds ? sv.assetIds.map(el).filter(Boolean) : [...new Set(c.assets.map(a => [a.ref, a.element].filter(Boolean).join(' ')))]).join('; '), c.docs.length, c.saved ? 'Confirmed' : 'Suggested (check before use)', c.phoneList.filter(x => x !== ph).join('; '), c.emailList.filter(x => x !== em).join('; '), sv.audience || '', sv.notes || '']; });
+    const src = []; D.forEach(c => c.docs.forEach(d => { const f = d.found || {}; [...(f.p || []).map(x => ['Phone', x]), ...(f.e || []).map(x => ['Email', x])].forEach(([k, v]) => src.push([c.company, k, v, d.title, d.type || ''])); }));
+    const mk = (title, hd, rs, w) => { const ws = XLSX.utils.aoa_to_sheet([[`${p.name} - ${title}`], [`Exported ${nzDate(todayISO())} from Resero Site. Suggested details were read from the documents and have not been confirmed.`], [], hd, ...rs]); ws['!cols'] = w.map(wch => ({ wch })); ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + rs.length, c: hd.length - 1 } }) }; return ws; };
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, mk('Contact list', head, rows, [30, 34, 18, 14, 36, 22, 16, 16, 32, 34, 30, 44, 10, 24, 30, 40, 10, 40]), 'Contacts');
+    XLSX.utils.book_append_sheet(wb, mk('Where each detail was found', ['Company', 'Detail', 'Value', 'Document', 'Type'], src, [30, 8, 34, 70, 22]), 'Found in documents');
+    b.done(); deliver(new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeName(p.name)} - Contact list - ${stamp()}.xlsx`, 'Contact list');
+  } catch (e) { b.done(); toast('Could not build the contact list: ' + e.message, 7000); }
 }
 
 /* ---- uploads ---- */
