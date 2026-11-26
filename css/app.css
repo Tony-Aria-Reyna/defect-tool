@@ -802,3 +802,5 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .cmt td{vertical-align:middle}.cmt input[data-note]{width:100%;min-width:180px;padding:6px 8px;border:1px solid var(--line);border-radius:6px}.cmt select{padding:5px;border:1px solid var(--line);border-radius:6px}
 .cprop{display:flex;gap:10px;align-items:flex-start;padding:8px;border:1px solid var(--line);border-radius:8px;margin:6px 0;cursor:pointer}.cprop input{width:18px;height:18px;margin-top:2px}
 #cBody .grid{max-width:980px}#cBody h3.sec{grid-column:1/-1}
+.csub{margin:2px 0 6px;padding:4px;background:#f2f5f8;border-radius:8px}.csub button{padding:5px 10px;border-bottom:0;border-radius:6px;font-size:13px}.csub button.on{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.cinbox{border:1px solid #d8e0e8;border-radius:8px;padding:8px 10px;margin-bottom:10px}.cinbox li{margin:4px 0}

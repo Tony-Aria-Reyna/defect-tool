@@ -20,7 +20,7 @@ export const DEF = {
   form: 'NZS 3910:2023', principal: '', contractor: '', ca: '', ic: '', designLead: '',
   noticeWD: 20, noticeStrict: false, detailsChaseWD: 20, instructWD: 10, icWD: 20, vprWD: 10, rfiWD: 5, stuckWD: 5,
   critPath: false, concurrent: false, weatherNote: '', ldRate: 0, timeRate: 0, due: '',
-  wxRain: 13, wxStation: '', region: 'Auckland / Northland', extra: '', series: 'PCG, Client weekly, Design and contractor', notes: '',
+  wxRain: 13, wxStation: '', region: 'Auckland / Northland', extra: '', series: 'PCG, Client weekly, Design and contractor', mailTag: '', notes: '',
 };
 export const cfg = () => ({ ...DEF, ...(all().find(x => x.id === SET_ID) || {}) });
 export const wdc = () => { const c = cfg(); return { region: c.region, extra: String(c.extra || '').split(/[,\s]+/).filter(Boolean) }; };
@@ -90,16 +90,23 @@ export const overdue = x => !!(x.due && x.due < todayISO());
 /* ---------------------------------------------------------------- the screen */
 let TAB = 'now';
 export const F = { q: '', show: 'open', owner: '', series: '' };
-const TABS = [['now', 'This week'], ['time', 'Time'], ['delay', 'Delay events'], ['prog', 'Programme'], ['wx', 'Weather'], ['info', 'Information'], ['vpr', 'Variations'], ['dec', 'Decisions'], ['obl', 'Obligations'], ['act', 'Actions'], ['mtg', 'Meetings'], ['in', 'Intake'], ['set', 'Set-up']];
+// Four groups, with This week as the front page. Each group keeps its own last-opened tab.
+const GROUPS = [['now', 'This week', ['now']], ['g-time', 'Time', ['time', 'delay', 'prog', 'wx']], ['g-info', 'Information and variations', ['info', 'vpr']], ['g-dec', 'Decisions and actions', ['dec', 'act', 'mtg']], ['g-con', 'Contract', ['obl', 'in', 'set']]];
+const TABS = [['now', 'This week'], ['time', 'Notices and claims'], ['delay', 'Delay events'], ['prog', 'Programme'], ['wx', 'Weather'], ['info', 'Information (RFIs)'], ['vpr', 'Variations'], ['dec', 'Decisions'], ['act', 'Actions'], ['mtg', 'Meetings'], ['obl', 'Obligations'], ['in', 'Intake'], ['set', 'Set-up']];
+const LAST = {};
+export const groupOf = t => GROUPS.find(g => g[2].includes(t)) || GROUPS[0];
 export const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
 export const st = (txt, cls) => `<span class="st st-${cls}">${esc(txt)}</span>`;
 export const goTab = t => { TAB = t; view(); };
 export function view() {
   if (!can.admin()) { $('fmView').innerHTML = '<div class="empty2">This section is for the contract administrator only.</div>'; return; }
   const n = { time: of('time').filter(timeLive).length, info: of('info').filter(i => owedOpen(i) && infoState(i).left < 0).length, dec: of('decision').filter(decOpen).length, act: of('action').filter(actOpen).length, vpr: of('vpr').filter(X2.vprLive).length, obl: of('obl').filter(o => X2.oblState(o).bad).length };
-  $('fmView').innerHTML = `<div class="fbar"><h2>Contract</h2><div class="ctabs">${TABS.map(([k, l]) => `<button data-t="${k}" class="${TAB === k ? 'on' : ''}">${l}${n[k] ? ` <b>${n[k]}</b>` : ''}</button>`).join('')}</div></div>
+  n.in = X2.inboxCount(); const G = groupOf(TAB), lab = k => (TABS.find(x => x[0] === k) || [k, k])[1], sum = g => g[2].reduce((a, k) => a + (n[k] || 0), 0); LAST[G[0]] = TAB;
+  $('fmView').innerHTML = `<div class="fbar"><h2>Contract</h2><div class="ctabs cgroups">${GROUPS.map(g => `<button data-g="${g[0]}" class="${G === g ? 'on' : ''}">${g[1]}${sum(g) ? ` <b>${sum(g)}</b>` : ''}</button>`).join('')}</div></div>
+    ${G[2].length > 1 ? `<div class="ctabs csub">${G[2].map(k => `<button data-t="${k}" class="${TAB === k ? 'on' : ''}">${lab(k)}${n[k] ? ` <b>${n[k]}</b>` : ''}</button>`).join('')}</div>` : ''}
     <p class="muted small cnote">Visible to project admins only. Nothing here is shown to the contractor, consultants or the client.</p><div id="cBody"></div>`;
-  document.querySelectorAll('.ctabs button').forEach(b => b.onclick = () => { TAB = b.dataset.t; F.q = ''; F.owner = ''; view(); });
+  document.querySelectorAll('.cgroups button').forEach(b => b.onclick = () => { const g = GROUPS.find(x => x[0] === b.dataset.g); TAB = LAST[g[0]] || g[2][0]; F.q = ''; F.owner = ''; view(); });
+  document.querySelectorAll('.csub button').forEach(b => b.onclick = () => { TAB = b.dataset.t; F.q = ''; F.owner = ''; view(); });
   ({ now, time: timeView, info: infoView, dec: decView, act: actView, mtg: mtgView, set: setView, delay: X2.delayView, prog: X2.progView, wx: X2.wxView, vpr: X2.vprView, obl: X2.oblView, in: X2.intakeView })[TAB]();
 }
 export const body = html => { $('cBody').innerHTML = html; };
@@ -123,9 +130,11 @@ function now() {
   body(`${all().length <= 1 && !c.contractor ? '<div class="empty2" style="margin-bottom:12px"><b>Start in Set-up.</b> Enter the contract periods and rates, then bring in the RFI register and the PCG data file from the Information and Actions tabs.</div>' : ''}
     <div class="kpis">${k(T.length, `Live notices and claims${unq ? ` · ${unq} with no period claimed` : ''}`, 'time')}${k(ex.days ? ex.days + ' WD' : 'None', `Working Days claimed${ex.days ? ` · ${money(ex.ld)} LD relief · ${money(ex.cost)} time cost` : ''}`, 'time')}${k(`${late.length} of ${I.length}`, 'Open information items past the date required', 'info')}${k(D.filter(d => d.stage === 'Awaiting decision').length, 'Matters awaiting a decision', 'dec')}${k(D.filter(d => d.stage !== 'Awaiting decision').length, 'Decisions made, not yet confirmed on site', 'dec')}${k(`${A.filter(overdue).length} of ${A.length}`, 'Open actions overdue', 'act')}</div>
     <div class="fbar"><h2 style="font-size:15px">Needs attention</h2><span style="flex:1"></span><button class="btn2 go" id="cBrief">Weekly client update</button><button class="btn2" id="cLet">Letters</button><button class="btn2" id="cChase">Chase list by consultant</button><button class="btn2" id="cPcg">PCG report section</button></div>
-    ${R.length ? `<table class="ftable"><tr><th>Item</th><th>Position</th><th class="hm">With</th><th>Date</th></tr>${R.slice(0, 40).map(r => `<tr class="click" data-id="${esc(r.id)}" data-tab="${r.tab}"><td><b>${esc(r.what.slice(0, 90))}</b></td><td>${st(r.cls === 'bad' ? 'Overdue' : r.cls === 'warn' ? 'Watch' : 'Running', r.cls)} ${esc(r.txt)}</td><td class="hm">${esc(r.who)}</td><td>${r.due ? esc(nzDate(r.due)) : ''}</td></tr>`).join('')}</table>${R.length > 40 ? `<p class="muted small">${R.length - 40} more: see each tab.</p>` : ''}` : '<div class="empty2">Nothing is overdue or due within three Working Days.</div>'}`);
+    ${R.length ? `<table class="ftable"><tr><th>Item</th><th>Position</th><th class="hm">With</th><th>Date</th></tr>${R.slice(0, F.allNow ? 200 : 12).map(r => `<tr class="click" data-id="${esc(r.id)}" data-tab="${r.tab}"><td><b>${esc(r.what.slice(0, 90))}</b></td><td>${st(r.cls === 'bad' ? 'Overdue' : r.cls === 'warn' ? 'Watch' : 'Running', r.cls)} ${esc(r.txt)}</td><td class="hm">${esc(r.who)}</td><td>${r.due ? esc(nzDate(r.due)) : ''}</td></tr>`).join('')}</table>${R.length > 12 ? `<p class="small"><a href="#" id="cMore">${F.allNow ? 'Show the first 12 only' : `Show all ${R.length}`}</a></p>` : ''}` : '<div class="empty2">Nothing is overdue or due within three Working Days.</div>'}`);
   document.querySelectorAll('.kpi[data-go]').forEach(x => x.onclick = () => { TAB = x.dataset.go; view(); });
   document.querySelectorAll('#cBody tr[data-id]').forEach(r => r.onclick = () => openItem(all().find(x => x.id === r.dataset.id)));
+  if ($('cMore')) $('cMore').onclick = e => { e.preventDefault(); F.allNow = !F.allNow; view(); };
+  X2.inboxNote();
   $('cLet').onclick = () => X2.letters();
   $('cBrief').onclick = () => outBox('Weekly client update', briefText(), 'Plain wording for the client. It carries no assessment notes. Check it, then copy it into your email.');
   $('cChase').onclick = () => outBox('Chase list by consultant', chaseText(), 'One block for each company holding open information, oldest need date first.');
@@ -404,7 +413,7 @@ function setView() {
     { h: 'Money' }, { k: 'ldRate', l: 'Liquidated damages per Working Day ($)', t: 'num' }, { k: 'timeRate', l: 'Time-related cost per Working Day ($) (9.3.12)', t: 'num' }, { k: 'vprWD', l: 'Variation price request: Working Days for the Contractor to respond', t: 'num' },
     { h: 'Weather' }, { k: 'wxRain', l: 'Rain in 24 hours on a Working Day that counts (mm, more than)', t: 'num' }, { k: 'wxStation', l: 'Weather station the contract names' },
     { h: 'Working Days' }, { k: 'region', l: 'Anniversary day', t: 'sel', L: Object.keys(REGIONS) }, { k: 'extra', l: 'Other non-working days (YYYY-MM-DD, comma separated)' },
-    { h: 'Meetings and follow-up' }, { k: 'series', l: 'Meeting series (comma separated)', full: true }, { k: 'stuckWD', l: 'Flag a decision that sits at one stage longer than (Working Days)', t: 'num' }, { k: 'notes', l: 'Other contract notes', t: 'ta', rows: 3 }];
+    { h: 'Meetings and follow-up' }, { k: 'series', l: 'Meeting series (comma separated)', full: true }, { k: 'stuckWD', l: 'Flag a decision that sits at one stage longer than (Working Days)', t: 'num' }, { k: 'mailTag', l: `Email tag for forwarded mail (blank uses "${X2.mailTag()}")`, ph: 'e.g. channel' }, { k: 'notes', l: 'Other contract notes', t: 'ta', rows: 3 }];
   body(`<p class="muted small">Working Days exclude Saturdays, Sundays, public holidays and 24 December to 5 January inclusive. The periods below start from the unamended standard; change any that your special conditions amend.</p>${form(spec, c)}<div class="act" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><input type="file" id="sFile" accept=".json" hidden><button class="btn2" id="sLoad">⬆ Load a set-up or seed file (.json)</button><button class="btn2" id="sOut">⬇ Save everything in this section to a file</button><button class="btn2 go" id="sOk">Save set-up</button></div>`);
   $('sOk').onclick = async () => { try { await save({ ...read(spec), id: SET_ID, kind: 'settings' }); toast('Set-up saved'); } catch (e) { toast('Could not save: ' + e.message, 6000); } };
   $('sOut').onclick = () => download(new Blob([JSON.stringify({ schema: 'resero-contract/1', project: S.project.name, saved: new Date().toISOString(), items: all() }, null, 1)], { type: 'application/json' }), `${S.project.name} - Contract section - ${todayISO()}.json`);

@@ -1,5 +1,5 @@
 // Resero Site - AI and email helper (Google Apps Script). The AI keys live in Script properties, never in the app or on GitHub.
-// UPDATING (Nov 2026): paste this whole file over the old one, keep your own KEY line below, then:
+// UPDATING (version 4, Dec 2026: forwarded emails for the Contract section): paste this whole file over the old one, keep your own KEY line below, then:
 //   1. Project Settings > tick "Show appsscript.json" and paste helper/appsscript.json over it (it adds read access to the project data for the digest emails).
 //   2. Project Settings > Script properties > add ADMIN_KEY = any long random code. Enter the same code in the app: menu > AI > Admin key.
 //   3. Run authoriseHelper once and allow everything it asks for.
@@ -16,9 +16,13 @@ function doPost(e) {
   const props = PropertiesService.getScriptProperties();
   // Jobs that change settings or send email need the admin key as well. Only project admins hold it; contractors' devices never get it.
   // Until ADMIN_KEY is set in the Script properties, the everyday key still opens them (so nothing stops working before the switch).
-  const ADMIN_ACTIONS = ['sheetLink', 'summaryGet', 'summarySet', 'summaryTest', 'digestGet', 'digestSet', 'digestTest', 'mail'];
+  const ADMIN_ACTIONS = ['inboxGet', 'inboxFile', 'inboxDone', 'sheetLink', 'summaryGet', 'summarySet', 'summaryTest', 'digestGet', 'digestSet', 'digestTest', 'mail'];
   if (ADMIN_ACTIONS.indexOf(b.action) >= 0) { const ak = props.getProperty('ADMIN_KEY'); if (ak && b.adminKey !== ak) return out({ error: 'This needs the admin key (menu > AI > Admin key). Only project admins can do it.' }); }
   if (b.action === 'ping') return out({ ok: true, version: HELPER_VERSION, adminKey: !!props.getProperty('ADMIN_KEY'), hasKey: !!(props.getProperty('CLAUDE_KEY') || props.getProperty('GEMINI_KEY')), claude: !!props.getProperty('CLAUDE_KEY'), gemini: !!props.getProperty('GEMINI_KEY') });
+  // ---- forwarded emails for the Contract section (admins only): read-only search of the script owner's Gmail for one project's tag ----
+  if (b.action === 'inboxGet') { try { return out(Object.assign({ ok: true }, inboxGet_(b.tag))); } catch (x) { return out({ error: 'Could not read the mailbox: ' + x.message + '. After updating the helper, run authoriseHelper once.' }); } }
+  if (b.action === 'inboxFile') { try { return out(Object.assign({ ok: true }, inboxFile_(b.id, b.n))); } catch (x) { return out({ error: 'Could not fetch the attachment: ' + x.message }); } }
+  if (b.action === 'inboxDone') { try { return out({ ok: true, filed: inboxDone_(b.tag, b.id, b.undo) }); } catch (x) { return out({ error: 'Could not mark it as filed: ' + x.message }); } }
   // ---- digest emails built from the project's own data (see the Digest section below) ----
   if (b.action === 'digestGet') { try { return out({ ok: true, cfg: digestConfig_(b.pid) }); } catch (x) { return out({ error: 'Digest settings could not be read: ' + x.message }); } }
   if (b.action === 'digestSet') { try { return out({ ok: true, cfg: digestSet_(b) }); } catch (x) { return out({ error: 'Could not save the digest settings: ' + x.message }); } }
@@ -101,8 +105,8 @@ function claudeCall_(key, model, b) {
 // Run sendSummaryTest once (goes to SUMMARY_TEST_TO only), then setupDailySummary to switch on the daily email.
 const SUMMARY_TZ = 'Pacific/Auckland';
 const APP_URL = 'https://tony-aria-reyna.github.io/defect-tool/';
-const ALL_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/datastore'];
-const HELPER_VERSION = 3;
+const ALL_SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/script.scriptapp', 'https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/datastore', 'https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/userinfo.email'];
+const HELPER_VERSION = 4;
 // Who gets the summary and when is set from the app (menu > Update the contractor's spreadsheet > Daily summary email) and kept in Script properties.
 function summaryConfig_() { const p = PropertiesService.getScriptProperties(); let to = []; try { to = JSON.parse(p.getProperty('SUMMARY_TO') || '[]'); } catch (e) {} return { to: to, hour: parseInt(p.getProperty('SUMMARY_HOUR') || '16', 10), days: summaryDays_(), on: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailySummary') }; }
 function summarySet_(b) { const p = PropertiesService.getScriptProperties(); const to = (b.to || []).map(x => String(x).trim().toLowerCase()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).slice(0, 20); const hour = Math.max(0, Math.min(23, parseInt(b.hour == null ? 16 : b.hour, 10) || 0)); p.setProperty('SUMMARY_TO', JSON.stringify(to)); p.setProperty('SUMMARY_HOUR', String(hour)); if (b.days) { const dd = b.days.map(Number).filter(x => x >= 1 && x <= 7); p.setProperty('SUMMARY_DAYS', JSON.stringify(dd.length ? dd : [1, 2, 3, 4, 5])); } ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'dailySummary').forEach(t => ScriptApp.deleteTrigger(t)); if (b.on && to.length) ScriptApp.newTrigger('dailySummary').timeBased().everyDays(1).atHour(hour).nearMinute(0).inTimezone(SUMMARY_TZ).create(); return summaryConfig_(); }
@@ -255,3 +259,26 @@ function digestBuild_(cfg, r, data, test) {
     + '<p style="margin-top:18px;font:13px Arial"><a href="' + app + '" style="color:#1f5fa8">Open Resero Site</a></p><p style="font:11px Arial;color:#889">Sent by Resero Site for ' + esc_(cfg.name || '') + '. Ask the project admin to change how often you get this.</p></div></div>';
   return { subject: (cfg.name || 'Resero Site') + ': ' + title, html: html, skip: skip };
 }
+
+// ================= Forwarded emails for the Contract section =================
+// Forward an email to your own Gmail address with +tag added (e.g. you+channel@gmail.com), or put [channel] in the subject.
+// The app lists what is waiting; you read each one into Intake and mark it as filed. Mail is never changed or deleted here:
+// the filed list is kept in Script properties (FILED_<tag>). Search covers the last 180 days.
+function inboxTag_(t) { const tag = String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 30); if (!tag) throw new Error('No email tag is set for this project (Contract > Set-up)'); return tag; }
+function inboxAddr_(tag) { const e = Session.getEffectiveUser().getEmail() || ''; const i = e.indexOf('@'); return i > 0 ? e.slice(0, i) + '+' + tag + e.slice(i) : ''; }
+function inboxFiled_(tag) { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('FILED_' + tag) || '[]'); } catch (e) { return []; } }
+function inboxGet_(t) {
+  const tag = inboxTag_(t), addr = inboxAddr_(tag), filed = inboxFiled_(tag), items = [];
+  const q = '(' + (addr ? 'deliveredto:' + addr + ' OR ' : '') + 'subject:"[' + tag + ']") newer_than:180d -in:trash';
+  GmailApp.search(q, 0, 30).forEach(th => th.getMessages().forEach(m => {
+    if (m.isInTrash() || filed.indexOf(m.getId()) >= 0) return;
+    const to = (m.getTo() + ',' + m.getCc()).toLowerCase(), subj = m.getSubject() || '';
+    if (!(addr && to.indexOf(addr.toLowerCase()) >= 0) && subj.toLowerCase().indexOf('[' + tag + ']') < 0) return;   // other messages in the same thread
+    items.push({ id: m.getId(), from: m.getFrom(), to: m.getTo(), date: m.getDate().toISOString(), subject: subj, text: String(m.getPlainBody() || '').slice(0, 30000),
+      files: m.getAttachments({ includeInlineImages: false }).map((a, i) => ({ n: i, name: a.getName(), size: a.getSize() })).slice(0, 20) });
+  }));
+  items.sort((a, b) => a.date < b.date ? -1 : 1);
+  return { addr: addr, tag: tag, items: items.slice(0, 40), version: HELPER_VERSION };
+}
+function inboxFile_(id, n) { const m = GmailApp.getMessageById(String(id)); if (!m) throw new Error('message not found'); const a = m.getAttachments({ includeInlineImages: false })[+n || 0]; if (!a) throw new Error('no such attachment'); if (a.getSize() > 15 * 1024 * 1024) throw new Error('larger than 15 MB: save it from the email and drop it in instead'); return { name: a.getName(), mime: a.getContentType(), data: Utilities.base64Encode(a.getBytes()) }; }
+function inboxDone_(t, id, undo) { const tag = inboxTag_(t), p = PropertiesService.getScriptProperties(); let f = inboxFiled_(tag).filter(x => x !== String(id)); if (!undo) f.push(String(id)); f = f.slice(-400); p.setProperty('FILED_' + tag, JSON.stringify(f)); return f.length; }
