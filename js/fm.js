@@ -625,7 +625,8 @@ function directory() {
     c.emailList = Object.keys(c.emails).filter(e => own(e) || !shared('e' + e)).sort((a, b) => (own(b) - own(a)) || c.emails[b] - c.emails[a]); c.emailOwn = c.emailList.length && own(c.emailList[0]);
     c.phoneList = Object.keys(c.phones).filter(x => !shared('p' + Con.digits(x))).sort((a, b) => c.phones[b] - c.phones[a]);
     const sc = P => (P.e && own(P.e) ? 3 : 0) + (P.m ? 2 : 0) + (P.p ? 1 : 0) + (P.sure ? 1 : 0) + (P.r ? 0.5 : 0) + Math.min(2, P.docs * 0.4);
-    c.people = Object.entries(c.ppl).filter(([k, P]) => (P.e && own(P.e)) || (!shared('n' + k) && !(P.e && !own(P.e) && shared('e' + P.e)))).map(([, P]) => P).sort((a, b) => sc(b) - sc(a)); c.best = c.people[0] && sc(c.people[0]) >= 2 ? c.people[0] : null;
+    const coWords = c.key.split(' ').filter(x => x.length >= 3);   // "Easy Chill" beside a phone number is the company, not a person
+    c.people = Object.entries(c.ppl).filter(([k]) => !k.split(/[^a-z]+/).some(w => coWords.includes(w))).filter(([k, P]) => (P.e && own(P.e)) || (!shared('n' + k) && !(P.e && !own(P.e) && shared('e' + P.e)))).map(([, P]) => P).sort((a, b) => sc(b) - sc(a)); c.best = c.people[0] && sc(c.people[0]) >= 2 ? c.people[0] : null;
     c.sName = c.best ? c.best.n : c.emailOwn ? nameFromEmail(c.emailList[0]) : ''; c.sPhone = c.best ? (c.best.m || c.best.p || c.phoneList[0] || '') : (c.phoneList[0] || ''); c.sEmail = c.best && c.best.e ? c.best.e : (c.emailList[0] || '');
     c.work = c.assets.length ? [...new Set(c.assets.map(a => a.element))].slice(0, 3).join('; ') : [...c.systems].map(x => x.slice(3)).slice(0, 2).join('; '); }
   return [...map.values()].sort((a, b) => natural(a.company, b.company));
