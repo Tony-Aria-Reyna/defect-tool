@@ -197,6 +197,12 @@ service cloud.firestore {
         allow read: if isMember(pid) && may(pid, ['comp', 'dash']);
         allow write: if canEdit(pid) && may(pid, ['comp', 'dash']);
       }
+      // The contract administrator's own section: notices of delay and EOT assessments, information owed, client decisions,
+      // meeting actions and the contract set-up. Project admins only. Assessments and positions held here must never be
+      // readable by the contractor, consultants or the client, whatever sections they have been given.
+      match /contract/{id} {
+        allow read, write: if isAdmin(pid);
+      }
       match /guide/{id} {                       // Home User Guide pages
         allow read: if isMember(pid) && may(pid, ['guide']);
         allow write: if canEdit(pid) && may(pid, ['guide']);

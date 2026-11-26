@@ -789,3 +789,16 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .creg{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}.creg textarea{width:100%;font-size:12px}.creg a.btn2{text-decoration:none;display:inline-block}
 
 .crv{border-top:1px solid #e3e6ea;padding:10px 0 4px}.crv .opt{margin:4px 0}.crv .note{margin:4px 0}
+
+/* Contract section (admins only) */
+.ctabs{display:flex;gap:2px;flex-wrap:wrap}.ctabs button{border:0;background:none;padding:8px 12px;border-bottom:3px solid transparent;font-weight:600;color:var(--muted);cursor:pointer}
+.ctabs button.on{color:var(--navy);border-bottom-color:var(--teal)}.ctabs button b{background:var(--navy);color:#fff;border-radius:9px;font-size:11px;padding:0 6px;margin-left:3px}
+.cnote{margin:-4px 0 10px}.cclk{margin:2px 0;font-size:12.5px;line-height:1.45}.cclk .st{margin-right:4px}
+.cbox{background:#f7f9fb;border:1px solid var(--line);border-left:4px solid var(--teal);border-radius:6px;padding:8px 10px;margin:0 0 12px}
+.cchk{flex-direction:row!important;align-items:center;gap:8px!important;text-transform:none!important;font-size:13px!important;font-weight:400!important;color:var(--txt)!important}.cchk input{width:18px!important;height:18px}
+.cstages{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px;font-size:12px;color:var(--muted)}.cstages span{background:#fff;border:1px solid var(--line);border-radius:6px;padding:5px 9px}.cstages b{color:var(--navy);font-size:15px;margin-right:3px}.cstages i{font-style:normal;color:var(--line)}
+.cscore{margin-bottom:10px}.cser label{margin-right:12px;white-space:nowrap}.clink{display:flex;gap:6px;align-items:center}.clink input{flex:1}
+.clist{margin:4px 0 8px;padding-left:18px}.clist li{margin:3px 0;cursor:pointer}.clist li:hover{background:#f7fbfc}
+.cmt td{vertical-align:middle}.cmt input[data-note]{width:100%;min-width:180px;padding:6px 8px;border:1px solid var(--line);border-radius:6px}.cmt select{padding:5px;border:1px solid var(--line);border-radius:6px}
+.cprop{display:flex;gap:10px;align-items:flex-start;padding:8px;border:1px solid var(--line);border-radius:8px;margin:6px 0;cursor:pointer}.cprop input{width:18px;height:18px;margin-top:2px}
+#cBody .grid{max-width:980px}#cBody h3.sec{grid-column:1/-1}

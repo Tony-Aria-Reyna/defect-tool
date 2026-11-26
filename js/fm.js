@@ -9,6 +9,7 @@ import * as DV from './docview.js';
 import * as Guide from './guide.js';
 import * as AI from './docai.js';
 import * as Act from './actions.js';
+import * as Ctr from './contract.js';
 import * as Sub from './submit.js';
 import * as CS from './cschedule.js';
 import * as Con from './contacts.js';
@@ -29,7 +30,7 @@ export function init(ctx) { X = ctx; CS.init({ getBytes: ctx.getBytes, addFreq, 
   DV.init({ subBox: Sub.boxHtml, subWire: Sub.wireBox, getBytes: ctx.getBytes, openAsset: id => { setModule('assets'); const a = fm().assets.find(x => x.id === id); if (a) editAsset(a); }, openTask: id => { setModule('maint'); const t = fm().tasks.find(x => x.id === id); if (t) editTask(t); } }); }
 const fm = () => S.fm || (S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] });
 export function start(pid) {
-  stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [] };
+  stop(); S.fm = { assets: [], docs: [], tasks: [], systems: [], guide: [], actions: [], contract: [] };
   const NEED = { assets: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], systems: ['assets', 'maint', 'comp', 'dash', 'docs', 'guide'], tasks: ['maint', 'comp', 'dash', 'assets', 'guide'], docs: ['docs', 'assets', 'maint', 'comp', 'dash', 'guide'], guide: ['guide'], actions: ['comp', 'dash'] };
   document.querySelectorAll('#modbar button').forEach(b => b.hidden = !useMod(b.dataset.m));
   const parts = { docs: [], rdocs: [] }; RIDS = new Set(); route.fn = (c, id) => c === 'docs' && RIDS.has(id) ? 'rdocs' : c;
@@ -38,10 +39,12 @@ export function start(pid) {
   const arrived = c => { if (loaded.has(c)) return; loaded.add(c); if (['assets', 'tasks', 'systems', 'actions'].filter(x => watched.includes(x)).every(x => loaded.has(x))) setTimeout(() => { if (S.project && S.project.id === pid) maybeDuePrompt(); }, 1500); };
   watched.forEach(c => unsubs.push(S.store.watchColl(pid, c, l => { if (c === 'docs') { parts.docs = l; mergeDocs(); } else fm()[c] = l; arrived(c); if (cur !== 'defects') render(); }, e => { console.warn(c, e); arrived(c); })));
   if (canRestricted() && NEED.docs.some(mayUse)) unsubs.push(S.store.watchColl(pid, 'rdocs', l => { parts.rdocs = l; RIDS = new Set(l.map(d => d.id)); mergeDocs(); if (cur !== 'defects') render(); }, e => console.warn('rdocs', e)));
+  // the contract administrator's section: admins only (the rules refuse everyone else)
+  if (can.realAdmin()) unsubs.push(S.store.watchColl(pid, 'contract', l => { fm().contract = l; if (cur === 'contract') render(); }, e => console.warn('contract', e)));
   const first = [...document.querySelectorAll('#modbar button')].find(b => !b.hidden);
   setModule(can.client() && mayUse('dash') ? 'dash' : mayUse('defects') || !first ? 'defects' : first.dataset.m);
 }
-const useMod = m => mayUse(m === 'actions' ? 'comp' : m);
+const useMod = m => m === 'contract' ? can.admin() : mayUse(m === 'actions' ? 'comp' : m);
 export function stop() { unsubs.forEach(u => u && u()); unsubs = []; }
 export function goTo(m, q) { Object.assign(F, { q: q || '', sys: '', st: '', type: '', cat: '' }); if (m === 'maint') F.win = 'all'; setModule(m); }
 export function setModule(m) {
@@ -50,7 +53,7 @@ export function setModule(m) {
   cur = m; document.querySelectorAll('#modbar button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   $('scrWork').classList.toggle('fm', m !== 'defects'); if (m === 'defects') { X.render && X.render(); return; } render();
 }
-function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view })[cur]?.(); }
+function render() { ({ dash, assets, maint, comp, docs, contacts: contactsView, guide: Guide.view, actions: Act.view, contract: Ctr.view })[cur]?.(); }
 
 /* ---------------------------------------------------------------- dates and helpers */
 // a date as YYYY-MM-DD in local time (toISOString would give the UTC date, a day early in New Zealand)

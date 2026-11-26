@@ -24,6 +24,7 @@ const seed = async () => env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, `projects/${P}/systems/s1`), { name: 'Fire alarm', cert12A: {} });
   await setDoc(doc(db, `projects/${P}/defects/MM-2`), { source: 'MM', status: 'Ready for review', desc: 'Lintel', history: [] });
   await setDoc(doc(db, `projects/${P}/log/l1`), { email: 'x' });
+  await setDoc(doc(db, `projects/${P}/contract/t1`), { kind: 'time', ref: 'NOD #4', assessment: 'Notice out of time' });
   await setDoc(doc(db, 'library/typicals'), { items: [{ t: 'A' }, { t: 'B' }] });
   const st = ctx.storage();
   await uploadBytes(ref(st, `projects/${P}/restricted/r1/bond.pdf`), new Uint8Array([1, 2, 3]));
@@ -138,6 +139,19 @@ await t('client uploads a service report', () => ok(uploadBytes(ref(st('fm'), pp
 await t('contractor cannot replace a plan image', () => no(uploadBytes(ref(st('con'), pp('plans/pl1.jpg')), new Uint8Array([1]), { contentType: 'image/jpeg' })));
 await t('admin uploads a plan image', () => ok(uploadBytes(ref(st('adm'), pp('plans/pl1.jpg')), new Uint8Array([1]), { contentType: 'image/jpeg' })));
 await t('editor cannot upload into the restricted folder', () => no(uploadBytes(ref(st('ed'), pp('restricted/r9/x.pdf')), new Uint8Array([1]))));
+
+// the contract administrator's section: admins only
+await t('admin reads a contract item', () => ok(getDoc(D('adm', pp('contract/t1')))));
+await t('admin writes a contract item', () => ok(setDoc(D('adm', pp('contract/t2')), { kind: 'decision', text: 'Carpet' })));
+await t('admin lists the contract section', () => ok(getDocs(collection(db('adm'), pp('contract')))));
+await t('contractor cannot read a contract item', () => no(getDoc(D('con', pp('contract/t1')))));
+await t('contractor cannot list the contract section', () => no(getDocs(collection(db('con'), pp('contract')))));
+await t('contractor cannot write a contract item', () => no(setDoc(D('con', pp('contract/t3')), { kind: 'time' })));
+await t('editor cannot read a contract item', () => no(getDoc(D('ed', pp('contract/t1')))));
+await t('editor cannot write a contract item', () => no(updateDoc(D('ed', pp('contract/t1')), { assessment: 'x' })));
+await t('inspector cannot read a contract item', () => no(getDoc(D('ins', pp('contract/t1')))));
+await t('client cannot read a contract item', () => no(getDoc(D('fm', pp('contract/t1')))));
+await t('viewer cannot read a contract item', () => no(getDoc(D('cli', pp('contract/t1')))));
 
 await env.cleanup();
 console.log(`\n${pass} passed, ${fail} failed`);
