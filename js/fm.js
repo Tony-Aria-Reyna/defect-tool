@@ -613,9 +613,9 @@ export function restrictDialog() {
 const CO_SKIP = ['ltd', 'limited', 'nz', 'new', 'zealand', 'auckland', 'group', 'the', 'co', 'company', 'for', 'and'];
 const coKey = n => String(n || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9+& ]/g, ' ').split(/\s+/).filter(x => x && !CO_SKIP.includes(x)).slice(0, 2).join(' ');
 function directory() {
-  const saved = S.project.directory || [], map = new Map();
-  const get = name => { const k = coKey(name); if (!k) return null; if (!map.has(k)) map.set(k, { key: k, company: String(name).replace(/\s*\(.*?\)\s*/g, ' ').trim(), systems: new Set(), docs: [], emails: {}, phones: {}, ppl: {}, assets: [], saved: null }); return map.get(k); };
-  for (const d of fm().docs) { if (!d.party) continue; const c = get(d.party); if (!c) continue; if (d.system) c.systems.add(d.system); c.docs.push(d); ((d.found || {}).e || []).forEach(e => c.emails[e] = (c.emails[e] || 0) + 1); ((d.found || {}).p || []).forEach(x => { x = Con.fmtPhone(x); c.phones[x] = (c.phones[x] || 0) + 1; }); ((d.found || {}).people || []).forEach(P => { const k = P.n.toLowerCase(); const q = c.ppl[k] || (c.ppl[k] = { n: P.n, docs: 0 }); q.docs++; ['r', 'p', 'm', 'e', 'sure'].forEach(f => { if (P[f] && !q[f]) q[f] = P[f]; }); }); }
+  const saved = S.project.directory || [], map = new Map(), R = S.project.contactRules || {}, same = R.same || {}, skip = new Set(R.skip || []);
+  const get = name => { let k = coKey(name); if (k && same[k]) { name = same[k]; k = coKey(name); } if (!k || skip.has(k)) return null; if (!map.has(k)) map.set(k, { key: k, company: String(name).replace(/\s*\(.*?\)\s*/g, ' ').trim(), systems: new Set(), docs: [], emails: {}, phones: {}, ppl: {}, assets: [], saved: null }); return map.get(k); };
+  for (const d of fm().docs) { if (!d.party) continue; const c = get(d.party); if (!c) continue; if (d.system) c.systems.add(d.system); c.docs.push(d); ((d.found || {}).e || []).forEach(e => c.emails[e] = (c.emails[e] || 0) + 1); ((d.found || {}).p || []).forEach(x => { x = Con.fmtPhone(x); c.phones[x] = (c.phones[x] || 0) + 1; }); ((d.found || {}).people || []).forEach(P => { const k = P.n.toLowerCase(); const q = c.ppl[k] || (c.ppl[k] = { n: P.n, docs: 0, src: [] }); q.docs++; if (q.src.length < 2) q.src.push(d.title); ['r', 'p', 'm', 'e', 'sure'].forEach(f => { if (P[f] && !q[f]) q[f] = P[f]; }); }); }
   // a number, address or person printed on many companies' documents (the head contractor, the client, the designer) belongs to none of them
   const seenIn = {}, tally = (k, c) => (seenIn[k] || (seenIn[k] = new Set())).add(c.key); for (const c of map.values()) { Object.keys(c.emails).forEach(e => tally('e' + e, c)); Object.keys(c.phones).forEach(x => tally('p' + Con.digits(x), c)); Object.keys(c.ppl).forEach(k => tally('n' + k, c)); }
   const shared = k => (seenIn[k] || new Set()).size >= 4;
@@ -633,22 +633,26 @@ function directory() {
 const nameFromEmail = Con.nameFromEmail;
 function contactsView() {
   const D = directory(), q = F.q.toLowerCase(), L = D.filter(c => !q || [c.company, c.work, (c.saved || {}).name, (c.saved || {}).trade].join(' ').toLowerCase().includes(q));
-  const unread = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.restricted && Con.needsRead(d)).length;
-  $('fmView').innerHTML = `<div class="fbar"><h2>Contacts</h2><input type="search" id="cQ" placeholder="Search company, trade, name…" value="${esc(F.q)}">${can.edit() ? `<button class="btn2 go" id="cNew">+ Contact</button>` : ''}${D.length ? `<button class="btn2" id="cXl" title="Every company with its contact, phone, email and what they did, as an Excel workbook">⬇ Excel</button>` : ''}${can.edit() && unread && !scan.on && scan.stopped ? `<button class="btn2" id="cRead">🔍 Carry on reading ${unread} document${unread === 1 ? '' : 's'}</button>` : ''}</div>
+  const unread = fm().docs.filter(d => DV.isPdf(d) && d.party && !d.restricted && Con.needsRead(d)).length, nRev = D.filter(c => newFor(c).any).length, RU = S.project.contactRules || {}, nHid = Object.keys(RU.same || {}).length + (RU.skip || []).length;
+  $('fmView').innerHTML = `<div class="fbar"><h2>Contacts</h2><input type="search" id="cQ" placeholder="Search company, trade, name…" value="${esc(F.q)}">${can.edit() ? `<button class="btn2 go" id="cNew">+ Contact</button>` : ''}${D.length ? `<button class="btn2" id="cXl" title="Every company with its contact, phone, email and what they did, as an Excel workbook">⬇ Excel</button>` : ''}${can.admin() && nRev ? `<button class="btn2 go" id="cRev" title="Choose which of the people and details read from the documents to add to Contacts">Review ${nRev} found</button>` : ''}${can.edit() && unread && !scan.on && scan.stopped ? `<button class="btn2" id="cRead">🔍 Carry on reading ${unread} document${unread === 1 ? '' : 's'}</button>` : ''}</div>
   ${scan.on ? `<p class="muted small" id="cScan">Reading new documents for phone numbers and email addresses: ${scan.n} of ${scan.of}…</p>` : ''}
-  <p class="muted small">${D.length} compan${D.length === 1 ? 'y' : 'ies'} found from the documents received · ${D.filter(c => c.saved).length} confirmed. Suggested details come from the documents and need a quick check before they are relied on.</p>
+  <p class="muted small">${D.length} compan${D.length === 1 ? 'y' : 'ies'} found from the documents received · ${D.filter(c => c.saved).length} confirmed. Suggested details come from the documents and need a quick check before they are relied on.${nHid && can.admin() ? ` <a href="#" id="cHid">${nHid} merged or hidden</a>` : ''}</p>
   ${L.length ? `<table class="ftable"><tr><th>Company</th><th class="hm">What they did</th><th>Contact</th><th>Phone</th><th class="hm">Email</th><th class="hm">Docs</th><th></th></tr>${L.map(c => { const sv = c.saved || {}, sug = !c.saved;
     return `<tr class="click" data-k="${esc(c.key)}"><td><b>${esc(c.company)}</b></td><td class="hm small">${esc(sv.trade || c.work || '')}</td><td>${esc(sv.name || '')}${!sv.name && c.sName ? `<span class="muted">${esc(c.sName)}</span>` : ''}</td><td>${esc(sv.phone || '')}${!sv.phone && c.sPhone ? `<span class="muted">${esc(c.sPhone)}</span>` : ''}</td><td class="hm small">${esc(sv.email || '')}${!sv.email && c.sEmail ? `<span class="muted">${esc(c.sEmail)}</span>` : ''}</td><td class="hm">${c.docs.length || '-'}</td><td>${c.saved ? '<span class="st st-ok">Confirmed</span>' : '<span class="st st-grey">Suggested</span>'}</td></tr>`; }).join('')}</table>` : `<div class="empty2">${D.length ? 'No contacts match.' : 'No companies yet. They appear here as documents are uploaded: the company is the name before the first " - " in each file name.'}</div>`}`;
   $('cQ').oninput = e => { F.q = e.target.value; contactsView(); $('cQ').focus(); $('cQ').setSelectionRange(F.q.length, F.q.length); };
   if ($('cNew')) $('cNew').onclick = () => editContact(null);
   if ($('cRead')) $('cRead').onclick = () => readContacts();
   if ($('cXl')) $('cXl').onclick = exportContacts;
+  if ($('cRev')) $('cRev').onclick = reviewContacts;
+  if ($('cHid')) $('cHid').onclick = e => { e.preventDefault(); hiddenContacts(); };
   if (can.edit() && unread && !scan.on && !scan.stopped && navigator.onLine) { readContacts(true); if (scan.on && !$('cScan')) document.querySelector('#fmView .fbar').insertAdjacentHTML('afterend', `<p class="muted small" id="cScan">Reading new documents for phone numbers and email addresses: ${scan.n} of ${scan.of}…</p>`); }   // new documents are read without being asked
   document.querySelectorAll('tr[data-k]').forEach(r => r.onclick = () => editContact(D.find(c => c.key === r.dataset.k)));
 }
 function editContact(c) {
   const isNew = !c; c = c || { key: '', company: '', docs: [], assets: [], emailList: [], phoneList: [], people: [], work: '', saved: null };
-  const sv = c.saved || {}, ro = !can.edit();
+  const sv = c.saved || {}, ro = !can.edit(); let others = (sv.people || []).map(x => ({ ...x }));
+  const oth = () => others.length ? `<h3 class="sec">Other contacts at this company</h3>${others.map((P, i) => `<div class="prow"><div class="g"><b>${esc(P.n)}</b>${P.r ? ' <span class="muted">' + esc(P.r) + '</span>' : ''}<small>${esc([P.m, P.p, P.e].filter(Boolean).join(' · '))}</small></div>${ro ? '' : `<button class="btn2" data-rmp="${i}">Remove</button>`}</div>`).join('')}` : '';
+  const wireOth = () => { $('kOth').innerHTML = oth(); document.querySelectorAll('#kOth [data-rmp]').forEach(b => b.onclick = () => { others.splice(+b.dataset.rmp, 1); wireOth(); }); };
   sheet(isNew ? 'New contact' : c.company, `<div class="grid">
     ${field('Company (as you know it)', 'kC', sv.company || c.company)}${sel('Role', 'kR', opts(['Subcontractor', 'Supplier', 'Consultant', 'Contractor', 'Client', 'Other'], sv.role || 'Subcontractor'))}
     ${field('Full registered name (used on deeds)', 'kL', sv.legal || '', 'placeholder="e.g. Triden Construction Limited"', true)}
@@ -660,16 +664,76 @@ function editContact(c) {
     ${area('Notes', 'kO', sv.notes)}
   </div><datalist id="kPl">${c.phoneList.map(x => `<option>${esc(x)}</option>`).join('')}</datalist><datalist id="kEl">${c.emailList.map(x => `<option>${esc(x)}</option>`).join('')}</datalist>
   ${!c.saved && (c.emailList.length || c.phoneList.length) ? '<p class="note">The phone and email were read from this company\'s documents. Other numbers and addresses found are offered when you click in the box. Check them, then Save to confirm.</p>' : ''}
-  ${(c.people || []).length ? `<h3 class="sec">People named in their documents <span class="muted small">(read automatically; check before relying on them)</span></h3>${c.people.slice(0, 8).map((P, i) => `<div class="prow"><div class="g"><b>${esc(P.n)}</b>${P.r ? ' <span class="muted">' + esc(P.r) + '</span>' : ''}<small>${esc([P.m, P.p, P.e].filter(Boolean).join(' · '))} · ${P.docs} document${P.docs === 1 ? '' : 's'}</small></div>${ro ? '' : `<button class="btn2" data-use="${i}">Use</button>`}</div>`).join('')}` : ''}
+  ${(c.people || []).length ? `<h3 class="sec">People named in their documents <span class="muted small">(read automatically; check before relying on them)</span></h3>${c.people.slice(0, 8).map((P, i) => `<div class="prow"><div class="g"><b>${esc(P.n)}</b>${P.r ? ' <span class="muted">' + esc(P.r) + '</span>' : ''}<small>${esc([P.m, P.p, P.e].filter(Boolean).join(' · '))} · ${P.docs} document${P.docs === 1 ? '' : 's'}</small></div>${ro ? '' : `<button class="btn2" data-use="${i}">Use as main</button><button class="btn2" data-oth="${i}">+ Other</button>`}</div>`).join('')}` : ''}
+  <div id="kOth"></div>
+  ${!c.saved && !isNew && can.admin() ? `<h3 class="sec">Not a separate company?</h3><div class="prow"><select id="kSame" style="flex:1"><option value="">Same company as…</option>${directory().filter(o => o.key !== c.key).map(o => `<option>${esc(o.company)}</option>`).join('')}</select><button class="btn2" id="kSkip">Not a company: hide</button></div>` : ''}
   <h3 class="sec">Elements this company did <span class="muted small">(warranties from them are matched to these first)</span></h3>
   <input type="search" id="kAq" placeholder="Filter elements…" style="width:100%;margin-bottom:4px"><div class="kal">${(() => { const mine = new Set(sv.assetIds || (c.assets || []).map(a => a.id)); return fm().assets.slice().sort((a, b) => (mine.has(b.id) - mine.has(a.id)) || natural(a.ref || '', b.ref || '')).map(a => `<label data-s="${esc([a.ref, a.element, a.installer, a.system].join(' ').toLowerCase())}"><input type="checkbox" value="${esc(a.id)}" ${mine.has(a.id) ? 'checked' : ''} ${ro ? 'disabled' : ''}> <b>${esc(a.ref || '')}</b> ${esc(a.element)} <span class="muted small">${esc(a.installer || '')}</span></label>`).join(''); })()}</div>
   ${c.docs.length ? `<h3 class="sec">Documents (${c.docs.length})</h3>${c.docs.slice(0, 40).map(d => `<div class="prow"><div class="g"><a href="#" data-open="${esc(d.id)}">${esc(d.title)}</a><small>${esc(d.type || '')}</small></div></div>`).join('')}` : ''}`,
-  { ro, onSave: async () => { const o = { ...sv, assetIds: [...document.querySelectorAll('.kal input:checked')].map(x => x.value), id: sv.id || uid(), company: val('kC'), role: val('kR'), legal: val('kL'), nzbn: val('kZ'), address: val('kAd'), trade: val('kT'), name: val('kN'), phone: val('kP'), email: val('kE'), audience: val('kA'), afterHours: val('kH'), notes: val('kO'), updated: nowISO() }; if (!o.company) { toast('Enter the company'); return false; }
+  { ro, onSave: async () => { const o = { ...sv, assetIds: [...document.querySelectorAll('.kal input:checked')].map(x => x.value), id: sv.id || uid(), company: val('kC'), role: val('kR'), legal: val('kL'), nzbn: val('kZ'), address: val('kAd'), trade: val('kT'), name: val('kN'), phone: val('kP'), email: val('kE'), audience: val('kA'), afterHours: val('kH'), notes: val('kO'), people: others.map(P => { const o = { n: P.n }; ['r', 'p', 'm', 'e'].forEach(k => { if (P[k]) o[k] = P[k]; }); return o; }), updated: nowISO() }; if (!o.company) { toast('Enter the company'); return false; }
       const dir = (S.project.directory || []).filter(x => x.id !== o.id && coKey(x.company) !== coKey(o.company)).concat(o); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); },
     onDelete: c.saved ? async () => { const dir = (S.project.directory || []).filter(x => x.id !== sv.id); await S.store.updateProject(S.project.id, { directory: dir }); S.project.directory = dir; setTimeout(render, 50); } : null });
   document.querySelectorAll('#s2Body [data-open]').forEach(l => l.onclick = e => { e.preventDefault(); openDoc(fm().docs.find(d => d.id === l.dataset.open)); });
   document.querySelectorAll('#s2Body [data-use]').forEach(u => u.onclick = () => { const P = c.people[+u.dataset.use]; $('kN').value = P.n; $('kP').value = P.m || P.p || $('kP').value; if (P.e) $('kE').value = P.e; if (P.m && P.p && !$('kH').value) $('kO').value = [$('kO').value, 'Landline ' + P.p].filter(Boolean).join('. '); toast('Filled in. Save to confirm.'); });
+  wireOth(); document.querySelectorAll('#s2Body [data-oth]').forEach(u => u.onclick = () => { const P = c.people[+u.dataset.oth]; if (!others.some(x => x.n.toLowerCase() === P.n.toLowerCase())) others.push(P); wireOth(); });
+  if ($('kSame')) { $('kSame').onchange = async e => { const to = e.target.value; if (!to) return; if (await setRule('same', c, to)) { closeSheet(); toast(`${c.company} now counts as ${to}`); render(); } };
+    $('kSkip').onclick = async () => { if (await setRule('skip', c)) { closeSheet(); toast(`${c.company} hidden from Contacts`); render(); } }; }
   if ($('kAq')) $('kAq').oninput = e => { const q = e.target.value.toLowerCase().trim(); document.querySelectorAll('.kal label').forEach(l => l.style.display = !q || q.split(' ').every(w => l.dataset.s.includes(w)) ? '' : 'none'); };
+}
+/* ---------- review: choose which of the details read from the documents go into Contacts ---------- */
+const tok = x => String(x || '').toLowerCase().replace(/\s+/g, ' ').trim();
+function newFor(c) {
+  const sv = c.saved || {}, seen = new Set(((S.project.contactRules || {}).seen || {})[c.key] || []), have = new Set([sv.name, ...(sv.people || []).map(x => x.n)].filter(Boolean).map(tok));
+  const ppl = (c.people || []).filter(P => !have.has(tok(P.n)) && !seen.has(tok(P.n))).slice(0, 6), taken = x => ppl.some(P => [P.m, P.p, P.e].includes(x));
+  const gp = !sv.phone && c.phoneList.find(x => !seen.has(tok(x)) && !taken(x)) || '', ge = !sv.email && c.emailList.find(x => !seen.has(tok(x)) && !taken(x)) || '';
+  return { ppl, gp, ge, any: !!(ppl.length || gp || ge) };
+}
+async function setRule(kind, c, to) {
+  const R = S.project.contactRules || {}, o = { same: { ...(R.same || {}) }, skip: [...(R.skip || [])], seen: { ...(R.seen || {}) }, names: { ...(R.names || {}) } };
+  if (kind === 'same') { o.same[c.key] = to; o.names[c.key] = c.company; } else if (kind === 'skip') { if (!o.skip.includes(c.key)) o.skip.push(c.key); o.names[c.key] = c.company; }
+  else if (kind === 'undo') { delete o.same[c.key]; o.skip = o.skip.filter(k => k !== c.key); }
+  try { await S.store.updateProject(S.project.id, { contactRules: o }); S.project.contactRules = o; return true; } catch (e) { toast('Could not save: ' + (e.code || e.message), 7000); return false; }
+}
+function hiddenContacts() {
+  const R = S.project.contactRules || {}, nm = k => (R.names || {})[k] || k, L = [...Object.keys(R.same || {}).map(k => [k, `counts as ${R.same[k]}`]), ...(R.skip || []).map(k => [k, 'hidden: not a company'])];
+  modal(`<h2>Merged and hidden rows</h2>${L.length ? L.map(([k, t]) => `<div class="prow"><div class="g"><b>${esc(nm(k))}</b><small>${esc(t)}</small></div><button class="btn2" data-un="${esc(k)}">Restore</button></div>`).join('') : '<p class="muted">Nothing is merged or hidden.</p>'}<div class="act"><button id="hcX">Close</button></div>`);
+  $('hcX').onclick = () => { closeModal(); render(); };
+  document.querySelectorAll('[data-un]').forEach(b => b.onclick = async () => { if (await setRule('undo', { key: b.dataset.un })) hiddenContacts(); });
+}
+function reviewContacts() {
+  const D = directory(), L = D.map(c => ({ c, n: newFor(c) })).filter(x => x.n.any);
+  const srcOf = (c, v) => { const d = c.docs.find(d => [...((d.found || {}).p || []).map(Con.fmtPhone), ...((d.found || {}).e || [])].includes(v)); return d ? d.title : ''; };
+  const w1 = c => c.key.split(' ')[0], twin = c => c.saved || w1(c).length < 4 ? null : D.find(o => o !== c && w1(o) === w1(c) && o.saved) || D.find(o => o !== c && w1(o) === w1(c) && o.docs.length > c.docs.length);
+  modal(`<h2>Contacts found in the documents</h2><p>These were read from the documents and are not in Contacts yet. Tick what you want to keep, then Import. Under each company the first person ticked becomes the main contact (unless it already has one) and the rest are kept as other contacts. Anything left unticked in a company you import from is not offered again.</p>
+  <p class="small"><a href="#" id="rvAll">Tick all</a> · <a href="#" id="rvNone">Untick all</a> · ${L.length} compan${L.length === 1 ? 'y' : 'ies'}${scan.on ? ' · still reading documents, so more may appear' : ''}</p>
+  ${L.map(({ c, n }) => { const sv = c.saved || {}, tw = twin(c);
+    return `<div class="crv" data-ck="${esc(c.key)}"><div><b>${esc(c.company)}</b> ${c.saved ? '<span class="st st-ok">In Contacts</span>' : '<span class="st st-grey">New company</span>'} <span class="muted small">${esc(sv.trade || c.work || 'no elements linked yet')} · ${c.docs.length} document${c.docs.length === 1 ? '' : 's'}${sv.name ? ' · main contact now: ' + esc(sv.name) : ''}</span></div>
+    ${tw ? `<p class="note">Looks like the same company as <b>${esc(tw.company)}</b>. <a href="#" data-mg="${esc(c.key)}" data-to="${esc(tw.company)}">Merge into it</a></p>` : ''}
+    ${n.ppl.map((P, i) => `<label class="opt"><input type="checkbox" data-rp="${i}" ${i === 0 && c.best === P ? 'checked' : ''}> <span><b>${esc(P.n)}</b>${P.r ? ', ' + esc(P.r) : ''} <span class="muted small">${esc([P.m, P.p, P.e].filter(Boolean).join(' · '))}<br>Named in ${P.docs} document${P.docs === 1 ? '' : 's'}: ${esc(P.src.join('; '))}${P.docs > P.src.length ? ' and others' : ''}</span></span></label>`).join('')}
+    ${n.gp || n.ge ? `<label class="opt"><input type="checkbox" data-rg="1" checked> <span>General line: <b>${esc([n.gp, n.ge].filter(Boolean).join(' · '))}</b> <span class="muted small"><br>From: ${esc(srcOf(c, n.gp || n.ge))}</span></span></label>` : ''}
+    <p class="small"><a href="#" data-no="${esc(c.key)}">None of these: do not offer them again</a></p></div>`; }).join('') || '<p class="muted">Nothing new to review.</p>'}
+  <div class="act"><button id="rvX">Close</button><button class="go" id="rvGo">Import ticked</button></div>`, true);
+  const all = on => document.querySelectorAll('.crv input[type=checkbox]').forEach(x => x.checked = on);
+  $('rvAll').onclick = e => { e.preventDefault(); all(true); }; $('rvNone').onclick = e => { e.preventDefault(); all(false); };
+  $('rvX').onclick = () => { closeModal(); render(); };
+  document.querySelectorAll('[data-mg]').forEach(a => a.onclick = async e => { e.preventDefault(); if (await setRule('same', D.find(c => c.key === a.dataset.mg), a.dataset.to)) reviewContacts(); });
+  const run = async only => {
+    const dir = (S.project.directory || []).slice(), R = S.project.contactRules || {}, seen = { ...(R.seen || {}) }; let nc = 0, np = 0;
+    for (const { c, n } of L) { const box = document.querySelector(`.crv[data-ck="${CSS.escape(c.key)}"]`); if (!box || (only && only !== c.key)) continue;
+      const pick = only ? [] : [...box.querySelectorAll('[data-rp]:checked')].map(x => n.ppl[+x.dataset.rp]), gen = !only && box.querySelector('[data-rg]:checked'); if (!only && !pick.length && !gen) continue;
+      seen[c.key] = [...new Set([...(seen[c.key] || []), ...n.ppl.map(P => tok(P.n)), tok(n.gp), tok(n.ge)].filter(Boolean))].slice(-80);
+      if (only) continue;
+      const i = dir.findIndex(x => coKey(x.company) === c.key), sv = i > -1 ? { ...dir[i] } : { id: uid(), company: c.company, role: 'Subcontractor', audience: 'FM', trade: c.work || '', assetIds: c.assets.map(a => a.id), from: 'documents' };
+      sv.people = (sv.people || []).slice();
+      for (const P of pick) { np++; if (!sv.name) { sv.name = P.n; sv.phone = sv.phone || P.m || P.p || ''; sv.email = sv.email || P.e || ''; if (P.m && P.p && sv.phone === P.m) sv.notes = [sv.notes, 'Landline ' + P.p].filter(Boolean).join('. '); if (P.r) sv.notes = [sv.notes, P.r].filter(Boolean).join('. '); }
+        else { const o = { n: P.n }; ['r', 'p', 'm', 'e'].forEach(k => { if (P[k]) o[k] = P[k]; }); sv.people.push(o); } }
+      if (gen) { sv.phone = sv.phone || n.gp || ''; sv.email = sv.email || n.ge || ''; }
+      sv.updated = nowISO(); if (i > -1) dir[i] = sv; else dir.push(sv); nc++; }
+    try { const rules = { ...R, seen }, clean = JSON.parse(JSON.stringify(dir)); await S.store.updateProject(S.project.id, { directory: clean, contactRules: rules }); S.project.directory = clean; S.project.contactRules = rules; return [nc, np]; }
+    catch (e) { toast('Could not save: ' + (e.code || e.message), 8000); return null; }
+  };
+  document.querySelectorAll('[data-no]').forEach(a => a.onclick = async e => { e.preventDefault(); if (await run(a.dataset.no)) reviewContacts(); });
+  $('rvGo').onclick = async () => { $('rvGo').disabled = true; const r = await run(); if (!r) { $('rvGo').disabled = false; return; } closeModal(); toast(r[0] ? `${r[0]} compan${r[0] === 1 ? 'y' : 'ies'} updated, ${r[1]} ${r[1] === 1 ? 'person' : 'people'} added` : 'Nothing was ticked', 5000); render(); };
 }
 const scan = { on: false, n: 0, of: 0, stopped: false };
 async function readContacts(quiet) {
@@ -709,7 +773,7 @@ async function exportContacts() {
     const mk = (title, hd, rs, w) => { const ws = XLSX.utils.aoa_to_sheet([[`${p.name} - ${title}`], [`Exported ${nzDate(todayISO())} from Resero Site. Suggested details were read from the documents and have not been confirmed.`], [], hd, ...rs]); ws['!cols'] = w.map(wch => ({ wch })); ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + rs.length, c: hd.length - 1 } }) }; return ws; };
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, mk('Contact list', head, rows, [30, 34, 18, 14, 36, 22, 16, 16, 32, 34, 30, 44, 10, 24, 30, 40, 10, 40]), 'Contacts');
-    XLSX.utils.book_append_sheet(wb, mk('People named in the documents', ['Company', 'Name', 'Role', 'Mobile', 'Phone', 'Email', 'Documents naming them', 'Status'], D.flatMap(c => { const sv = c.saved || {}, L = c.people.map(P => [c.company, P.n, P.r || '', P.m || '', P.p || '', P.e || '', P.docs, sv.name && sv.name.toLowerCase() === P.n.toLowerCase() ? 'Confirmed contact' : 'Read from documents']); if (sv.name && !c.people.some(P => P.n.toLowerCase() === sv.name.toLowerCase())) L.unshift([c.company, sv.name, '', Con.isMobile(sv.phone) ? sv.phone : '', Con.isMobile(sv.phone) ? '' : sv.phone || '', sv.email || '', '', 'Confirmed contact']); return L; }), [30, 24, 22, 16, 16, 34, 12, 20]), 'People');
+    XLSX.utils.book_append_sheet(wb, mk('People named in the documents', ['Company', 'Name', 'Role', 'Mobile', 'Phone', 'Email', 'Documents naming them', 'Status'], D.flatMap(c => { const sv = c.saved || {}, ok = new Set([sv.name, ...(sv.people || []).map(x => x.n)].filter(Boolean).map(x => x.toLowerCase())), L = c.people.map(P => [c.company, P.n, P.r || '', P.m || '', P.p || '', P.e || '', P.docs, ok.has(P.n.toLowerCase()) ? 'Confirmed contact' : 'Read from documents']); (sv.people || []).filter(x => !c.people.some(P => P.n.toLowerCase() === x.n.toLowerCase())).forEach(x => L.unshift([c.company, x.n, x.r || '', x.m || '', x.p || '', x.e || '', '', 'Confirmed contact'])); if (sv.name && !c.people.some(P => P.n.toLowerCase() === sv.name.toLowerCase())) L.unshift([c.company, sv.name, '', Con.isMobile(sv.phone) ? sv.phone : '', Con.isMobile(sv.phone) ? '' : sv.phone || '', sv.email || '', '', 'Confirmed contact']); return L; }), [30, 24, 22, 16, 16, 34, 12, 20]), 'People');
     XLSX.utils.book_append_sheet(wb, mk('Where each detail was found', ['Company', 'Detail', 'Value', 'Document', 'Type'], src, [30, 8, 34, 70, 22]), 'Found in documents');
     b.done(); deliver(new Blob([XLSX.write(wb, { type: 'array', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeName(p.name)} - Contact list - ${stamp()}.xlsx`, 'Contact list');
   } catch (e) { b.done(); toast('Could not build the contact list: ' + e.message, 7000); }

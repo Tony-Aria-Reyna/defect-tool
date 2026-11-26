@@ -787,3 +787,5 @@ tr.mlrev td{background:#f0f9f3}tr.mlrev td.mlck{border-left:3px solid #2e9b5f}.m
 .ck.wait{background:#fffaf0}.ck.wait i{background:#d98c0d}.ck small.wait{color:#8a5e00;font-weight:600}
 
 .creg{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}.creg textarea{width:100%;font-size:12px}.creg a.btn2{text-decoration:none;display:inline-block}
+
+.crv{border-top:1px solid #e3e6ea;padding:10px 0 4px}.crv .opt{margin:4px 0}.crv .note{margin:4px 0}
