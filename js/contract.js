@@ -10,25 +10,26 @@ import { S, can } from './state.js';
 import { $, esc, toast, modal, closeModal, busy, confirmBox, uid, todayISO, nzDate, natural, download } from './util.js';
 import { aiCall } from './ai.js';
 import { addWD, wdBetween, REGIONS } from './workdays.js';
+import * as X2 from './contract2.js';
 
-const COLL = 'contract', SET_ID = '_settings';
-const all = () => (S.fm && S.fm.contract) || [];
-const of = k => all().filter(x => x.kind === k);
+export const COLL = 'contract', SET_ID = '_settings';
+export const all = () => (S.fm && S.fm.contract) || [];
+export const of = k => all().filter(x => x.kind === k);
 // Defaults are the unamended NZS 3910:2023 periods. Each project confirms them against its own special conditions in Set-up.
 export const DEF = {
   form: 'NZS 3910:2023', principal: '', contractor: '', ca: '', ic: '', designLead: '',
   noticeWD: 20, noticeStrict: false, detailsChaseWD: 20, instructWD: 10, icWD: 20, vprWD: 10, rfiWD: 5, stuckWD: 5,
   critPath: false, concurrent: false, weatherNote: '', ldRate: 0, timeRate: 0, due: '',
-  region: 'Auckland / Northland', extra: '', series: 'PCG, Client weekly, Design and contractor', notes: '',
+  wxRain: 13, wxStation: '', region: 'Auckland / Northland', extra: '', series: 'PCG, Client weekly, Design and contractor', notes: '',
 };
 export const cfg = () => ({ ...DEF, ...(all().find(x => x.id === SET_ID) || {}) });
-const wdc = () => { const c = cfg(); return { region: c.region, extra: String(c.extra || '').split(/[,\s]+/).filter(Boolean) }; };
-const seriesList = () => String(cfg().series || DEF.series).split(',').map(s => s.trim()).filter(Boolean);
-const plus = (iso, n) => addWD(iso, n, wdc()), gap = (a, b) => wdBetween(a, b, wdc());
-const W = n => `${n} Working Day${Math.abs(n) === 1 ? '' : 's'}`;
-const money = n => '$' + Math.round(+n || 0).toLocaleString('en-NZ');
-const save = o => S.store.saveItem(S.project.id, COLL, { ...o, updated: new Date().toISOString(), updatedBy: S.user.email });
-const nextRef = (kind, prefix) => { let k = 0; of(kind).forEach(x => { const m = new RegExp('^' + prefix + '[\\s#-]*(\\d+)$', 'i').exec(x.ref || ''); if (m) k = Math.max(k, +m[1]); }); return prefix + '-' + String(k + 1).padStart(2, '0'); };
+export const wdc = () => { const c = cfg(); return { region: c.region, extra: String(c.extra || '').split(/[,\s]+/).filter(Boolean) }; };
+export const seriesList = () => String(cfg().series || DEF.series).split(',').map(s => s.trim()).filter(Boolean);
+export const plus = (iso, n) => addWD(iso, n, wdc()), gap = (a, b) => wdBetween(a, b, wdc());
+export const W = n => `${n} Working Day${Math.abs(n) === 1 ? '' : 's'}`;
+export const money = n => '$' + Math.round(+n || 0).toLocaleString('en-NZ');
+export const save = o => S.store.saveItem(S.project.id, COLL, { ...o, updated: new Date().toISOString(), updatedBy: S.user.email });
+export const nextRef = (kind, prefix) => { let k = 0; of(kind).forEach(x => { const m = new RegExp('^' + prefix + '[\\s#-]*(\\d+)$', 'i').exec(x.ref || ''); if (m) k = Math.max(k, +m[1]); }); return prefix + '-' + String(k + 1).padStart(2, '0'); };
 
 /* ---------------------------------------------------------------- time: NODs and EOT claims */
 export const GROUNDS = ['(a) Net effect of a Variation', '(b) Weather', '(c) Strike, lockout or industrial action', '(d) Loss or damage to the Contract Works or Materials', '(e) Flood, volcanic or seismic event', '(f) Circumstances not reasonably foreseeable', '(g) Default by the Principal (not a Variation)', 'Not stated'];
@@ -36,7 +37,7 @@ export const TIME_TYPES = ['Raised in a meeting (no notice)', 'NOD (notice of de
 export const TIME_ST = ['Raised, no notice', 'Notice only', 'Period claimed', 'In discussion', 'Agreed', 'Instructed', 'Referred to Independent Certifier', 'Decided by Independent Certifier', 'Declined', 'Closed, no claim'];
 const TIME_DONE = ['Instructed', 'Decided by Independent Certifier', 'Declined', 'Closed, no claim'];
 export const timeLive = t => !TIME_DONE.includes(t.status);
-const costGround = t => /^\((a|g)\)/.test(t.ground || '');
+export const costGround = t => /^\((a|g)\)/.test(t.ground || '');
 // The clocks that apply to one time item, as { txt, due, left, cls, clause, mine }. "left" is Working Days from today (negative = past).
 export function clocks(t, today = todayISO()) {
   const c = cfg(), out = [], live = timeLive(t), strict = c.noticeStrict ? ' Strict compliance is a condition precedent under the special conditions.' : '';
@@ -65,7 +66,7 @@ export const infoOpen = i => !/^closed/i.test(i.status || '');
 export const isOwed = i => /^RFI|^Shop|^Design/.test(i.type || 'RFI');
 const owedOpen = i => infoOpen(i) && isOwed(i);
 // The date that matters is the contractor's need date; where that has not been set, the response due date stands in for it.
-const needOf = i => i.needBy || i.due || '';
+export const needOf = i => i.needBy || i.due || '';
 export function infoState(i, today = todayISO()) {
   if (!infoOpen(i)) { const known = !!(i.answered && needOf(i)), late = known ? gap(needOf(i), i.answered) : 0; return { open: false, known, late: late > 0 ? late : 0 }; }
   if (!isOwed(i)) return { open: true, left: null, cls: 'grey', txt: 'Issued' };
@@ -80,28 +81,29 @@ export function scorecard(list = of('info')) {
 
 /* ---------------------------------------------------------------- decisions and actions */
 export const STAGES = ['Awaiting decision', 'Decided', 'Documented', 'Priced', 'Instructed', 'Confirmed on site'];
-const decOpen = d => d.stage !== 'Confirmed on site' && d.stage !== 'Not proceeding';
+export const decOpen = d => d.stage !== 'Confirmed on site' && d.stage !== 'Not proceeding';
 const stageAge = d => d.stageOn ? gap(d.stageOn, todayISO()) : null;
 export const ACT_ST = ['Open', 'In progress', 'Blocked', 'Done', 'Closed'];
-const actOpen = a => a.status !== 'Done' && a.status !== 'Closed';
-const overdue = x => !!(x.due && x.due < todayISO());
+export const actOpen = a => a.status !== 'Done' && a.status !== 'Closed';
+export const overdue = x => !!(x.due && x.due < todayISO());
 
 /* ---------------------------------------------------------------- the screen */
 let TAB = 'now';
-const F = { q: '', show: 'open', owner: '', series: '' };
-const TABS = [['now', 'This week'], ['time', 'Time'], ['info', 'Information'], ['dec', 'Decisions'], ['act', 'Actions'], ['mtg', 'Meetings'], ['set', 'Set-up']];
-const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
-const st = (txt, cls) => `<span class="st st-${cls}">${esc(txt)}</span>`;
+export const F = { q: '', show: 'open', owner: '', series: '' };
+const TABS = [['now', 'This week'], ['time', 'Time'], ['delay', 'Delay events'], ['prog', 'Programme'], ['wx', 'Weather'], ['info', 'Information'], ['vpr', 'Variations'], ['dec', 'Decisions'], ['obl', 'Obligations'], ['act', 'Actions'], ['mtg', 'Meetings'], ['in', 'Intake'], ['set', 'Set-up']];
+export const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
+export const st = (txt, cls) => `<span class="st st-${cls}">${esc(txt)}</span>`;
+export const goTab = t => { TAB = t; view(); };
 export function view() {
   if (!can.admin()) { $('fmView').innerHTML = '<div class="empty2">This section is for the contract administrator only.</div>'; return; }
-  const n = { time: of('time').filter(timeLive).length, info: of('info').filter(i => owedOpen(i) && infoState(i).left < 0).length, dec: of('decision').filter(decOpen).length, act: of('action').filter(actOpen).length };
+  const n = { time: of('time').filter(timeLive).length, info: of('info').filter(i => owedOpen(i) && infoState(i).left < 0).length, dec: of('decision').filter(decOpen).length, act: of('action').filter(actOpen).length, vpr: of('vpr').filter(X2.vprLive).length, obl: of('obl').filter(o => X2.oblState(o).bad).length };
   $('fmView').innerHTML = `<div class="fbar"><h2>Contract</h2><div class="ctabs">${TABS.map(([k, l]) => `<button data-t="${k}" class="${TAB === k ? 'on' : ''}">${l}${n[k] ? ` <b>${n[k]}</b>` : ''}</button>`).join('')}</div></div>
     <p class="muted small cnote">Visible to project admins only. Nothing here is shown to the contractor, consultants or the client.</p><div id="cBody"></div>`;
   document.querySelectorAll('.ctabs button').forEach(b => b.onclick = () => { TAB = b.dataset.t; F.q = ''; F.owner = ''; view(); });
-  ({ now, time: timeView, info: infoView, dec: decView, act: actView, mtg: mtgView, set: setView })[TAB]();
+  ({ now, time: timeView, info: infoView, dec: decView, act: actView, mtg: mtgView, set: setView, delay: X2.delayView, prog: X2.progView, wx: X2.wxView, vpr: X2.vprView, obl: X2.oblView, in: X2.intakeView })[TAB]();
 }
-const body = html => { $('cBody').innerHTML = html; };
-const rowClick = (sel, fn) => document.querySelectorAll(sel).forEach(r => r.onclick = e => { if (e.target.closest('button,a,select,input')) return; fn(all().find(x => x.id === r.dataset.id)); });
+export const body = html => { $('cBody').innerHTML = html; };
+export const rowClick = (sel, fn) => document.querySelectorAll(sel).forEach(r => r.onclick = e => { if (e.target.closest('button,a,select,input')) return; fn(all().find(x => x.id === r.dataset.id)); });
 
 /* --- This week: everything with a date on it, most urgent first --- */
 function running() {
@@ -110,6 +112,7 @@ function running() {
   of('info').filter(infoOpen).forEach(i => { const s = infoState(i); if (s.left != null && s.left <= 3) R.push({ id: i.id, what: `${i.ref} ${i.subject}`, txt: `${s.txt}. Needed ${nzDate(needOf(i))}.`, due: needOf(i), cls: s.cls, who: i.person || i.owner || '', tab: 'info' }); });
   of('decision').filter(decOpen).forEach(d => { const a = stageAge(d), late = overdue(d); if (late || (a != null && a > cfg().stuckWD)) R.push({ id: d.id, what: `${d.ref} ${d.text}`, txt: `${d.stage}${a != null ? ' for ' + a + ' Working Days' : ''}${d.due ? '. Next step due ' + nzDate(d.due) : ''}.`, due: d.due || '', cls: late ? 'bad' : 'warn', who: d.owner || '', tab: 'dec' }); });
   of('action').filter(a => actOpen(a) && a.due && gap(today, a.due) <= 3).forEach(a => R.push({ id: a.id, what: `${a.ref} ${a.text}`, txt: a.due < today ? `Overdue since ${nzDate(a.due)}.` : `Due ${nzDate(a.due)}.`, due: a.due, cls: a.due < today ? 'bad' : 'warn', who: a.owner || '', tab: 'act' }));
+  X2.extraRunning(R);
   const rank = { bad: 0, warn: 1, info: 2, ok: 3 }, first = r => r.tab === 'time' ? 0 : 1;   // notices and claims lead: their dates cannot be recovered later
   return R.sort((a, b) => first(a) - first(b) || rank[a.cls] - rank[b.cls] || String(a.due || '9').localeCompare(String(b.due || '9')));
 }
@@ -119,18 +122,19 @@ function now() {
   const k = (b, s, t) => `<div class="kpi" data-go="${t}"><span>${s}</span><b>${b}</b></div>`;
   body(`${all().length <= 1 && !c.contractor ? '<div class="empty2" style="margin-bottom:12px"><b>Start in Set-up.</b> Enter the contract periods and rates, then bring in the RFI register and the PCG data file from the Information and Actions tabs.</div>' : ''}
     <div class="kpis">${k(T.length, `Live notices and claims${unq ? ` · ${unq} with no period claimed` : ''}`, 'time')}${k(ex.days ? ex.days + ' WD' : 'None', `Working Days claimed${ex.days ? ` · ${money(ex.ld)} LD relief · ${money(ex.cost)} time cost` : ''}`, 'time')}${k(`${late.length} of ${I.length}`, 'Open information items past the date required', 'info')}${k(D.filter(d => d.stage === 'Awaiting decision').length, 'Matters awaiting a decision', 'dec')}${k(D.filter(d => d.stage !== 'Awaiting decision').length, 'Decisions made, not yet confirmed on site', 'dec')}${k(`${A.filter(overdue).length} of ${A.length}`, 'Open actions overdue', 'act')}</div>
-    <div class="fbar"><h2 style="font-size:15px">Needs attention</h2><span style="flex:1"></span><button class="btn2 go" id="cBrief">Weekly client update</button><button class="btn2" id="cChase">Chase list by consultant</button><button class="btn2" id="cPcg">PCG report section</button></div>
+    <div class="fbar"><h2 style="font-size:15px">Needs attention</h2><span style="flex:1"></span><button class="btn2 go" id="cBrief">Weekly client update</button><button class="btn2" id="cLet">Letters</button><button class="btn2" id="cChase">Chase list by consultant</button><button class="btn2" id="cPcg">PCG report section</button></div>
     ${R.length ? `<table class="ftable"><tr><th>Item</th><th>Position</th><th class="hm">With</th><th>Date</th></tr>${R.slice(0, 40).map(r => `<tr class="click" data-id="${esc(r.id)}" data-tab="${r.tab}"><td><b>${esc(r.what.slice(0, 90))}</b></td><td>${st(r.cls === 'bad' ? 'Overdue' : r.cls === 'warn' ? 'Watch' : 'Running', r.cls)} ${esc(r.txt)}</td><td class="hm">${esc(r.who)}</td><td>${r.due ? esc(nzDate(r.due)) : ''}</td></tr>`).join('')}</table>${R.length > 40 ? `<p class="muted small">${R.length - 40} more: see each tab.</p>` : ''}` : '<div class="empty2">Nothing is overdue or due within three Working Days.</div>'}`);
   document.querySelectorAll('.kpi[data-go]').forEach(x => x.onclick = () => { TAB = x.dataset.go; view(); });
   document.querySelectorAll('#cBody tr[data-id]').forEach(r => r.onclick = () => openItem(all().find(x => x.id === r.dataset.id)));
+  $('cLet').onclick = () => X2.letters();
   $('cBrief').onclick = () => outBox('Weekly client update', briefText(), 'Plain wording for the client. It carries no assessment notes. Check it, then copy it into your email.');
   $('cChase').onclick = () => outBox('Chase list by consultant', chaseText(), 'One block for each company holding open information, oldest need date first.');
   $('cPcg').onclick = () => outBox('PCG report: time and information', pcgText(), 'For the programme and design sections of the PCG report.');
 }
-const openItem = x => x && ({ time: editTime, info: editInfo, decision: editDec, action: editAct, meeting: runMeeting })[x.kind]?.(x);
+export const openItem = x => x && ({ time: editTime, info: editInfo, decision: editDec, action: editAct, meeting: runMeeting, delay: X2.editDelay, vpr: X2.editVpr, obl: X2.editObl })[x.kind]?.(x);
 
 /* --- a small form builder so each editor is a list of fields --- */
-function form(spec, o) {
+export function form(spec, o) {
   return `<div class="grid">${spec.map(f => { const v = o[f.k] == null ? '' : o[f.k], id = 'cf_' + f.k, cl = `f${f.full ? ' full' : ''}`;
     if (f.h) return `<h3 class="sec full" style="grid-column:1/-1">${esc(f.h)}</h3>`;
     if (f.t === 'ta') return `<label class="${cl} full">${esc(f.l)}<textarea id="${id}" rows="${f.rows || 3}">${esc(v)}</textarea></label>`;
@@ -138,8 +142,8 @@ function form(spec, o) {
     if (f.t === 'chk') return `<label class="${cl} cchk"><input type="checkbox" id="${id}" ${v ? 'checked' : ''}> ${esc(f.l)}</label>`;
     return `<label class="${cl}">${esc(f.l)}<input id="${id}" type="${f.t === 'date' ? 'date' : f.t === 'num' ? 'number' : f.t === 'url' ? 'url' : 'text'}" value="${esc(v)}" ${f.ph ? `placeholder="${esc(f.ph)}"` : ''}></label>`; }).join('')}</div>`;
 }
-const read = spec => { const o = {}; spec.forEach(f => { if (f.h) return; const e = $('cf_' + f.k); o[f.k] = f.t === 'chk' ? e.checked : f.t === 'num' ? (e.value === '' ? '' : +e.value) : e.value.trim(); }); return o; };
-function editor(title, spec, o, isNew, extra, onSave, kindLabel) {
+export const read = spec => { const o = {}; spec.forEach(f => { if (f.h) return; const e = $('cf_' + f.k); o[f.k] = f.t === 'chk' ? e.checked : f.t === 'num' ? (e.value === '' ? '' : +e.value) : e.value.trim(); }); return o; };
+export function editor(title, spec, o, isNew, extra, onSave, kindLabel) {
   modal(`<h2>${esc(title)}</h2>${extra || ''}${form(spec, o)}<div class="act">${isNew ? '' : '<button id="cfDel" class="warn">Delete</button>'}<button id="cfX">Cancel</button><button id="cfOk" class="go">Save</button></div>`, true);
   $('cfX').onclick = closeModal;
   $('cfOk').onclick = async () => { const n = onSave({ ...o, ...read(spec) }); if (!n) return; try { await save(n); closeModal(); toast((n.ref || kindLabel) + ' saved'); } catch (e) { toast('Could not save: ' + e.message, 6000); } };
@@ -163,8 +167,9 @@ function editTime(t) {
     { h: 'Your assessment (never shown outside this section)' }, { k: 'critical', l: 'Critical path', t: 'sel', L: ['Not yet shown', 'Shown on the programme', 'Not on the critical path'], blank: true }, { k: 'sp', l: 'Applies to', ph: 'Contract Works or a Separable Portion' }, { k: 'excDays', l: 'Excusable delay (Working Days)', t: 'num' }, { k: 'inexcDays', l: 'Concurrent inexcusable delay (Working Days)', t: 'num' }, { k: 'recDays', l: 'Working Days you assess as fair', t: 'num' }, { k: 'infoRefs', l: 'Information items relied on (refs)', ph: 'RFI 74, CAN071' }, { k: 'mitigation', l: 'Mitigation by the Contractor', t: 'ta', rows: 2 }, { k: 'assessment', l: 'Assessment and reasons', t: 'ta', rows: 4 },
     { h: 'Outcome' }, { k: 'agreedOn', l: 'Agreed with the Contractor on', t: 'date' }, { k: 'instructedOn', l: 'Instruction issued on', t: 'date' }, { k: 'icRequested', l: 'Independent Certifier asked to Decide on', t: 'date' }, { k: 'icDecided', l: 'Decision received on', t: 'date' }, { k: 'grantedDays', l: 'Working Days granted', t: 'num' }, { k: 'notes', l: 'Notes', t: 'ta', rows: 2 }];
   const C = isNew ? [] : clocks(t), e = exposure(t), cc = c.concurrent && costGround(t) && t.excDays !== '' && t.excDays != null ? Math.max(0, (+t.excDays || 0) - (+t.inexcDays || 0)) : null;
-  const top = isNew ? '' : `<div class="cbox">${C.map(x => `<div class="cclk">${st(x.clause, x.cls)} ${esc(x.txt)}</div>`).join('')}${e.days ? `<div class="cclk">${st('Exposure', 'grey')} ${e.days} Working Days claimed: ${money(e.ld)} of liquidated damages relief${e.cost ? ` and ${money(e.cost)} of time-related cost at the agreed Working Day rate` : costGround(t) ? '' : '. This ground carries time only, no time-related cost (10.3.7)'}.</div>` : ''}${cc != null ? `<div class="cclk">${st('10.3.9', 'grey')} Concurrent delay: time for the whole excusable period (${t.excDays} Working Days); time-related cost for ${cc} Working Days only.</div>` : ''}</div>`;
+  const top = isNew ? '' : `<div class="cbox">${C.map(x => `<div class="cclk">${st(x.clause, x.cls)} ${esc(x.txt)}</div>`).join('')}${e.days ? `<div class="cclk">${st('Exposure', 'grey')} ${e.days} Working Days claimed: ${money(e.ld)} of liquidated damages relief${e.cost ? ` and ${money(e.cost)} of time-related cost at the agreed Working Day rate` : costGround(t) ? '' : '. This ground carries time only, no time-related cost (10.3.7)'}.</div>` : ''}${cc != null ? `<div class="cclk">${st('10.3.9', 'grey')} Concurrent delay: time for the whole excusable period (${t.excDays} Working Days); time-related cost for ${cc} Working Days only.</div>` : ''}${X2.concHtml(t)}<div class="cclk" style="margin-top:6px"><button class="btn2 sm" id="tPack">Evidence pack</button> <button class="btn2 sm" id="tLog">+ Delay event for this claim</button></div></div>`;
   editor(isNew ? 'New notice or claim' : `${t.ref} ${t.title}`, spec, t, isNew, top, n => { if (!n.title) { toast('Say what the matter is'); return null; } if (!n.ref) n.ref = nextRef('time', /EOT/.test(n.type) ? 'EOT' : 'NOD'); return n; }, 'item');
+  if ($('tPack')) { $('tPack').onclick = () => X2.packDialog(t); $('tLog').onclick = () => { closeModal(); X2.editDelay(null, { timeRefs: t.ref }); }; }
 }
 
 /* --- Information --- */
@@ -296,7 +301,7 @@ function mtgView() {
   document.querySelectorAll('[data-new]').forEach(b => b.onclick = async () => { const m = { id: uid(), kind: 'meeting', series: SL[+b.dataset.new], date: todayISO(), link: '', summary: '', held: false }; await save(m); runMeeting(m); });
   rowClick('#cBody tr[data-id]', runMeeting);
 }
-const forMeeting = m => of('action').filter(a => (a.series || []).includes(m.series) && (actOpen(a) || (a.updates || []).some(u => u.m === m.id)));
+export const forMeeting = m => of('action').filter(a => (a.series || []).includes(m.series) && (actOpen(a) || (a.updates || []).some(u => u.m === m.id)));
 // reconciliation: every action carried into a meeting must leave it with an update
 export function recon(m) { const L = forMeeting(m), missed = L.filter(a => !(a.updates || []).some(u => u.m === m.id)); return { total: L.length, missed }; }
 function runMeeting(m) {
@@ -330,42 +335,16 @@ function runMeeting(m) {
   $('mPaste').onclick = async () => { await keep(false); modal(`<h2>Paste Claude's reply</h2><textarea id="pjT" rows="12" style="width:100%" placeholder="Paste the reply, including the block that starts with {"></textarea><div class="act"><button id="pjX">Cancel</button><button class="go" id="pjOk">Read it</button></div>`, true); $('pjX').onclick = () => { closeModal(); runMeeting(m); }; $('pjOk').onclick = () => propose(m, $('pjT').value); };
 }
 // One instruction serves both the in-app AI helper and a paste into Claude: the reply is a single JSON block.
-export function handover(m, summary) {
-  const A = forMeeting(m).filter(actOpen), c = cfg();
-  return `You are helping the Contract Administrator on ${S.project.name} (${c.form}). Below is the summary of the ${m.series} meeting held ${nzDate(m.date)}, then the open actions carried into it.
-Reply with one JSON object only, in this shape, and nothing else:
-{"updates":[{"ref":"A-01","status":"Open|In progress|Blocked|Done|Closed","note":"what was said, one sentence"}],
- "actions":[{"text":"new action","owner":"a named person","due":"YYYY-MM-DD or empty"}],
- "decisions":[{"text":"decision made or needed","madeBy":"who","stage":"Awaiting decision|Decided"}],
- "time":[{"title":"any delay, late information or programme impact the contractor raised","aware":"${m.date}","note":"who said what"}]}
-Rules: only use what the summary says; do not invent owners or dates; keep the speaker's key phrases; New Zealand English; every delay or late-information remark by the contractor goes in "time", because the date the contractor became aware starts the notice period.
-OPEN ACTIONS
-${A.map(a => `${a.ref} | ${a.owner || 'no owner'} | ${a.text}`).join('\n') || 'none'}
-MEETING SUMMARY
-${summary}`;
-}
-export function parseReply(txt) { const a = String(txt || '').indexOf('{'), b = String(txt || '').lastIndexOf('}'); if (a < 0 || b <= a) return null; try { return JSON.parse(String(txt).slice(a, b + 1)); } catch (e) { return null; } }
-function propose(m, txt) {
-  const j = parseReply(txt); if (!j) { toast('Could not find the JSON block in that reply', 6000); return runMeeting(m); }
-  const P = [];
-  (j.updates || []).forEach(u => { const a = of('action').find(x => (x.ref || '').toLowerCase() === String(u.ref || '').toLowerCase()); if (a) P.push({ t: 'Update', txt: `${a.ref} ${a.text}`, sub: `${u.status || a.status}: ${u.note || ''}`, run: () => save({ ...a, status: ACT_ST.includes(u.status) ? u.status : a.status, updates: [...(a.updates || []).filter(x => x.m !== m.id), { m: m.id, d: m.date, s: m.series, status: ACT_ST.includes(u.status) ? u.status : a.status, note: u.note || '' }] }) }); });
-  let an = 0, dn = 0, tn = 0; const num = (kind, pre, k) => pre + '-' + String(+nextRef(kind, pre).split('-')[1] + k).padStart(2, '0');
-  (j.actions || []).filter(x => x.text).forEach(x => { const k = an++; P.push({ t: 'New action', txt: x.text, sub: `${x.owner || 'No owner'}${x.due ? ', due ' + nzDate(x.due) : ', no date'}`, run: () => save({ id: uid(), kind: 'action', ref: num('action', 'A', k), text: x.text, owner: x.owner || '', due: dateOf(x.due), status: 'Open', raised: m.date, series: [m.series], updates: [{ m: m.id, d: m.date, s: m.series, status: 'Open', note: 'Raised' }] }) }); });
-  (j.decisions || []).filter(x => x.text).forEach(x => { const k = dn++, sg = STAGES.includes(x.stage) ? x.stage : 'Decided'; P.push({ t: sg === 'Decided' ? 'Decision made' : 'Decision needed', txt: x.text, sub: x.madeBy || '', run: () => save({ id: uid(), kind: 'decision', ref: num('decision', 'DEC', k), text: x.text, madeBy: x.madeBy || '', madeOn: m.date, stage: sg, stageOn: todayISO(), source: `${m.series} meeting ${nzDate(m.date)}`, link: m.link || '' }) }); });
-  (j.time || []).filter(x => x.title).forEach(x => { const k = tn++; P.push({ t: 'Delay raised', txt: x.title, sub: `Contractor aware ${nzDate(dateOf(x.aware) || m.date)}. ${x.note || ''}`, run: () => save({ id: uid(), kind: 'time', ref: num('time', 'M', k), type: TIME_TYPES[0], title: x.title, ground: 'Not stated', status: 'Raised, no notice', aware: dateOf(x.aware) || m.date, awareNote: `${m.series} meeting ${nzDate(m.date)}${m.link ? ' (' + m.link + ')' : ''}`, notes: x.note || '' }) }); });
-  if (!P.length) { toast('Nothing to bring in from that reply', 5000); return runMeeting(m); }
-  modal(`<h2>Proposed from the meeting</h2><p class="muted small">Untick anything that is wrong. Nothing is saved until you press Apply.</p>${P.map((p, i) => `<label class="cprop"><input type="checkbox" data-p="${i}" checked> <span>${st(p.t, p.t === 'Delay raised' ? 'bad' : p.t === 'Update' ? 'grey' : 'info')} <b>${esc(p.txt)}</b><br><span class="muted small">${esc(p.sub)}</span></span></label>`).join('')}<div class="act"><button id="ppX">Cancel</button><button class="go" id="ppOk">Apply</button></div>`, true);
-  $('ppX').onclick = () => { closeModal(); runMeeting(all().find(x => x.id === m.id) || m); };
-  $('ppOk').onclick = async () => { const pick = [...document.querySelectorAll('[data-p]')].filter(x => x.checked).map(x => P[+x.dataset.p]); for (const p of pick) await p.run(); closeModal(); toast(pick.length + ' applied'); setTimeout(() => runMeeting(all().find(x => x.id === m.id) || m), 300); };
-}
+export function handover(m, summary) { return X2.handoverText({ label: `${m.series} meeting held ${nzDate(m.date)}`, date: m.date, actions: forMeeting(m).filter(actOpen) }, summary); }
+const propose = (m, txt) => X2.applyReply({ id: m.id, date: m.date, label: `${m.series} meeting ${nzDate(m.date)}`, link: m.link, series: m.series }, txt, () => runMeeting(all().find(x => x.id === m.id) || m));
 
 /* --- outputs: plain text you can check and paste --- */
-function outBox(title, text, hint) {
+export function outBox(title, text, hint) {
   modal(`<h2>${esc(title)}</h2><p class="muted small">${esc(hint)}</p><textarea id="obT" rows="20" style="width:100%;font:13px/1.5 inherit">${esc(text)}</textarea><div class="act"><button id="obX">Close</button><button id="obD">Download (.txt)</button><button class="go" id="obC">Copy</button></div>`, true);
   $('obX').onclick = closeModal; $('obD').onclick = () => download(new Blob([$('obT').value], { type: 'text/plain' }), `${S.project.name} - ${title} - ${todayISO()}.txt`);
   $('obC').onclick = async () => { try { await navigator.clipboard.writeText($('obT').value); toast('Copied'); } catch (e) { $('obT').select(); toast('Press Ctrl+C to copy'); } };
 }
-const num = (L, f) => L.length ? L.map((x, i) => `${i + 1}. ${f(x)}`).join('\n') : 'None.';
+export const num = (L, f) => L.length ? L.map((x, i) => `${i + 1}. ${f(x)}`).join('\n') : 'None.';
 const one = t => { const l = String(t || '').split(/\n/).map(x => x.trim()).filter(Boolean)[0] || ''; return /[.!?]$/.test(l) ? l : l + '.'; };   // first line only, as a sentence
 export function briefText(today = todayISO()) {
   const c = cfg(), D = of('decision').filter(decOpen), A = of('action').filter(a => actOpen(a) && (!(a.series || []).length || (a.series || []).some(s => /client|pcg/i.test(s)))), T = of('time').filter(timeLive), I = of('info').filter(owedOpen), late = I.filter(i => infoState(i, today).left < 0);
@@ -423,6 +402,7 @@ function setView() {
   const c = cfg(), spec = [{ h: 'Contract' }, { k: 'form', l: 'Form of contract' }, { k: 'due', l: 'Due Date(s) for Completion', ph: 'e.g. SP2 Main Works 23 Mar 2027' }, { k: 'principal', l: 'Principal' }, { k: 'contractor', l: 'Contractor' }, { k: 'ca', l: 'Contract Administrator' }, { k: 'ic', l: 'Independent Certifier' },
     { h: 'Time (check each against the special conditions)' }, { k: 'noticeWD', l: 'Notice of grounds: Working Days after the Contractor becomes aware (10.3.2(a))', t: 'num' }, { k: 'noticeStrict', l: 'Timely notice is a condition precedent to any extension', t: 'chk' }, { k: 'instructWD', l: 'Instruction after agreement: Working Days (10.3.4)', t: 'num' }, { k: 'icWD', l: 'Independent Certifier Decision: Working Days from a request (10.3.5)', t: 'num' }, { k: 'detailsChaseWD', l: 'Chase the period claimed after this many Working Days', t: 'num' }, { k: 'critPath', l: 'No extension unless the critical path is affected', t: 'chk' }, { k: 'concurrent', l: 'Concurrent delay: time in full, time-related cost only for the excess', t: 'chk' }, { k: 'weatherNote', l: 'Weather rule', full: true },
     { h: 'Money' }, { k: 'ldRate', l: 'Liquidated damages per Working Day ($)', t: 'num' }, { k: 'timeRate', l: 'Time-related cost per Working Day ($) (9.3.12)', t: 'num' }, { k: 'vprWD', l: 'Variation price request: Working Days for the Contractor to respond', t: 'num' },
+    { h: 'Weather' }, { k: 'wxRain', l: 'Rain in 24 hours on a Working Day that counts (mm, more than)', t: 'num' }, { k: 'wxStation', l: 'Weather station the contract names' },
     { h: 'Working Days' }, { k: 'region', l: 'Anniversary day', t: 'sel', L: Object.keys(REGIONS) }, { k: 'extra', l: 'Other non-working days (YYYY-MM-DD, comma separated)' },
     { h: 'Meetings and follow-up' }, { k: 'series', l: 'Meeting series (comma separated)', full: true }, { k: 'stuckWD', l: 'Flag a decision that sits at one stage longer than (Working Days)', t: 'num' }, { k: 'notes', l: 'Other contract notes', t: 'ta', rows: 3 }];
   body(`<p class="muted small">Working Days exclude Saturdays, Sundays, public holidays and 24 December to 5 January inclusive. The periods below start from the unamended standard; change any that your special conditions amend.</p>${form(spec, c)}<div class="act" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><input type="file" id="sFile" accept=".json" hidden><button class="btn2" id="sLoad">⬆ Load a set-up or seed file (.json)</button><button class="btn2" id="sOut">⬇ Save everything in this section to a file</button><button class="btn2 go" id="sOk">Save set-up</button></div>`);
