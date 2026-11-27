@@ -188,11 +188,11 @@ function infoView() {
     .sort((a, b) => (infoOpen(b) - infoOpen(a)) || (isOwed(b) - isOwed(a)) || String(needOf(a) || '9').localeCompare(String(needOf(b) || '9')));
   const SC = scorecard(A).filter(s => s.open);
   body(`<div class="fbar"><input type="search" id="cQ" placeholder="Search information…" value="${esc(F.q)}"><select id="cShow"><option value="open">Open</option><option value="all" ${F.show === 'all' ? 'selected' : ''}>All</option></select><select id="cOwn"><option value="">Everyone</option>${owners.map(o => `<option ${F.owner === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>
-    <button class="btn2 go" id="cNew">+ Item</button><button class="btn2" id="cImp">⬆ Procore RFI or Correspondence export (CSV)</button><input type="file" id="cFile" accept=".csv" multiple hidden></div>
+    <button class="btn2 go" id="cNew">+ Item</button><button class="btn2" id="cImp">⬆ Procore RFI, Correspondence or Submittals export (CSV)</button><input type="file" id="cFile" accept=".csv" multiple hidden></div>
     ${SC.length ? `<table class="ftable cscore"><tr><th>Held by</th><th>Open</th><th>Past date required</th><th>Worst</th><th class="hm">Closed on time</th></tr>${SC.map(s => `<tr class="click" data-own="${esc(s.owner)}"><td><b>${esc(s.owner)}</b></td><td>${s.open}</td><td>${s.late ? st(s.late + ' late', 'bad') : st('None', 'ok')}</td><td>${s.worst ? s.worst + ' WD' : ''}</td><td class="hm">${s.closed ? Math.round(100 * s.onTime / s.closed) + '% of ' + s.closed : ''}</td></tr>`).join('')}</table>` : ''}
     <p class="muted small">${L.length} shown. "Date required" is the contractor's need date where you have set one, otherwise the response due date from Procore. Set the need date on any item the programme depends on.</p>
     ${L.length ? `<table class="ftable"><tr><th>Ref</th><th>Subject</th><th>Held by</th><th class="hm">Raised</th><th>Required</th><th>Position</th></tr>${L.slice(0, 300).map(i => { const s = infoState(i);
-      return `<tr class="click" data-id="${esc(i.id)}"><td><b>${esc(i.ref || '')}</b></td><td>${esc(i.subject || '')}${i.timeRefs ? `<br><span class="muted small">Cited in ${esc(i.timeRefs)}</span>` : ''}</td><td>${esc(i.owner || '')}${i.person ? `<br><span class="muted small">${esc(i.person)}</span>` : ''}</td><td class="hm">${i.raised ? esc(nzDate(i.raised)) : ''}</td><td>${needOf(i) ? esc(nzDate(needOf(i))) : ''}${i.needBy ? ' <span class="muted small">need</span>' : ''}</td><td>${s.open ? st(s.txt, s.cls) : st(s.late ? `Closed ${s.late} WD late` : 'Closed', s.late ? 'warn' : 'grey')}</td></tr>`; }).join('')}</table>`
+      return `<tr class="click" data-id="${esc(i.id)}"><td><b>${esc(i.ref || '')}</b></td><td>${esc(i.subject || '')}${i.timeRefs ? `<br><span class="muted small">Cited in ${esc(i.timeRefs)}</span>` : ''}</td><td>${esc(i.owner || '')}${i.person ? `<br><span class="muted small">${esc(i.person)}</span>` : ''}</td><td class="hm">${i.raised ? esc(nzDate(i.raised)) : ''}</td><td>${needOf(i) ? esc(nzDate(needOf(i))) : ''}${i.needBy ? ' <span class="muted small">need</span>' : ''}</td><td>${s.open && i.closeNote ? st(i.closeNote, /closed$|revision$/.test(i.closeNote) ? 'info' : 'warn') + '<br>' : ''}${s.open ? st(s.txt, s.cls) : st(s.late ? `Closed ${s.late} WD late` : 'Closed', s.late ? 'warn' : 'grey')}</td></tr>`; }).join('')}</table>`
     : `<div class="empty2">${A.length ? 'Nothing matches.' : 'No information items yet. In Procore, export the RFI list and the Correspondence list as CSV and bring both in here. Bringing in a newer export updates the same items and keeps your need dates and notes.'}</div>`}`);
   $('cQ').oninput = e => { F.q = e.target.value; infoView(); $('cQ').focus(); $('cQ').setSelectionRange(F.q.length, F.q.length); };
   $('cShow').onchange = e => { F.show = e.target.value; view(); }; $('cOwn').onchange = e => { F.owner = e.target.value; view(); };
@@ -203,7 +203,7 @@ function infoView() {
 function editInfo(i) {
   const isNew = !i; i = i ? { ...i } : { id: uid(), kind: 'info', type: 'Design deliverable', status: 'Open', raised: todayISO() };
   const spec = [{ k: 'ref', l: 'Ref' }, { k: 'type', l: 'Type', t: 'sel', L: INFO_TYPES }, { k: 'subject', l: 'Subject', full: true }, { k: 'owner', l: 'Held by (company)' }, { k: 'person', l: 'Person' }, { k: 'raised', l: 'Raised', t: 'date' }, { k: 'due', l: 'Response due', t: 'date' }, { k: 'needBy', l: "Contractor's need date (programme)", t: 'date' }, { k: 'promised', l: 'Date promised', t: 'date' }, { k: 'status', l: 'Status', t: 'sel', L: ['Open', 'Draft', 'Closed'] }, { k: 'answered', l: 'Answered or closed on', t: 'date' }, { k: 'timeRefs', l: 'Cited in notice or claim (refs)', ph: 'NOD #7' }, { k: 'impact', l: 'Programme consequence if late', full: true }, { k: 'notes', l: 'Notes', t: 'ta', rows: 2 }];
-  editor(isNew ? 'New information item' : `${i.ref} ${i.subject}`, spec, i, isNew, '', n => { if (!n.subject) { toast('Give it a subject'); return null; } if (!n.ref) n.ref = nextRef('info', 'INF'); if (n.status === 'Closed' && !n.answered) n.answered = todayISO(); return n; }, 'item');
+  editor(isNew ? 'New information item' : `${i.ref} ${i.subject}`, spec, i, isNew, i.reviews ? `<p class="small"><b>Reviewers:</b> ${esc(i.reviews)}</p>${i.closeNote ? `<p class="small">${st(i.closeNote, 'info')}</p>` : ''}` : '', n => { if (!n.subject) { toast('Give it a subject'); return null; } if (!n.ref) n.ref = nextRef('info', 'INF'); if (n.status === 'Closed' && !n.answered) n.answered = todayISO(); return n; }, 'item');
 }
 // dates as Procore writes them: 8/10/2026, 15/10/26, "25/11/26 at 08:00 pm", "30 Sep 2026"
 export function dateOf(v) {
@@ -227,13 +227,34 @@ export function procoreItems(text) {
   const R = csvRows(text); if (!R.length) return []; const h = R[0].map(x => String(x).trim().toLowerCase()), col = n => h.indexOf(n), g = (r, n) => { const k = col(n); return k < 0 ? '' : plain(r[k]); };
   if (col('rfi manager') >= 0 && col('number') >= 0) return R.slice(1).filter(r => g(r, 'number')).map(r => { const a = who(g(r, 'assigned id') || g(r, 'assignee')), by = who(g(r, 'created by'));
     return { id: 'rfi-' + g(r, 'number').replace(/\W+/g, '_'), kind: 'info', type: 'RFI', ref: 'RFI ' + g(r, 'number'), subject: g(r, 'subject'), status: /^closed/i.test(g(r, 'status')) ? 'Closed' : g(r, 'status') || 'Open', owner: a.co || a.person, person: a.co ? a.person : '', raised: dateOf(g(r, 'initiated at') || g(r, 'date initiated')), due: dateOf(g(r, 'due date')), answered: dateOf(g(r, 'closed date')), raisedBy: by.person, progImpact: g(r, 'program impact'), src: 'Procore' }; });
+  if (col('submittal number') >= 0) return submittalItems(R, g, col);
   if (col('type') >= 0 && col('issued on') >= 0) return R.slice(1).filter(r => g(r, 'number')).map(r => { const by = who(g(r, 'created by')), can0 = /advi[cs]e note/i.test(g(r, 'type'));
     return { id: 'cor-' + g(r, 'number').replace(/\W+/g, '_'), kind: 'info', type: can0 ? INFO_TYPES[1] : 'Other', ref: g(r, 'number').replace(/^CA-WA-/, ''), subject: g(r, 'subject'), status: /^closed/i.test(g(r, 'status')) ? 'Closed' : 'Open', owner: by.co || by.person, person: by.co ? by.person : '', raised: dateOf(g(r, 'issued on')), due: dateOf(g(r, 'due date')), assignees: g(r, 'assignees'), src: 'Procore' }; });
   return [];
 }
+// Procore submittals: one item per revision, held by whoever the workflow is waiting on.
+// A revision is flagged closeable when a later revision replaces it, or when every reviewer has responded.
+function submittalItems(R, g, col) {
+  const lines = v => String(v || '').split('\n').map(x => x.trim());
+  const L = R.slice(1).filter(r => g(r, 'submittal number')).map(r => {
+    const num = g(r, 'submittal number'), rev = g(r, 'rev.'), ap = lines(g(r, 'approvers')).filter(Boolean), rs = lines(g(r, 'response')), ret = lines(g(r, 'returned date')).map(x => x.replace(/^'/, ''));
+    const revs = ap.map((a, k) => ({ ...who(a), resp: rs[k] || 'Pending', on: dateOf(ret[k]) })).filter(x => !/C3 Construction|Matt Wickham|Resero/i.test(x.co) || !/^(Pending|Submitted)$/.test(x.resp));
+    const wait = revs.filter(x => /^Pending/i.test(x.resp)), arb = g(r, 'action required by company'), open = !/^closed/i.test(g(r, 'status'));
+    const owner = open ? (wait.length ? [...new Set(wait.map(x => x.co || x.person))].join(', ') : arb || g(r, 'responsible contractor') || 'C3 Construction') : (revs[0] && revs[0].co) || '';
+    const done = revs.filter(x => x.on).map(x => x.on).sort();
+    return { id: 'sub-' + (num + '-' + g(r, 'title').slice(0, 20) + '-r' + rev).replace(/\W+/g, '_'), kind: 'info', type: INFO_TYPES[2], ref: `SUB ${num.length > 18 ? num.slice(0, 18) + '…' : num}${rev ? ' Rev ' + rev : ''}`, num, rev, subject: g(r, 'title'), status: open ? 'Open' : 'Closed', owner, person: open ? wait.map(x => x.person).join(', ') : '', raised: dateOf(lines(g(r, 'sent date'))[0]), due: dateOf(g(r, 'final due date')), answered: open ? '' : done[done.length - 1] || dateOf(g(r, 'updated at')), reviews: revs.map(x => `${x.person}${x.co ? ' (' + x.co + ')' : ''}: ${x.resp}${x.on ? ', ' + x.on : ''}`).join('; '), noFlow: !ap.length, src: 'Procore submittals' };
+  });
+  const order = v => /^\d+$/.test(v) ? +v : v ? v.toUpperCase().charCodeAt(0) - 64 : -1;
+  L.forEach(i => { if (i.status !== 'Open') return; const same = x => x.num === i.num && x.subject.trim().toLowerCase() === i.subject.trim().toLowerCase(), later = L.filter(x => same(x) && order(x.rev) > order(i.rev)).sort((a, b) => order(b.rev) - order(a.rev))[0];
+    if (later) i.closeNote = `Replaced by Rev ${later.rev}: can be closed`;
+    else if (!i.noFlow && !/Pending/i.test(i.reviews)) i.closeNote = 'Every reviewer has responded: can be closed';
+    else if (/Revise and resubmit/i.test(i.reviews)) i.closeNote = 'Returned "Revise and resubmit": close it and ask for the next revision';
+    else if (i.noFlow) i.closeNote = 'No review workflow set up in Procore'; });
+  return L;
+}
 const KEEP = ['needBy', 'promised', 'timeRefs', 'impact', 'notes', 'ownerSet'];   // what you add by hand survives a fresh export
 async function importProcore(file) {
-  const L = procoreItems(await file.text()); if (!L.length) return toast(`${file.name}: not a Procore RFI or Correspondence CSV export`, 7000);
+  const L = procoreItems(await file.text()); if (!L.length) return toast(`${file.name}: not a Procore RFI, Correspondence or Submittals CSV export`, 7000);
   const have = Object.fromEntries(of('info').map(i => [i.id, i])), b = busy('Bringing in ' + L.length + ' items…'), stamp = new Date().toISOString(); let nu = 0, ch = 0;
   const out = L.map(n => { const o = have[n.id]; if (!o) { nu++; return { ...n, updated: stamp, updatedBy: S.user.email }; } const m = { ...o, ...n }; KEEP.forEach(k => { if (o[k] != null) m[k] = o[k]; }); if (o.ownerSet) { m.owner = o.owner; m.person = o.person; }
     if (['status', 'due', 'answered', 'owner', 'subject'].some(k => (o[k] || '') !== (m[k] || ''))) ch++; return { ...m, updated: stamp, updatedBy: S.user.email }; });
